@@ -1,0 +1,20 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [-75.1818, 1.9139]
+      },
+      "properties": {
+        "id": "PR-001",
+        "vereda": "Cornudos",
+        "tipo_conflicto": "Uso del suelo - Ganadería extensiva",
+        "actor": "Comunidad Local",
+        "observacion": "Punto de prueba para el SIGOber-Rural",
+        "fecha_registro": "2026-04-21"
+      }
+    }
+  ]
+}
