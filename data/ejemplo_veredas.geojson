@@ -1,0 +1,28 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "nombre": "Vereda Cornudos - Sector A",
+        "municipio": "Puerto Rico",
+        "departamento": "Caquetá",
+        "area_estimada_ha": 45.5,
+        "estado_formalizacion": "En proceso de diagnóstico",
+        "fuente": "Cartografía Social Participativa - Taller 1"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [-75.1850, 1.9150],
+            [-75.1750, 1.9150],
+            [-75.1750, 1.9050],
+            [-75.1850, 1.9050],
+            [-75.1850, 1.9150]
+          ]
+        ]
+      }
+    }
+  ]
+}
