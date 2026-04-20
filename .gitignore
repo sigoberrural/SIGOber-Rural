@@ -205,3 +205,18 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+# --- Reglas específicas para SIGOber-Rural ---
+
+# Proteger bases de datos de cartografía social y entrevistas
+*.xlsx
+*.csv
+*.pdf
+!data/.gitkeep
+
+# Archivos de bases de datos locales
+*.sqlite3
+*.db
+
+# Archivos temporales de SIG (QGIS/ArcGIS)
+*.lock
+*.log
