@@ -37,25 +37,39 @@ with col2:
     
     # Crear el mapa base centrado en Puerto Rico, Caquetá
     # Coordenadas aprox: [1.91, -75.18]
-    m = folium.Map(location=[1.91, -75.18], zoom_start=12, tiles="OpenStreetMap")
+   # Crear el mapa base centrado en Puerto Rico, Caquetá
+    m = folium.Map(location=[1.91, -75.18], zoom_start=12, tiles=None)
 
-    # Añadir Polígonos (Veredas)
+    # Añadir Capa de Mapa Callejero (OpenStreetMap)
+    folium.TileLayer('OpenStreetMap', name="Mapa de Carreteras").add_to(m)
+
+    # Añadir Capa Satelital (Google)
+    folium.TileLayer(
+        tiles='https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}',
+        attr='Google',
+        name='Satélite',
+        overlay=False,
+        control=True
+    ).add_to(m)
+
+    # Añadir las capas GeoJSON que ya tenías
     if veredas:
         folium.GeoJson(
             veredas,
-            name="Veredas",
+            name="Capa: Veredas",
             style_function=lambda x: {'fillColor': 'green', 'color': 'darkgreen', 'weight': 2, 'fillOpacity': 0.3}
         ).add_to(m)
 
-    # Añadir Puntos (Conflictos)
     if conflictos:
         folium.GeoJson(
             conflictos,
-            name="Conflictos",
+            name="Capa: Conflictos",
             tooltip=folium.GeoJsonTooltip(fields=['vereda', 'tipo_conflicto'], aliases=['Vereda:', 'Tipo:'])
         ).add_to(m)
 
-    # Mostrar el mapa en Streamlit
-    st_folium(m, width=800, height=500)
+    # Añadir el controlador de capas (el selector arriba a la derecha)
+    folium.LayerControl().add_to(m)
 
+    # Mostrar el mapa
+    st_folium(m, width=800, height=500)
 st.caption("Fase 1: Diagnóstico e Indicadores de Gestión Pública.")
