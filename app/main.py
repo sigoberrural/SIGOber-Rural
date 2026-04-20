@@ -8,6 +8,15 @@ st.set_page_config(page_title="SIGOber-Rural", layout="wide")
 
 st.title("🛰️ SIGOber-Rural: Puerto Rico (Caquetá)")
 
+# Créditos Institucionales
+st.markdown("""
+    **Grupo de Investigación:** Colectivo de Estudios Sociales Guadalupe Salcedo  
+    **Institución:** Escuela Superior de Administración Pública (ESAP)  
+    *Fase de Diagnóstico*
+""")
+
+st.divider() # Esto añade una línea horizontal para separar los créditos del contenido
+
 # --- CARGA DE DATOS ---
 def cargar_geojson(ruta):
     try:
