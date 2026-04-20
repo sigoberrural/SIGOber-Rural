@@ -17,12 +17,52 @@
 | `actor_clave` | String | Principal involucrado (Campesino, Estado, Privado) |
 | `est_formal` | String | Estado ante la ANT (Sin solicitud, En trámite, Formalizado) |
 
+### Ejemplo de formato técnico
+{
+  "type": "Feature",
+  "geometry": {
+    "type": "Point",
+    "coordinates": [-75.1818, 1.9139]
+  },
+  "properties": {
+    "id_caso": "PR-2026-001",
+    "categoria": "Uso del Suelo",
+    "intensidad": 3,
+    "actor_clave": "Campesino",
+    "est_formal": "En trámite"
+  }
+}
+
+
+
 ### B. Capa de Veredas/Predios (Polígonos)
 | Campo | Tipo | Descripción |
 | :--- | :--- | :--- |
 | `nombre` | String | Nombre de la vereda o sector |
 | `area_ha` | Float | Área calculada en hectáreas |
 | `fuente` | String | Origen del dato (Cartografía Social Taller X) |
+
+### Ejemplo de formato técnico
+{
+  "type": "Feature",
+  "geometry": {
+    "type": "Polygon",
+    "coordinates": [[
+      [-75.185, 1.915],
+      [-75.175, 1.915],
+      [-75.175, 1.905],
+      [-75.185, 1.905],
+      [-75.185, 1.915]
+    ]]
+  },
+  "properties": {
+    "nombre": "Vereda Cornudos",
+    "area_ha": 120.5,
+    "fuente": "Taller Participativo 01"
+  }
+}
+
+
 
 ## 3. Diccionario de Datos (Capacidad Institucional - CSV)
 * **Archivo:** `data/plantilla_indicadores.csv`
