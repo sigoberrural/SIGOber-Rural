@@ -18,11 +18,15 @@ st.divider()
 # 2. CONEXIÓN A DATOS
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# Función para conexión robusta con gspread (para escritura)
 def conectar_gspread():
     scope = ["https://www.googleapis.com/auth/spreadsheets"]
-    # Accedemos a la sección exacta de los secrets
-    creds_info = st.secrets["connections"]["gsheets"]
+    # Cargamos los secrets
+    creds_info = dict(st.secrets["connections"]["gsheets"])
+    
+    # TRUCO CRÍTICO: Asegurar que los \n se lean como saltos de línea reales
+    if "private_key" in creds_info:
+        creds_info["private_key"] = creds_info["private_key"].replace("\\n", "\n")
+        
     creds = Credentials.from_service_account_info(creds_info, scopes=scope)
     client = gspread.authorize(creds)
     return client.open_by_key(creds_info["spreadsheet"])
@@ -63,6 +67,7 @@ with tab_mapa:
 with tab_sadci:
     st.subheader("Análisis de Capacidad Institucional")
     try:
+        # TTL=0 evita que Streamlit guarde datos viejos en memoria
         df_ind = conn.read(ttl=0)
         st.dataframe(df_ind.head()) 
     except Exception as e:
@@ -73,12 +78,11 @@ with tab_actores:
     st.subheader("Caracterización de Actores Territoriales")
     
     try:
-        # Leemos con la conexión normal para visualización
         df_social = conn.read(worksheet="Actores", ttl=0)
     except:
         df_social = pd.DataFrame()
 
-    with st.form("registro_social"):
+    with st.form("registro_social", clear_on_submit=True):
         c1, c2 = st.columns(2)
         with c1:
             nombre_a = st.text_input("Nombre del Actor/Líder")
@@ -93,11 +97,9 @@ with tab_actores:
         if btn_social:
             if nombre_a and vereda_a:
                 try:
-                    # 1. Intentar conectar
                     sh = conectar_gspread()
                     ws = sh.worksheet("Actores")
                     
-                    # 2. Preparar la fila
                     nueva_fila = [
                         str(uuid.uuid4())[:8],
                         nombre_a,
@@ -107,23 +109,19 @@ with tab_actores:
                         obs_a
                     ]
                     
-                    # 3. Escritura directa
                     ws.append_row(nueva_fila)
                     
+                    st.success(f"✅ ¡Éxito! {nombre_a} registrado correctamente.")
                     st.cache_data.clear()
-                    st.success(f"✅ ¡Éxito! {nombre_a} registrado en la nube.")
-                    st.rerun()
-                    
-                except gspread.exceptions.WorksheetNotFound:
-                    st.error("❌ Error: No existe la pestaña 'Actores'. Cámbiale el nombre en Excel.")
+                    # No usamos rerun inmediato aquí para que el usuario vea el mensaje de éxito
                 except Exception as e:
-                    # Esto atrapará errores de credenciales, permisos o red
-                    st.error(f"❌ Error detallado: {str(e)}")
+                    st.error(f"❌ Error al guardar: {str(e)}")
             else:
-                st.warning("⚠️ Por favor completa los campos obligatorios (Nombre y Vereda).")
+                st.warning("⚠️ Nombre y Vereda son obligatorios.")
 
     if not df_social.empty:
         st.divider()
+        st.write("### Base de Datos Actual")
         st.dataframe(df_social, use_container_width=True)
 
 st.divider()
