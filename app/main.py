@@ -1,91 +1,133 @@
 import streamlit as st
 import folium
 from streamlit_folium import st_folium
+from streamlit_gsheets import GSheetsConnection
+import pandas as pd
 import json
 import os
+import uuid
 
 # 1. CONFIGURACIÓN DE LA PÁGINA
 st.set_page_config(page_title="SIGOber-Rural Puerto Rico", layout="wide")
 
 st.title("🛰️ SIGOber-Rural: Puerto Rico (Caquetá)")
-st.markdown("**Versión de Alta Velocidad** | Colectivo Guadalupe Salcedo - ESAP")
+st.markdown("**Sistema de Información Geográfica para la Reforma Agraria**")
 st.divider()
 
-# 2. CARGA DE DATOS LOCALES
-def cargar_archivo(nombre):
+# 2. CONEXIÓN A DATOS (Google Sheets y Archivos Locales)
+conn = st.connection("gsheets", type=GSheetsConnection)
+
+def cargar_json_local(nombre):
     ruta = os.path.join('data', nombre)
     if os.path.exists(ruta):
         with open(ruta, encoding='utf-8') as f:
             return json.load(f)
     return None
 
-# Cargamos tus archivos
-veredas_topo = cargar_archivo('veredas_puerto_rico.json')
-conflictos_geo = cargar_archivo('ejemplo_conflictos.geojson')
+veredas_topo = cargar_json_local('veredas_puerto_rico.json')
+conflictos_geo = cargar_json_local('ejemplo_conflictos.geojson')
 
-# 3. INTERFAZ
+# 3. INTERFAZ PRINCIPAL (MAPA)
+st.subheader("🗺️ Visualizador de Tenencia y Conflictos")
 col1, col2 = st.columns([1, 3])
 
 with col1:
-    st.subheader("📊 Inventario Territorial")
+    st.info("Utilice las capas del mapa para identificar áreas de intervención prioritaria.")
     if veredas_topo:
-        st.success("✅ Capa de veredas optimizada")
-    else:
-        st.error("Archivo 'veredas_puerto_rico.json' no encontrado en /data")
-        
+        st.success("✅ Capa veredal cargada")
     if conflictos_geo:
-        st.info(f"📍 {len(conflictos_geo['features'])} Conflictos reportados")
-    
-    st.write("---")
-    st.caption("Nota: El formato TopoJSON permite que el mapa cargue rápido incluso en zonas con señal 3G.")
+        st.warning(f"📍 {len(conflictos_geo['features'])} Puntos de conflicto")
 
 with col2:
-    # Centramos el mapa en las coordenadas de Puerto Rico, Caquetá
+    # Centrar mapa en Puerto Rico, Caquetá
     m = folium.Map(location=[1.91, -75.18], zoom_start=11)
-
-    # Añadimos capa de satélite
+    
+    # Capa Satelital
     folium.TileLayer(
         tiles='https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}',
-        attr='Google', name='Satélite', overlay=False
+        attr='Google', name='Vista Satelital', overlay=False
     ).add_to(m)
 
-    # CAPA VEREDAS (Específica para TopoJSON)
+    # Dibujar Veredas (TopoJSON)
     if veredas_topo:
-        try:
-            # Buscamos el nombre interno de la capa que puso Mapshaper
-            nombre_interno = list(veredas_topo['objects'].keys())[0]
-            
-            folium.TopoJson(
-                data=veredas_topo,
-                object_path=f"objects.{nombre_interno}",
-                name="Límites Veredales",
-                style_function=lambda x: {
-                    'fillColor': '#2e7d32', 
-                    'color': 'white', 
-                    'weight': 1.2, 
-                    'fillOpacity': 0.3
-                },
-                tooltip=folium.GeoJsonTooltip(
-                    fields=['NOMBRE_VER'], 
-                    aliases=['Vereda:']
-                )
-            ).add_to(m)
-        except Exception as e:
-            st.error(f"Error al leer la estructura del TopoJSON: {e}")
+        nombre_capa = list(veredas_topo['objects'].keys())[0]
+        folium.TopoJson(
+            data=veredas_topo,
+            object_path=f"objects.{nombre_capa}",
+            name="Límites Veredales",
+            style_function=lambda x: {'fillColor': '#2e7d32', 'color': 'white', 'weight': 1, 'fillOpacity': 0.3},
+            tooltip=folium.GeoJsonTooltip(fields=['NOMBRE_VER'], aliases=['Vereda:'])
+        ).add_to(m)
 
-    # CAPA CONFLICTOS (GeoJSON estándar)
+    # Dibujar Conflictos (GeoJSON)
     if conflictos_geo:
         folium.GeoJson(
             conflictos_geo,
-            name="Puntos de Conflicto",
-            marker=folium.Marker(icon=folium.Icon(color='red', icon='info-sign')),
-            tooltip=folium.GeoJsonTooltip(fields=['tipo_conflicto'], aliases=['Tipo:'])
+            name="Conflictos de Tierra",
+            marker=folium.Marker(icon=folium.Icon(color='red', icon='exclamation-sign')),
+            tooltip=folium.GeoJsonTooltip(fields=['tipo_conflicto'], aliases=['Conflicto:'])
         ).add_to(m)
 
-    folium.LayerControl(collapsed=False).add_to(m)
+    folium.LayerControl().add_to(m)
+    st_folium(m, width=900, height=500)
 
-    # Mostrar el mapa
-    st_folium(m, width=900, height=600)
+# 4. MÓDULO DE REGISTRO (GOOGLE SHEETS)
+st.divider()
+st.header("👥 Registro de Actores y Situación Agraria")
+
+with st.expander("📝 Formulario de Caracterización Técnica (Anonimizado)"):
+    with st.form("registro_actor"):
+        f1, f2 = st.columns(2)
+        with f1:
+            perfil = st.selectbox("Perfil del Actor", ["Pequeño Productor", "Poseedor sin Título", "JAC", "Mujer Rural", "Reclamante"])
+            vereda_ref = st.text_input("Vereda donde se ubica")
+        with f2:
+            tenencia = st.selectbox("Situación de Tenencia", ["Baldío Ocupado", "Propiedad con Título", "Posesión Informal", "Litigio"])
+            prioridad = st.select_slider("Urgencia de Intervención", options=["Baja", "Media", "Alta", "Crítica"])
+        
+        observacion = st.text_area("Descripción técnica de la situación (Evite datos personales)")
+        
+        btn_guardar = st.form_submit_button("📤 Sincronizar con Google Sheets")
+
+        if btn_guardar:
+            if vereda_ref and observacion:
+                # Crear DataFrame para la nueva fila
+                nuevo_registro = pd.DataFrame([{
+                    "ID_Actor": str(uuid.uuid4())[:8],
+                    "Tipo_Actor": perfil,
+                    "Vereda": vereda_ref,
+                    "Situacion_Tenencia": tenencia,
+                    "Prioridad": prioridad,
+                    "Observaciones_Anonimas": observacion
+                }])
+                
+                # Leer datos actuales y actualizar
+                try:
+                    actuales = conn.read()
+                    actualizado = pd.concat([actuales, nuevo_registro], ignore_index=True)
+                    conn.update(data=actualizado)
+                    st.success("✅ Registro guardado en la base de datos de la investigación.")
+                except:
+                    # Si la hoja está vacía
+                    conn.update(data=nuevo_registro)
+                    st.success("✅ Base de datos iniciada con el primer registro.")
+            else:
+                st.error("⚠️ Complete los campos obligatorios.")
+
+# 5. PANEL DE ANÁLISIS DE DATOS
+st.subheader("📊 Análisis de Datos Registrados")
+try:
+    df_nube = conn.read(ttl="5m")
+    if not df_nube.empty:
+        c_met1, c_met2 = st.columns(2)
+        c_met1.metric("Total Actores", len(df_nube))
+        
+        # Mostrar tabla sin el ID para mayor privacidad visual
+        st.dataframe(df_nube.drop(columns=['ID_Actor']), use_container_width=True)
+    else:
+        st.info("No hay registros previos en la nube.")
+except:
+    st.write("Conectando con la base de datos...")
 
 st.divider()
-st.caption("Investigación ESAP 2026")
+st.caption("Investigación ESAP 2026 - Colectivo Guadalupe Salcedo")
