@@ -89,14 +89,14 @@ with tab_actores:
         obs_a = st.text_area("Observaciones técnicas")
         btn_social = st.form_submit_button("📤 Registrar Actor")
     
-        if btn_social:
+      if btn_social:
             if nombre_a and vereda_a:
-                # Usamos gspread para la escritura física
                 try:
+                    # 1. Intentar conectar
                     sh = conectar_gspread()
                     ws = sh.worksheet("Actores")
                     
-                    # Preparar la fila
+                    # 2. Preparar la fila
                     nueva_fila = [
                         str(uuid.uuid4())[:8],
                         nombre_a,
@@ -106,15 +106,20 @@ with tab_actores:
                         obs_a
                     ]
                     
-                    # Escritura directa
+                    # 3. Escritura directa
                     ws.append_row(nueva_fila)
                     
                     st.cache_data.clear()
-                    st.success("✅ Guardado exitoso en Google Sheets.")
+                    st.success(f"✅ ¡Éxito! {nombre_a} registrado.")
                     st.rerun()
                     
+                except gspread.exceptions.WorksheetNotFound:
+                    st.error("❌ Error: No existe una pestaña llamada 'Actores' en tu Excel.")
+                except gspread.exceptions.APIError as e:
+                    st.error(f"❌ Error de Google API: {e}")
                 except Exception as e:
-                    st.error(f"Error real detectado: {e}")
+                    # Esto nos dirá el nombre técnico del error si lo anterior falla
+                    st.error(f"❌ Error técnico: {type(e).__name__} - {str(e)}")
             else:
                 st.warning("Completa Nombre y Vereda.")
 
