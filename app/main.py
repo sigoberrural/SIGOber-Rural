@@ -50,18 +50,84 @@ tab_mapa, tab_sadci, tab_actores = st.tabs([
 # --- TAB 1: MAPA ---
 with tab_mapa:
     st.subheader("Visualizador de Tenencia y Conflictos")
+    
+    # 1. Cargar datos de conflictos desde la nube
+    try:
+        sh = conectar_gspread()
+        ws_conf = sh.worksheet("Conflictos")
+        df_conf = pd.DataFrame(ws_conf.get_all_records())
+    except:
+        df_conf = pd.DataFrame()
+
     col_menu, col_mapa = st.columns([1, 3])
+
     with col_menu:
-        st.markdown("### 🛠️ Panel de Control")
+        st.markdown("### 🛠️ Capas y Filtros")
         mostrar_veredas = st.checkbox("Límites Veredales", value=True)
+        mostrar_puntos = st.checkbox("Puntos de Conflicto", value=True)
+        
+        st.divider()
+        st.markdown("### ⚠️ Registrar Conflicto")
+        with st.form("form_conflictos", clear_on_submit=True):
+            tipo_c = st.selectbox("Tipo", ["Linderos", "Uso de Suelo", "Ambiental", "Tenencia"])
+            vereda_c = st.text_input("Vereda afectada")
+            # Coordenadas aproximadas para Puerto Rico si no se tienen exactas
+            c1, c2 = st.columns(2)
+            lat_c = c1.number_input("Latitud", value=1.91, format="%.4f")
+            lon_c = c2.number_input("Longitud", value=-75.18, format="%.4f")
+            desc_c = st.text_area("Descripción breve")
+            
+            if st.form_submit_button("📍 Marcar en Mapa"):
+                if vereda_c:
+                    nueva_fila_c = [str(uuid.uuid4())[:5], tipo_c, vereda_c, lat_c, lon_c, desc_c]
+                    ws_conf.append_row(nueva_fila_c)
+                    st.success("Punto registrado.")
+                    st.rerun()
+
     with col_mapa:
-        m = folium.Map(location=[1.91, -75.18], zoom_start=11)
+        # Configuración del mapa base
+        m = folium.Map(location=[1.91, -75.18], zoom_start=11, tiles="cartodbpositron")
+        
+        # A. Capa de Veredas (TopoJSON) con Metadatos al pasar el mouse
         if veredas_topo and mostrar_veredas:
             try:
                 obj_name = list(veredas_topo['objects'].keys())[0]
-                folium.TopoJson(veredas_topo, f"objects.{obj_name}").add_to(m)
-            except: pass
-        st_folium(m, width=800, height=600, key="mapa_v3")
+                folium.TopoJson(
+                    veredas_topo, 
+                    f"objects.{obj_name}",
+                    name="Límites Veredales",
+                    tooltip=folium.GeoJsonTooltip(
+                        fields=['NOMBRE_VEREDA'], # Ajusta según el nombre del campo en tu JSON
+                        aliases=['Vereda:'],
+                        localize=True
+                    ),
+                    style_function=lambda x: {'fillColor': '#2ecc71', 'color': 'black', 'weight': 1, 'fillOpacity': 0.2}
+                ).add_to(m)
+            except Exception as e:
+                st.warning(f"No se pudieron cargar metadatos: {e}")
+
+        # B. Capa de Conflictos (Puntos registrados en Excel)
+        if not df_conf.empty and mostrar_puntos:
+            for _, row in df_conf.iterrows():
+                # Color según tipo
+                color_p = "red" if row['tipo_conflicto'] == "Tenencia" else "orange"
+                
+                folium.CircleMarker(
+                    location=[row['lat'], row['lon']],
+                    radius=6,
+                    color=color_p,
+                    fill=True,
+                    popup=f"<b>Conflicto:</b> {row['tipo_conflicto']}<br><b>Desc:</b> {row['descripcion']}",
+                    tooltip=f"Ver detalle: {row['vereda']}"
+                ).add_to(m)
+
+        # Renderizar mapa
+        st_folium(m, width=800, height=600, key="mapa_v4")
+
+    # Resumen inferior
+    if not df_conf.empty:
+        with st.expander("📊 Listado de Conflictos Registrados"):
+            st.table(df_conf[['tipo_conflicto', 'vereda', 'descripcion']])
 
 # --- TAB 2: AUDITORÍA SADCI ---
 with tab_sadci:
