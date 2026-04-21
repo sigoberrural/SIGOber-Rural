@@ -88,23 +88,42 @@ with tab_mapa:
         # Configuración del mapa base
         m = folium.Map(location=[1.91, -75.18], zoom_start=11, tiles="cartodbpositron")
         
-        # A. Capa de Veredas (TopoJSON) con Metadatos al pasar el mouse
+        # A. Capa de Veredas (TopoJSON) con Metadatos corregida
         if veredas_topo and mostrar_veredas:
             try:
                 obj_name = list(veredas_topo['objects'].keys())[0]
-                folium.TopoJson(
-                    veredas_topo, 
-                    f"objects.{obj_name}",
-                    name="Límites Veredales",
-                    tooltip=folium.GeoJsonTooltip(
-                        fields=['NOMBRE_VEREDA'], # Ajusta según el nombre del campo en tu JSON
-                        aliases=['Vereda:'],
-                        localize=True
-                    ),
-                    style_function=lambda x: {'fillColor': '#2ecc71', 'color': 'black', 'weight': 1, 'fillOpacity': 0.2}
-                ).add_to(m)
+                
+                # Extraemos las propiedades del primer objeto para saber qué campos existen
+                # Esto evita el AssertionError
+                sample_props = veredas_topo['objects'][obj_name]['geometries'][0].get('properties', {})
+                posibles_campos = list(sample_props.keys())
+                
+                # Elegimos el campo de nombre: Priorizamos 'NOMBRE_VEREDA', si no, el primero que aparezca
+                campo_nombre = 'NOMBRE_VEREDA' if 'NOMBRE_VEREDA' in posibles_campos else (posibles_campos[0] if posibles_campos else None)
+
+                if campo_nombre:
+                    folium.TopoJson(
+                        veredas_topo, 
+                        f"objects.{obj_name}",
+                        name="Límites Veredales",
+                        tooltip=folium.GeoJsonTooltip(
+                            fields=[campo_nombre], 
+                            aliases=['Nombre:'],
+                            localize=True
+                        ),
+                        style_function=lambda x: {
+                            'fillColor': '#2ecc71', 
+                            'color': 'black', 
+                            'weight': 1, 
+                            'fillOpacity': 0.2
+                        }
+                    ).add_to(m)
+                else:
+                    # Si no hay propiedades, cargamos el TopoJSON sin tooltip para que no de error
+                    folium.TopoJson(veredas_topo, f"objects.{obj_name}").add_to(m)
+                    
             except Exception as e:
-                st.warning(f"No se pudieron cargar metadatos: {e}")
+                st.error(f"Error renderizando mapa: {e}")
 
         # B. Capa de Conflictos (Puntos registrados en Excel)
         if not df_conf.empty and mostrar_puntos:
