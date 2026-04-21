@@ -14,7 +14,7 @@ st.markdown("### Gestión Territorial, Actores y Capacidad Institucional (SADCI)
 st.divider()
 
 # 2. CONEXIÓN A DATOS
-conn = st.connection("1_qp10wmqyPTrYG9WYZ5HtAm0zV7R_Mtxy3vlNQVhDb8", type=GSheetsConnection)
+conn = st.connection("gsheets", type=GSheetsConnection)
 
 def cargar_json_local(nombre):
     ruta = os.path.join('data', nombre)
@@ -34,7 +34,6 @@ tab_mapa, tab_sadci, tab_actores = st.tabs([
 ])
 
 # --- TAB 1: MAPA Y SEÑALIZACIÓN ---
-# --- TAB 1: MAPA Y SEÑALIZACIÓN ---
 with tab_mapa:
     st.subheader("Visualizador de Tenencia y Conflictos")
     
@@ -47,7 +46,6 @@ with tab_mapa:
         
         st.divider()
         
-        # Filtro de Conflictos Seguro
         filtro_tipo = "Todos"
         conflictos_filtrados = None
         
@@ -68,21 +66,17 @@ with tab_mapa:
                 conflictos_filtrados = conflictos_geo
 
     with col_mapa:
-        # 1. Crear el objeto mapa base
         m = folium.Map(location=[1.91, -75.18], zoom_start=11)
         folium.TileLayer('OpenStreetMap', name='Calles').add_to(m)
         folium.TileLayer('https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}', 
                          attr='Google', name='Satélite', overlay=False).add_to(m)
 
-        # 2. Cargar Veredas (Con validación de propiedades para evitar AssertionError)
         if veredas_topo and mostrar_veredas:
             try:
                 nombre_obj = list(veredas_topo['objects'].keys())[0]
-                # Intentamos detectar si NOMBRE_VER existe, si no, usamos una lista vacía
                 geoms = veredas_topo['objects'][nombre_obj].get('geometries', [])
                 props = geoms[0].get('properties', {}) if geoms else {}
                 
-                # Si 'NOMBRE_VER' no está, no usamos tooltip para evitar el crash
                 tooltip_ver = None
                 if 'NOMBRE_VER' in props:
                     tooltip_ver = folium.GeoJsonTooltip(fields=['NOMBRE_VER'], aliases=['Vereda:'])
@@ -95,11 +89,9 @@ with tab_mapa:
                     tooltip=tooltip_ver
                 ).add_to(m)
             except Exception as e:
-                st.warning("Capa de veredas cargada sin etiquetas por incompatibilidad de datos.")
-                # Fallback: Cargar sin tooltip
+                st.warning("Capa de veredas cargada sin etiquetas.")
                 folium.TopoJson(veredas_topo, f"objects.{nombre_obj}").add_to(m)
 
-        # 3. Cargar Conflictos Filtrados
         if conflictos_filtrados and mostrar_conflictos and len(conflictos_filtrados['features']) > 0:
             folium.GeoJson(
                 conflictos_filtrados,
@@ -110,31 +102,26 @@ with tab_mapa:
 
         folium.LayerControl().add_to(m)
         
-        # 4. Renderizado Final Seguro
         try:
             st_folium(m, width=800, height=600, key="mapa_v3")
         except:
-            st.error("Error crítico al renderizar el mapa. Verifique que los archivos JSON sean válidos.")
+            st.error("Error crítico al renderizar el mapa.")
+
 # --- TAB 2: AUDITORÍA SADCI (INSTITUCIONAL) ---
 with tab_sadci:
     st.subheader("Análisis de Capacidad Institucional")
     
     try:
-        # 1. LECTURA Y NORMALIZACIÓN
         df_ind = conn.read(ttl=0)
         df_ind.columns = df_ind.columns.str.strip().str.lower().str.replace(' ', '_')
 
         if not df_ind.empty:
-            # Tomamos el último registro para el semáforo principal
             actual = df_ind.iloc[-1]
-            
-            # Lógica de Puntuación
             puntos = 0
             if str(actual.get('existencia_cmdr', 'No')).strip().upper() in ['SÍ', 'SI']: puntos += 30
             if str(actual.get('tiene_protocolo_articulacion', 'No')).strip().upper() in ['SÍ', 'SI']: puntos += 20
             puntos += (int(actual.get('nivel_digitalizacion', 0)) * 10)
 
-            # --- VISUALIZACIÓN DEL SEMÁFORO ---
             c_sem, c_met = st.columns([1, 2])
             with c_sem:
                 if puntos < 40: st.error(f"### 🔴 CRÍTICO: {puntos}/100")
@@ -144,41 +131,32 @@ with tab_sadci:
             with c_met:
                 st.progress(puntos / 100)
                 st.markdown(f"**Entidad:** {actual.get('nombre_entidad', 'N/A')}")
-                st.caption("Este puntaje refleja la capacidad técnica y operativa para la Reforma Agraria.")
+                st.caption("Este puntaje refleja la capacidad técnica y operativa.")
 
-            # --- MÉTRICAS CLAVE ---
             m1, m2, m3 = st.columns(3)
             m1.metric("Presupuesto Rural", f"${actual.get('presupuesto_anual_rural', 0):,.0f}")
-            # Cálculo de proporción de personal
             total_pers = actual.get('num_personal_planta', 0) + actual.get('num_personal_contratista', 0)
-            m2.metric("Talento Humano Total", total_pers, help="Suma de planta y contratistas")
+            m2.metric("Talento Humano Total", total_pers)
             m3.metric("Digitalización", f"{actual.get('nivel_digitalizacion', 0)} / 5")
 
             st.divider()
 
-            # --- 2. GRÁFICOS DE EVOLUCIÓN SADCI ---
             st.subheader("📈 Evolución de Capacidades")
             g1, g2 = st.columns(2)
-
             with g1:
                 st.markdown("**Histórico de Puntaje SADCI**")
-                # Creamos una columna temporal de puntaje para el gráfico
                 df_ind['score'] = (
                     df_ind['existencia_cmdr'].apply(lambda x: 30 if str(x).upper() in ['SÍ', 'SI'] else 0) +
                     df_ind['tiene_protocolo_articulacion'].apply(lambda x: 20 if str(x).upper() in ['SÍ', 'SI'] else 0) +
-                    (df_ind['nivel_digitalizacion'].astype(int) * 10)
+                    (df_ind['nivel_digitalizacion'].fillna(0).astype(int) * 10)
                 )
                 st.line_chart(df_ind['score'], color="#2e7d32")
-                st.caption("Tendencia de mejora institucional en el tiempo.")
 
             with g2:
                 st.markdown("**Relación Planta vs Contratistas**")
-                # Gráfico comparativo de personal
                 df_pers = df_ind[['num_personal_planta', 'num_personal_contratista']].iloc[-1]
                 st.bar_chart(df_pers, color="#ff9800")
-                st.caption("Dependencia de personal externo vs planta.")
 
-        # --- 3. FORMULARIO DE ACTUALIZACIÓN ---
         with st.expander("📝 Registrar Nueva Evaluación Institucional"):
             with st.form("sadci_f"):
                 c1, c2 = st.columns(2)
@@ -193,37 +171,30 @@ with tab_sadci:
                     dig_r = st.slider("Nivel Digitalización", 1, 5, 2)
                     rend_r = st.selectbox("Frecuencia Rendición Cuentas", ["Anual", "Semestral", "Nunca"])
 
-                if st.form_submit_button("💾 Guardar y Actualizar Semáforo"):
+                if st.form_submit_button("💾 Guardar y Actualizar"):
                     nuevo_sadci = pd.DataFrame([{
-                        "id_entidad": 1,
-                        "nombre_entidad": n_ent,
-                        "presupuesto_anual_rural": pres_r,
-                        "num_personal_planta": planta_r,
-                        "num_personal_contratista": cont_r,
-                        "tiene_protocolo_articulacion": prot_r,
-                        "nivel_digitalizacion": dig_r,
-                        "existencia_cmdr": cmdr_r,
-                        "frecuencia_rendicion_cuentas": rend_r
+                        "id_entidad": 1, "nombre_entidad": n_ent, "presupuesto_anual_rural": pres_r,
+                        "num_personal_planta": planta_r, "num_personal_contratista": cont_r,
+                        "tiene_protocolo_articulacion": prot_r, "nivel_digitalizacion": dig_r,
+                        "existencia_cmdr": cmdr_r, "frecuencia_rendicion_cuentas": rend_r
                     }])
-                    
                     try:
                         df_old = conn.read()
                         df_new = pd.concat([df_old, nuevo_sadci], ignore_index=True)
                         conn.update(data=df_new)
-                        st.success("✅ Auditoría guardada. Los gráficos se han actualizado.")
-                        st.rerun() # Refresca para ver los cambios en los gráficos
+                        st.success("✅ Auditoría guardada.")
+                        st.rerun()
                     except:
                         conn.update(data=nuevo_sadci)
-                        st.success("✅ Primera medición registrada.")
+                        st.success("✅ Iniciada.")
 
     except Exception as e:
-        st.error("No se pudieron cargar los indicadores SADCI. Verifique el archivo de datos.")
+        st.error(f"Error SADCI: {e}")
 
 # --- TAB 3: REGISTRO DE ACTORES (SOCIAL) ---
 with tab_actores:
     st.subheader("Caracterización de Actores Territoriales")
     
-    # 1. FORMULARIO DE REGISTRO
     with st.form("registro_social"):
         c1, c2 = st.columns(2)
         with c1:
@@ -234,10 +205,9 @@ with tab_actores:
             tenencia_a = st.selectbox("Situación de Tenencia", ["Propiedad", "Posesión", "Ocupación", "Baldío"])
         
         obs_a = st.text_area("Observaciones técnicas de la situación")
-        
         btn_social = st.form_submit_button("📤 Registrar en Base de Datos Social")
     
-if btn_social:
+        if btn_social:
             if nombre_a and vereda_a:
                 nuevo_actor = pd.DataFrame([{
                     "ID_Actor": str(uuid.uuid4())[:8],
@@ -247,58 +217,39 @@ if btn_social:
                     "Tenencia": tenencia_a,
                     "Observaciones": obs_a
                 }])
-                
                 try:
-                    # Leemos especificando la pestaña 'Actores'
-                    # ttl=0 es vital para que no lea datos viejos de la memoria
                     df_actual_soc = conn.read(worksheet="Actores", ttl=0) 
                     df_final_soc = pd.concat([df_actual_soc, nuevo_actor], ignore_index=True)
-                    
-                    # Guardamos específicamente en 'Actores'
                     conn.update(worksheet="Actores", data=df_final_soc)
                     st.success(f"✅ Actor {nombre_a} registrado con éxito.")
-                    st.rerun() 
+                    st.rerun()
                 except Exception as e:
                     st.error(f"Error: No se encontró la pestaña 'Actores'.")
-                    st.info("Crea una pestaña llamada 'Actores' en tu Google Sheet y asegúrate de compartir el archivo con el correo de la Service Account.")
+
     st.divider()
 
-    # 2. SECCIÓN DE ESTADÍSTICAS Y GRÁFICOS (VISUALIZACIÓN)
     st.subheader("📊 Análisis de Caracterización Social")
-    
     try:
-        # Volvemos a leer para asegurar que incluya el último registro
-        df_social = conn.read(ttl=0)
-        
+        df_social = conn.read(worksheet="Actores", ttl=0)
         if not df_social.empty:
-            # Métricas rápidas
-            col_m1, col_m2, col_m3 = st.columns(3)
+            col_m1, col_m2 = st.columns(2)
             col_m1.metric("Total Actores", len(df_social))
             col_m2.metric("Veredas Cubiertas", df_social['Vereda'].nunique())
             
-            # Gráficos Dinámicos
             g1, g2 = st.columns(2)
-            
             with g1:
                 st.markdown("**Distribución por Perfil**")
-                # Gráfico de barras por perfil
-                perfil_count = df_social['Perfil'].value_counts()
-                st.bar_chart(perfil_count, color="#2e7d32")
-                
+                st.bar_chart(df_social['Perfil'].value_counts(), color="#2e7d32")
             with g2:
                 st.markdown("**Situación de Tenencia**")
-                # Gráfico de áreas o líneas (usaremos barras para claridad en tenencia)
-                tenencia_count = df_social['Tenencia'].value_counts()
-                st.bar_chart(tenencia_count, color="#ff9800")
+                st.bar_chart(df_social['Tenencia'].value_counts(), color="#ff9800")
 
-            # Tabla de datos para auditoría visual
-            with st.expander("🔍 Ver listado detallado de actores"):
+            with st.expander("🔍 Ver listado detallado"):
                 st.dataframe(df_social, use_container_width=True)
         else:
-            st.info("Aún no hay datos sociales registrados para generar gráficos.")
-            
-    except Exception as e:
-        st.error("No se pudo cargar la visualización de datos sociales.")
+            st.info("Sin datos registrados.")
+    except:
+        st.error("No se pudo cargar la visualización social.")
 
 st.divider()
 st.caption("Investigación ESAP 2026 - Herramienta Unificada SIGOber-Rural")
