@@ -4,20 +4,19 @@ import folium
 from streamlit_folium import st_folium
 import json
 
+# 1. Configuración de página
 st.set_page_config(page_title="SIGOber-Rural", layout="wide")
 
+# 2. Título y Créditos Institucionales
 st.title("🛰️ SIGOber-Rural: Puerto Rico (Caquetá)")
-
-# Créditos Institucionales
 st.markdown("""
-    **Grupo de Investigación:** Colectivo de Estudios Sociales Guadalupe Salcedo  
+    **Grupo de Investigación:** Colectivo Guadalupe Salcedo  
     **Institución:** Escuela Superior de Administración Pública (ESAP)  
-    *Fase de Diagnóstico*
+    *Proyecto de Iniciación Científica - Fase de Diagnóstico*
 """)
+st.divider()
 
-st.divider() # Esto añade una línea horizontal para separar los créditos del contenido
-
-# --- CARGA DE DATOS ---
+# 3. Carga de datos (con manejo de errores)
 def cargar_geojson(ruta):
     try:
         with open(ruta) as f:
@@ -28,40 +27,37 @@ def cargar_geojson(ruta):
 conflictos = cargar_geojson('data/ejemplo_conflictos.geojson')
 veredas = cargar_geojson('data/ejemplo_veredas.geojson')
 
-# --- DISEÑO DE LA INTERFAZ ---
-col1, col2 = st.columns([1, 3]) # Columna 1 para datos, Columna 2 para el mapa
+# 4. Interfaz Principal
+col1, col2 = st.columns([1, 3])
 
 with col1:
-    st.subheader("Estadísticas")
+    st.subheader("📊 Estadísticas")
     if conflictos:
         st.metric("Conflictos", len(conflictos['features']))
     if veredas:
         st.metric("Áreas Mapeadas", len(veredas['features']))
     
-    st.write("---")
-    st.info("Usa el mapa para explorar los hallazgos de la cartografía social.")
+    st.info("Utilice el selector en el mapa (arriba a la derecha) para cambiar entre vista de Satélite o Mapa.")
 
 with col2:
-    st.subheader("Mapa de Gobernanza y Territorio")
+    st.subheader("🗺️ Mapa Territorial")
     
-    # Crear el mapa base centrado en Puerto Rico, Caquetá
-    # Coordenadas aprox: [1.91, -75.18]
-   # Crear el mapa base centrado en Puerto Rico, Caquetá
+    # Crear mapa base sin capas predefinidas
     m = folium.Map(location=[1.91, -75.18], zoom_start=12, tiles=None)
 
-    # Añadir Capa de Mapa Callejero (OpenStreetMap)
+    # CAPA 1: Mapa Callejero
     folium.TileLayer('OpenStreetMap', name="Mapa de Carreteras").add_to(m)
 
-    # Añadir Capa Satelital (Google)
+    # CAPA 2: Satélite Google
     folium.TileLayer(
         tiles='https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}',
         attr='Google',
-        name='Satélite',
+        name='Vista Satelital',
         overlay=False,
         control=True
     ).add_to(m)
 
-    # Añadir las capas GeoJSON que ya tenías
+    # AÑADIR CAPAS DE DATOS
     if veredas:
         folium.GeoJson(
             veredas,
@@ -76,9 +72,10 @@ with col2:
             tooltip=folium.GeoJsonTooltip(fields=['vereda', 'tipo_conflicto'], aliases=['Vereda:', 'Tipo:'])
         ).add_to(m)
 
-    # Añadir el controlador de capas (el selector arriba a la derecha)
-    folium.LayerControl().add_to(m)
+    # ESTA ES LA LÍNEA QUE FALTABA: El control de capas
+    folium.LayerControl(collapsed=False).add_to(m)
 
-    # Mostrar el mapa
+    # Mostrar mapa
     st_folium(m, width=800, height=500)
-st.caption("Fase 1: Diagnóstico e Indicadores de Gestión Pública.")
+
+st.caption("Fase 1: Recolección de datos y cartografía social participativa.")
