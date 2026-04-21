@@ -237,29 +237,23 @@ with tab_actores:
         
         btn_social = st.form_submit_button("📤 Registrar en Base de Datos Social")
         
-        if btn_social:
-            if nombre_a and vereda_a:
-                nuevo_actor = pd.DataFrame([{
-                    "ID_Actor": str(uuid.uuid4())[:8],
-                    "Nombre": nombre_a,
-                    "Perfil": perfil_a,
-                    "Vereda": vereda_a,
-                    "Tenencia": tenencia_a,
-                    "Observaciones": obs_a
-                }])
-                
-                try:
-                    # Intentamos leer la base de datos actual para anexar
-                    # Nota: Si usas una pestaña diferente, usa conn.read(worksheet="Actores")
-                    df_actual_soc = conn.read(worksheet="Actores", ttl=0) 
-                    df_final_soc = pd.concat([df_actual_soc, nuevo_actor], ignore_index=True)
-                    conn.update(worksheet="Actores", data=df_final_soc)
-                    st.success(f"✅ Actor {nombre_a} registrado exitosamente.")
-                except:
-                    conn.update(data=nuevo_actor)
-                    st.success("✅ Base de datos social iniciada.")
-            else:
-                st.warning("⚠️ Por favor complete el nombre y la vereda.")
+if btn_social:
+    if nombre_a and vereda_a:
+        # ... (tu código anterior para crear nuevo_actor)
+        
+        try:
+            # 1. Lee la hoja específica (Asegúrate que la pestaña se llame 'Actores')
+            df_actual_soc = conn.read(worksheet="Actores", ttl=0) 
+            df_final_soc = pd.concat([df_actual_soc, nuevo_actor], ignore_index=True)
+            
+            # 2. Intenta actualizar especificando la hoja
+            conn.update(worksheet="Actores", data=df_final_soc)
+            st.success(f"✅ Guardado en la pestaña 'Actores'")
+            
+        except Exception as e:
+            # Si falla por nombre, intentamos leer la primera hoja por defecto
+            st.error("Google Sheets no encontró la pestaña 'Actores'.")
+            st.info("Asegúrese de que el nombre de la pestaña en el Excel sea idéntico.")
 
     st.divider()
 
