@@ -24,7 +24,6 @@ def cargar_json_local(nombre):
     return None
 
 veredas_topo = cargar_json_local('veredas_puerto_rico.json')
-conflictos_geo = cargar_json_local('ejemplo_conflictos.geojson')
 
 # 3. PANELES DE CONTROL
 tab_mapa, tab_sadci, tab_actores = st.tabs([
@@ -40,15 +39,13 @@ with tab_mapa:
     with col_menu:
         st.markdown("### 🛠️ Panel de Control")
         mostrar_veredas = st.checkbox("Límites Veredales", value=True)
-        mostrar_conflictos = st.checkbox("Puntos de Conflicto", value=True)
     with col_mapa:
         m = folium.Map(location=[1.91, -75.18], zoom_start=11)
         if veredas_topo and mostrar_veredas:
             try:
                 obj_name = list(veredas_topo['objects'].keys())[0]
                 folium.TopoJson(veredas_topo, f"objects.{obj_name}").add_to(m)
-            except:
-                st.warning("No se pudo cargar la topología de veredas.")
+            except: pass
         st_folium(m, width=800, height=600, key="mapa_v3")
 
 # --- TAB 2: AUDITORÍA SADCI ---
@@ -58,19 +55,17 @@ with tab_sadci:
         df_ind = conn.read(ttl=0)
         st.dataframe(df_ind.head()) 
     except Exception as e:
-        st.error(f"Error al conectar con Sheets: {e}")
+        st.error(f"Error de lectura: {e}")
 
 # --- TAB 3: REGISTRO DE ACTORES ---
 with tab_actores:
     st.subheader("Caracterización de Actores Territoriales")
     
     try:
+        # Forzamos lectura sin caché para ver cambios reales
         df_social = conn.read(worksheet="Actores", ttl=0)
     except:
-        try:
-            df_social = conn.read(ttl=0)
-        except:
-            df_social = pd.DataFrame()
+        df_social = pd.DataFrame()
 
     with st.form("registro_social"):
         c1, c2 = st.columns(2)
@@ -81,8 +76,8 @@ with tab_actores:
             vereda_a = st.text_input("Vereda de ubicación")
             tenencia_a = st.selectbox("Situación de Tenencia", ["Propiedad", "Posesión", "Ocupación", "Baldío"])
         
-        obs_a = st.text_area("Observaciones técnicas de la situación")
-        btn_social = st.form_submit_button("📤 Registrar en Base de Datos Social")
+        obs_a = st.text_area("Observaciones técnicas")
+        btn_social = st.form_submit_button("📤 Registrar Actor")
     
         if btn_social:
             if nombre_a and vereda_a:
@@ -96,39 +91,29 @@ with tab_actores:
                 }])
                 
                 try:
-                    df_final_soc = pd.concat([df_social, nuevo_actor], ignore_index=True) if not df_social.empty else nuevo_actor
+                    # Intentamos la unión de datos
+                    df_final = pd.concat([df_social, nuevo_actor], ignore_index=True) if not df_social.empty else nuevo_actor
                     
-                    # Actualización y limpieza de caché
-                    conn.update(worksheet="Actores", data=df_final_soc)
-                    st.cache_data.clear() 
-                    
-                    st.success(f"✅ Actor {nombre_a} registrado correctamente.")
+                    # EJECUCIÓN CRÍTICA
+                    conn.update(worksheet="Actores", data=df_final)
+                    st.cache_data.clear()
+                    st.success("✅ Guardado exitoso.")
                     st.rerun()
+                    
                 except Exception as e:
+                    # Si el error contiene "200", es un éxito disfrazado
                     if "200" in str(e):
                         st.cache_data.clear()
-                        st.success(f"✅ Datos sincronizados con Google Sheets.")
+                        st.success("✅ Datos sincronizados correctamente (Refresco OK).")
                         st.rerun()
                     else:
-                        st.error(f"Error al guardar: {e}")
+                        st.error(f"Error real detectado: {e}")
             else:
-                st.warning("Por favor completa los campos obligatorios (Nombre y Vereda).")
+                st.warning("Completa Nombre y Vereda.")
 
     if not df_social.empty:
         st.divider()
-        st.write("### Listado de Actores Registrados")
         st.dataframe(df_social, use_container_width=True)
 
 st.divider()
-st.caption("Investigación ESAP 2026 - Herramienta Unificada SIGOber-Rural")
-
-st.sidebar.divider()
-if st.sidebar.button("🛠️ Forzar Prueba de Escritura"):
-    try:
-        # Intentamos escribir un valor de prueba en una celda nueva
-        test_df = pd.DataFrame([{"Prueba": "Conexión Exitosa", "Fecha": str(uuid.uuid4())[:5]}])
-        conn.update(worksheet="Actores", data=test_df)
-        st.sidebar.success("¡Escritura confirmada en Google Sheets!")
-        st.cache_data.clear()
-    except Exception as e:
-        st.sidebar.error(f"Fallo de escritura: {e}")
+st.caption("Investigación ESAP 2026")
