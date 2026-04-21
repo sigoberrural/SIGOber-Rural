@@ -64,8 +64,9 @@ with tab_mapa:
         st_folium(m, width=800, height=600, key="mapa_v3")
 
 # --- TAB 2: AUDITORÍA SADCI ---
+# --- TAB 2: AUDITORÍA SADCI ---
 with tab_sadci:
-    st.subheader("Auditoría SADCI: Capacidad Institucional Integral")
+    st.subheader("📊 Diagnóstico de Capacidad Institucional (SADCI)")
     
     try:
         sh = conectar_gspread()
@@ -74,80 +75,101 @@ with tab_sadci:
         df_sadci = pd.DataFrame(data_sadci)
         
         if not df_sadci.empty:
-            # --- CÁLCULO DE DIMENSIONES SADCI ---
-            st.markdown("### 📊 Tablero de Dimensiones SADCI")
-            
-            # Dimensiones calculadas
-            # 1. Dimensión Administrativa (Planta vs Contratos)
-            df_sadci['dim_admin'] = (df_sadci['num_personal_planta'] / (df_sadci['num_personal_planta'] + df_sadci['num_personal_contratista'])) * 100
-            
-            # 2. Dimensión Tecnológica
+            # --- PROCESAMIENTO DE DATOS PARA GRÁFICOS ---
+            # 1. Normalización de Digitalización a escala 0-100
             dict_dig = {"Bajo": 25, "Medio": 50, "Alto": 75, "Excelente": 100}
-            df_sadci['dim_tec'] = df_sadci['nivel_digitalizacion'].map(dict_dig)
+            df_sadci['puntos_digital'] = df_sadci['nivel_digitalizacion'].map(dict_dig)
             
-            # 3. Dimensión Eficacia (Ejecución + PDT)
-            df_sadci['dim_eficacia'] = (df_sadci['ejecucion_presupuestal_pct'] + df_sadci['cumplimiento_pdt_pct']) / 2
-            
-            # 4. Dimensión Transparencia (Rendición + Protocolos)
-            df_sadci['dim_transp'] = df_sadci['frecuencia_rendicion_cuentas'].apply(lambda x: 100 if x != "Nunca" else 0)
+            # 2. Cálculo de Robustez Administrativa (Planta vs Total)
+            df_sadci['robustez_adm'] = (df_sadci['num_personal_planta'] / 
+                                       (df_sadci['num_personal_planta'] + df_sadci['num_personal_contratista']) * 100).fillna(0)
 
-            # Visualización de KPIs
-            m1, m2, m3, m4 = st.columns(4)
-            m1.metric("Gobernanza (Adm)", f"{df_sadci['dim_admin'].mean():.1f}%")
-            m2.metric("Eficacia Fiscal", f"{df_sadci['ejecucion_presupuestal_pct'].mean():.1f}%")
-            m3.metric("Desarrollo Tec.", f"{df_sadci['dim_tec'].mean():.1f}%")
-            m4.metric("Transparencia", f"{df_sadci['dim_transp'].mean():.1f}%")
+            # --- VISUALIZACIÓN DE INDICADORES (KPIs) ---
+            col_kpi1, col_kpi2, col_kpi3 = st.columns(3)
+            with col_kpi1:
+                promedio_ejecucion = df_sadci['ejecucion_presupuestal_pct'].mean()
+                st.metric("Eficacia Presupuestal", f"{promedio_ejecucion:.1f}%", delta_color="normal")
+            with col_kpi2:
+                promedio_pdt = df_sadci['cumplimiento_pdt_pct'].mean()
+                st.metric("Meta PDT Media", f"{promedio_pdt:.1f}%")
+            with col_kpi3:
+                mepi_avg = df_sadci['calificacion_mepi'].mean()
+                st.metric("Puntaje MEPI Promedio", f"{mepi_avg:.1f}/100")
 
-            # Gráfico Comparativo por Entidad
-            st.write("#### Comparativa Interinstitucional")
-            chart_data = df_sadci.set_index('nombre_entidad')[['dim_admin', 'dim_tec', 'dim_eficacia', 'dim_transp']]
-            st.bar_chart(chart_data)
-            
             st.divider()
 
+            # --- SECCIÓN DE GRÁFICOS DINÁMICOS ---
+            col_graph1, col_graph2 = st.columns(2)
+
+            with col_graph1:
+                st.markdown("##### 🚀 Eficacia vs. Cumplimiento Meta")
+                # Gráfico comparando Ejecución y PDT por Entidad
+                st.bar_chart(df_sadci.set_index('nombre_entidad')[['ejecucion_presupuestal_pct', 'cumplimiento_pdt_pct']])
+            
+            with col_graph2:
+                st.markdown("##### 💻 Madurez Digital por Entidad")
+                # Gráfico de puntos de digitalización
+                st.line_chart(df_sadci.set_index('nombre_entidad')['puntos_digital'])
+
+            st.markdown("##### 🏛️ Balance de Dimensiones (Promedio Municipal)")
+            # Creamos un resumen de las dimensiones para un gráfico de áreas
+            resumen_dim = pd.DataFrame({
+                "Dimensión": ["Administrativa", "Digital", "Eficacia", "Desempeño (MEPI)"],
+                "Puntaje": [
+                    df_sadci['robustez_adm'].mean(),
+                    df_sadci['puntos_digital'].mean(),
+                    df_sadci['ejecucion_presupuestal_pct'].mean(),
+                    df_sadci['calificacion_mepi'].mean()
+                ]
+            })
+            st.area_chart(resumen_dim.set_index("Dimensión"))
+
         # --- FORMULARIO SADCI AMPLIADO ---
-        with st.expander("📝 Formulario de Auditoría Integral (Nuevas Dimensiones)", expanded=df_sadci.empty):
+        with st.expander("📝 Realizar Nueva Auditoría Integral", expanded=df_sadci.empty):
             with st.form("registro_sadci_full", clear_on_submit=True):
+                st.info("Complete los datos de la entidad para actualizar los indicadores automáticamente.")
                 c1, c2, c3 = st.columns(3)
                 with c1:
-                    st.info("📦 Gestión y Talento")
-                    nombre = st.text_input("Entidad")
-                    presupuesto = st.number_input("Presupuesto ($)", min_value=0)
+                    st.caption("DATOS BÁSICOS")
+                    nombre = st.text_input("Nombre Entidad")
+                    presupuesto = st.number_input("Presupuesto Anual Rural ($)", min_value=0)
                     planta = st.number_input("Personal Planta", min_value=0)
-                    contratos = st.number_input("Personal Contrato", min_value=0)
+                    contratos = st.number_input("Personal Contratista", min_value=0)
                 
                 with c2:
-                    st.info("📈 Eficacia y Resultados")
-                    ejecucion = st.slider("% Ejecución Presupuestal", 0, 100, 50)
-                    pdt = st.slider("% Cumplimiento Plan Desarrollo", 0, 100, 50)
-                    mepi = st.number_input("Calificación MEPI (0-100)", 0, 100)
+                    st.caption("GESTIÓN FISCAL")
+                    ejecucion = st.slider("% Ejecución Gasto", 0, 100, 70)
+                    pdt = st.slider("% Avance Metas PDT", 0, 100, 50)
+                    mepi = st.number_input("Calificación MEPI", 0, 100, 60)
                 
                 with c3:
-                    st.info("🤝 Relacional y Digital")
-                    digital = st.select_slider("Digitalización", ["Bajo", "Medio", "Alto", "Excelente"])
-                    protocolo = st.selectbox("Protocolo Articulación", ["Sí", "No", "En proceso"])
+                    st.caption("DIGITAL Y RELACIONAL")
+                    digital = st.select_slider("Nivel Digital", ["Bajo", "Medio", "Alto", "Excelente"])
+                    protocolo = st.selectbox("¿Protocolo Articulación?", ["Sí", "No", "En proceso"])
                     participacion = st.selectbox("Instancias Participación", ["Activas", "Inactivas", "Inexistentes"])
                     rendicion = st.selectbox("Rendición Cuentas", ["Anual", "Semestral", "Nunca"])
 
-                if st.form_submit_button("🚀 Finalizar Auditoría"):
+                if st.form_submit_button("🚀 Guardar y Actualizar Dashboard"):
                     if nombre:
-                        # Debe coincidir con el orden de las columnas de tu Excel
                         nueva_fila = [
                             str(uuid.uuid4())[:8], nombre, presupuesto, planta, contratos,
                             protocolo, "Sí", rendicion, digital, 
                             ejecucion, pdt, participacion, mepi
                         ]
                         ws_sadci.append_row(nueva_fila)
-                        st.success("Auditoría Integral Guardada.")
+                        st.success("✅ Auditoría guardada. Los gráficos se están actualizando...")
                         st.cache_data.clear()
                         st.rerun()
+                    else:
+                        st.warning("⚠️ El nombre de la entidad es obligatorio.")
 
+        # --- TABLA DE DATOS ---
         if not df_sadci.empty:
-            st.write("### Base de Datos SADCI")
-            st.dataframe(df_sadci, use_container_width=True)
+            with st.expander("🔍 Ver detalle de datos (Tabla)"):
+                st.dataframe(df_sadci, use_container_width=True)
 
     except Exception as e:
-        st.error(f"Error: {e}")
+        st.error(f"Error en el sistema de visualización: {e}")
         
 # --- TAB 3: REGISTRO DE ACTORES ---
 with tab_actores:
