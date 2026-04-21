@@ -217,14 +217,18 @@ with tab_actores:
                     "Tenencia": tenencia_a,
                     "Observaciones": obs_a
                 }])
-                try:
-                    df_actual_soc = conn.read(worksheet="Actores", ttl=0) 
-                    df_final_soc = pd.concat([df_actual_soc, nuevo_actor], ignore_index=True)
-                    conn.update(worksheet="Actores", data=df_final_soc)
-                    st.success(f"✅ Actor {nombre_a} registrado con éxito.")
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Error: No se encontró la pestaña 'Actores'.")
+               try:
+        # Intentamos leer la hoja 'Actores'
+        df_social = conn.read(worksheet="Actores", ttl=0)
+    except Exception as e:
+        # Si falla, intentamos leer la primera hoja por defecto (índice 0)
+        # Esto suele funcionar cuando hay problemas con el nombre
+        try:
+            df_social = conn.read(ttl=0) 
+            st.warning("⚠️ Usando pestaña por defecto. No se encontró 'Actores'.")
+        except:
+            df_social = pd.DataFrame()
+            st.error("No se pudo acceder a ninguna pestaña del archivo.")
 
     st.divider()
 
