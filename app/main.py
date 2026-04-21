@@ -60,49 +60,109 @@ with tab_mapa:
     folium.LayerControl().add_to(m)
     st_folium(m, width="100%", height=500)
 
-# --- TAB 2: AUDITORÍA SADCI ---
+# --- TAB 2: AUDITORÍA SADCI (INSTITUCIONAL) ---
 with tab_sadci:
     st.subheader("Análisis de Capacidad Institucional")
+    
     try:
+        # 1. LECTURA Y NORMALIZACIÓN
         df_ind = conn.read(ttl=0)
         df_ind.columns = df_ind.columns.str.strip().str.lower().str.replace(' ', '_')
 
         if not df_ind.empty:
+            # Tomamos el último registro para el semáforo principal
             actual = df_ind.iloc[-1]
-            # Lógica Semáforo
+            
+            # Lógica de Puntuación
             puntos = 0
             if str(actual.get('existencia_cmdr', 'No')).strip().upper() in ['SÍ', 'SI']: puntos += 30
             if str(actual.get('tiene_protocolo_articulacion', 'No')).strip().upper() in ['SÍ', 'SI']: puntos += 20
             puntos += (int(actual.get('nivel_digitalizacion', 0)) * 10)
 
+            # --- VISUALIZACIÓN DEL SEMÁFORO ---
             c_sem, c_met = st.columns([1, 2])
             with c_sem:
-                if puntos < 40: st.error(f"🔴 CRÍTICO: {puntos}/100")
-                elif puntos < 75: st.warning(f"🟡 MEDIO: {puntos}/100")
-                else: st.success(f"🟢 ÓPTIMO: {puntos}/100")
+                if puntos < 40: st.error(f"### 🔴 CRÍTICO: {puntos}/100")
+                elif puntos < 75: st.warning(f"### 🟡 MEDIO: {puntos}/100")
+                else: st.success(f"### 🟢 ÓPTIMO: {puntos}/100")
             
             with c_met:
                 st.progress(puntos / 100)
-                st.write(f"**Entidad:** {actual.get('nombre_entidad', 'N/A')}")
-            
+                st.markdown(f"**Entidad:** {actual.get('nombre_entidad', 'N/A')}")
+                st.caption("Este puntaje refleja la capacidad técnica y operativa para la Reforma Agraria.")
+
+            # --- MÉTRICAS CLAVE ---
             m1, m2, m3 = st.columns(3)
             m1.metric("Presupuesto Rural", f"${actual.get('presupuesto_anual_rural', 0):,.0f}")
-            m2.metric("Planta/Contratos", f"{actual.get('num_personal_planta', 0)} / {actual.get('num_personal_contratista', 0)}")
-            m3.metric("Digitalización", f"{actual.get('nivel_digitalizacion', 0)}/5")
+            # Cálculo de proporción de personal
+            total_pers = actual.get('num_personal_planta', 0) + actual.get('num_personal_contratista', 0)
+            m2.metric("Talento Humano Total", total_pers, help="Suma de planta y contratistas")
+            m3.metric("Digitalización", f"{actual.get('nivel_digitalizacion', 0)} / 5")
 
-        # Formulario SADCI integrado abajo
-        with st.expander("📝 Actualizar Auditoría Institucional"):
+            st.divider()
+
+            # --- 2. GRÁFICOS DE EVOLUCIÓN SADCI ---
+            st.subheader("📈 Evolución de Capacidades")
+            g1, g2 = st.columns(2)
+
+            with g1:
+                st.markdown("**Histórico de Puntaje SADCI**")
+                # Creamos una columna temporal de puntaje para el gráfico
+                df_ind['score'] = (
+                    df_ind['existencia_cmdr'].apply(lambda x: 30 if str(x).upper() in ['SÍ', 'SI'] else 0) +
+                    df_ind['tiene_protocolo_articulacion'].apply(lambda x: 20 if str(x).upper() in ['SÍ', 'SI'] else 0) +
+                    (df_ind['nivel_digitalizacion'].astype(int) * 10)
+                )
+                st.line_chart(df_ind['score'], color="#2e7d32")
+                st.caption("Tendencia de mejora institucional en el tiempo.")
+
+            with g2:
+                st.markdown("**Relación Planta vs Contratistas**")
+                # Gráfico comparativo de personal
+                df_pers = df_ind[['num_personal_planta', 'num_personal_contratista']].iloc[-1]
+                st.bar_chart(df_pers, color="#ff9800")
+                st.caption("Dependencia de personal externo vs planta.")
+
+        # --- 3. FORMULARIO DE ACTUALIZACIÓN ---
+        with st.expander("📝 Registrar Nueva Evaluación Institucional"):
             with st.form("sadci_f"):
-                # (Campos del SADCI que ya definimos)
-                n_ent = st.text_input("Entidad", value="Alcaldía Puerto Rico")
-                pres_r = st.number_input("Presupuesto", min_value=0)
-                cmdr_r = st.selectbox("¿CMDR Activo?", ["No", "Sí"])
-                dig_r = st.slider("Digitalización", 1, 5, 2)
-                if st.form_submit_button("Guardar SADCI"):
-                    # Lógica de guardado...
-                    st.success("SADCI Actualizado")
-    except:
-        st.error("Error al cargar datos SADCI")
+                c1, c2 = st.columns(2)
+                with c1:
+                    n_ent = st.text_input("Entidad Evaluada", value="Alcaldía Puerto Rico")
+                    pres_r = st.number_input("Presupuesto Anual Rural ($)", min_value=0)
+                    planta_r = st.number_input("Personal de Planta", min_value=0)
+                    cont_r = st.number_input("Personal Contratista", min_value=0)
+                with c2:
+                    cmdr_r = st.selectbox("¿Existe CMDR Activo?", ["No", "Sí"])
+                    prot_r = st.selectbox("¿Tiene Protocolo Articulación?", ["No", "Sí"])
+                    dig_r = st.slider("Nivel Digitalización", 1, 5, 2)
+                    rend_r = st.selectbox("Frecuencia Rendición Cuentas", ["Anual", "Semestral", "Nunca"])
+
+                if st.form_submit_button("💾 Guardar y Actualizar Semáforo"):
+                    nuevo_sadci = pd.DataFrame([{
+                        "id_entidad": 1,
+                        "nombre_entidad": n_ent,
+                        "presupuesto_anual_rural": pres_r,
+                        "num_personal_planta": planta_r,
+                        "num_personal_contratista": cont_r,
+                        "tiene_protocolo_articulacion": prot_r,
+                        "nivel_digitalizacion": dig_r,
+                        "existencia_cmdr": cmdr_r,
+                        "frecuencia_rendicion_cuentas": rend_r
+                    }])
+                    
+                    try:
+                        df_old = conn.read()
+                        df_new = pd.concat([df_old, nuevo_sadci], ignore_index=True)
+                        conn.update(data=df_new)
+                        st.success("✅ Auditoría guardada. Los gráficos se han actualizado.")
+                        st.rerun() # Refresca para ver los cambios en los gráficos
+                    except:
+                        conn.update(data=nuevo_sadci)
+                        st.success("✅ Primera medición registrada.")
+
+    except Exception as e:
+        st.error("No se pudieron cargar los indicadores SADCI. Verifique el archivo de datos.")
 
 # --- TAB 3: REGISTRO DE ACTORES (SOCIAL) ---
 with tab_actores:
