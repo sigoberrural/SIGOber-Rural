@@ -236,7 +236,7 @@ with tab_actores:
         obs_a = st.text_area("Observaciones técnicas de la situación")
         
         btn_social = st.form_submit_button("📤 Registrar en Base de Datos Social")
-        
+    
 if btn_social:
             if nombre_a and vereda_a:
                 nuevo_actor = pd.DataFrame([{
@@ -261,7 +261,6 @@ if btn_social:
                 except Exception as e:
                     st.error(f"Error: No se encontró la pestaña 'Actores'.")
                     st.info("Crea una pestaña llamada 'Actores' en tu Google Sheet y asegúrate de compartir el archivo con el correo de la Service Account.")
-
     st.divider()
 
     # 2. SECCIÓN DE ESTADÍSTICAS Y GRÁFICOS (VISUALIZACIÓN)
