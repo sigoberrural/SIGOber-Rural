@@ -34,36 +34,87 @@ tab_mapa, tab_sadci, tab_actores = st.tabs([
 ])
 
 # --- TAB 1: MAPA Y SEÑALIZACIÓN ---
-# Carga condicional de la capa de Veredas
+# --- TAB 1: MAPA Y SEÑALIZACIÓN ---
+with tab_mapa:
+    st.subheader("Visualizador de Tenencia y Conflictos")
+    
+    col_menu, col_mapa = st.columns([1, 3])
+    
+    with col_menu:
+        st.markdown("### 🛠️ Panel de Control")
+        mostrar_veredas = st.checkbox("Límites Veredales", value=True)
+        mostrar_conflictos = st.checkbox("Puntos de Conflicto", value=True)
+        
+        st.divider()
+        
+        # Filtro de Conflictos Seguro
+        filtro_tipo = "Todos"
+        conflictos_filtrados = None
+        
+        if conflictos_geo and mostrar_conflictos:
+            try:
+                tipos = sorted(list(set([f['properties'].get('tipo_conflicto', 'Sin Tipo') for f in conflictos_geo['features']])))
+                filtro_tipo = st.selectbox("Filtrar por tipo:", ["Todos"] + tipos)
+                
+                if filtro_tipo != "Todos":
+                    features = [f for f in conflictos_geo['features'] if f['properties'].get('tipo_conflicto') == filtro_tipo]
+                    conflictos_filtrados = {"type": "FeatureCollection", "features": features}
+                else:
+                    conflictos_filtrados = conflictos_geo
+                
+                st.metric("Conflictos visibles", len(conflictos_filtrados['features']))
+            except Exception as e:
+                st.error("Error al procesar tipos de conflicto.")
+                conflictos_filtrados = conflictos_geo
+
+    with col_mapa:
+        # 1. Crear el objeto mapa base
+        m = folium.Map(location=[1.91, -75.18], zoom_start=11)
+        folium.TileLayer('OpenStreetMap', name='Calles').add_to(m)
+        folium.TileLayer('https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}', 
+                         attr='Google', name='Satélite', overlay=False).add_to(m)
+
+        # 2. Cargar Veredas (Con validación de propiedades para evitar AssertionError)
         if veredas_topo and mostrar_veredas:
             try:
                 nombre_obj = list(veredas_topo['objects'].keys())[0]
+                # Intentamos detectar si NOMBRE_VER existe, si no, usamos una lista vacía
+                geoms = veredas_topo['objects'][nombre_obj].get('geometries', [])
+                props = geoms[0].get('properties', {}) if geoms else {}
                 
-                # Definimos los campos para el tooltip de forma segura
-                # Si no estás seguro del nombre, cámbialo aquí:
-                campo_tooltip = 'NOMBRE_VER' 
+                # Si 'NOMBRE_VER' no está, no usamos tooltip para evitar el crash
+                tooltip_ver = None
+                if 'NOMBRE_VER' in props:
+                    tooltip_ver = folium.GeoJsonTooltip(fields=['NOMBRE_VER'], aliases=['Vereda:'])
                 
                 folium.TopoJson(
                     veredas_topo, 
                     f"objects.{nombre_obj}", 
                     name="Límites Veredales",
                     style_function=lambda x: {'fillColor': '#2e7d32', 'color': 'white', 'weight': 1, 'fillOpacity': 0.2},
-                    # Agregamos esta validación para el tooltip
-                    tooltip=folium.GeoJsonTooltip(
-                        fields=[campo_tooltip], 
-                        aliases=['Vereda:'],
-                        localize=True
-                    ) if campo_tooltip in str(veredas_topo) else None
+                    tooltip=tooltip_ver
                 ).add_to(m)
             except Exception as e:
-                st.warning(f"No se pudo cargar el Tooltip de veredas: {e}")
-                # Carga la capa sin tooltip para que no se rompa la app
-                folium.TopoJson(
-                    veredas_topo, 
-                    f"objects.{nombre_obj}", 
-                    name="Límites Veredales (sin etiquetas)",
-                    style_function=lambda x: {'fillColor': '#2e7d32', 'color': 'white', 'weight': 1, 'fillOpacity': 0.2}
-                ).add_to(m)
+                st.warning("Capa de veredas cargada sin etiquetas por incompatibilidad de datos.")
+                # Fallback: Cargar sin tooltip
+                folium.TopoJson(veredas_topo, f"objects.{nombre_obj}").add_to(m)
+
+        # 3. Cargar Conflictos Filtrados
+        if conflictos_filtrados and mostrar_conflictos and len(conflictos_filtrados['features']) > 0:
+            folium.GeoJson(
+                conflictos_filtrados,
+                name="Alertas",
+                marker=folium.Marker(icon=folium.Icon(color='red', icon='info-sign')),
+                tooltip=folium.GeoJsonTooltip(fields=['tipo_conflicto'], aliases=['Tipo:']) if 'tipo_conflicto' in str(conflictos_filtrados) else None
+            ).add_to(m)
+
+        folium.LayerControl().add_to(m)
+        
+        # 4. Renderizado Final Seguro
+        try:
+            st_folium(m, width=800, height=600, key="mapa_v3")
+        except:
+            st.error("Error crítico al renderizar el mapa. Verifique que los archivos JSON sean válidos.")
 # --- TAB 2: AUDITORÍA SADCI (INSTITUCIONAL) ---
 with tab_sadci:
     st.subheader("Análisis de Capacidad Institucional")
