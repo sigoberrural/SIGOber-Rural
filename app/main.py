@@ -64,7 +64,6 @@ with tab_sadci:
 with tab_actores:
     st.subheader("Caracterización de Actores Territoriales")
     
-    # Intentamos cargar los datos existentes antes del formulario
     try:
         df_social = conn.read(worksheet="Actores", ttl=0)
     except:
@@ -97,16 +96,17 @@ with tab_actores:
                 }])
                 
                 try:
-                    # Concatenar si hay datos previos
                     df_final_soc = pd.concat([df_social, nuevo_actor], ignore_index=True) if not df_social.empty else nuevo_actor
                     
-                    # Actualizar
+                    # Actualización y limpieza de caché
                     conn.update(worksheet="Actores", data=df_final_soc)
+                    st.cache_data.clear() 
+                    
                     st.success(f"✅ Actor {nombre_a} registrado correctamente.")
                     st.rerun()
                 except Exception as e:
-                    # Manejo del falso positivo Response 200
                     if "200" in str(e):
+                        st.cache_data.clear()
                         st.success(f"✅ Datos sincronizados con Google Sheets.")
                         st.rerun()
                     else:
@@ -114,7 +114,6 @@ with tab_actores:
             else:
                 st.warning("Por favor completa los campos obligatorios (Nombre y Vereda).")
 
-    # Mostrar la tabla debajo del formulario
     if not df_social.empty:
         st.divider()
         st.write("### Listado de Actores Registrados")
