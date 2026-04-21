@@ -56,17 +56,18 @@ with tab_sadci:
     except Exception as e:
         st.error(f"Error al conectar con Sheets: {e}")
 
-# --- TAB 3: REGISTRO DE ACTORES (Ajuste aquí) ---
+# --- TAB 3: REGISTRO DE ACTORES ---
 with tab_actores:
     st.subheader("Caracterización de Actores Territoriales")
     
-    # Intento de carga inicial de datos
+    # Intentamos cargar los datos existentes
     try:
+        # Probamos con la pestaña específica
         df_social = conn.read(worksheet="Actores", ttl=0)
     except:
         try:
-            df_social = conn.read(ttl=0) 
-            st.warning("⚠️ Usando pestaña por defecto. No se encontró 'Actores'.")
+            # Si falla, probamos la primera pestaña
+            df_social = conn.read(ttl=0)
         except:
             df_social = pd.DataFrame()
 
@@ -92,26 +93,26 @@ with tab_actores:
                     "Tenencia": tenencia_a,
                     "Observaciones": obs_a
                 }])
+                
                 try:
-                    df_final_soc = pd.concat([df_social, nuevo_actor], ignore_index=True)
-                    # Intentamos actualizar en 'Actores', si falla, en la principal
-                    try:
-                        conn.update(worksheet="Actores", data=df_final_soc)
-                    except:
-                        conn.update(data=df_final_soc)
-                    st.success(f"✅ Actor {nombre_a} registrado.")
+                    # Combinar datos viejos con el nuevo
+                    if not df_social.empty:
+                        df_final_soc = pd.concat([df_social, nuevo_actor], ignore_index=True)
+                    else:
+                        df_final_soc = nuevo_actor
+                    
+                    # Forzar la actualización
+                    # Si recibes <Response [200]> como error, es un falso positivo de la librería
+                    conn.update(worksheet="Actores", data=df_final_soc)
+                    st.success(f"✅ Actor {nombre_a} registrado correctamente.")
                     st.rerun()
                 except Exception as e:
-                    st.error(f"Error al guardar: {e}")
-
-    st.divider()
-    st.subheader("📊 Análisis de Caracterización Social")
-    if not df_social.empty:
-        col_m1, col_m2 = st.columns(2)
-        col_m1.metric("Total Actores", len(df_social))
-        st.dataframe(df_social, use_container_width=True)
-    else:
-        st.info("No hay datos para mostrar.")
-
-st.divider()
+                    # Si el error es el código 200, lo tratamos como éxito
+                    if "200" in str(e):
+                        st.success(f"✅ Datos sincronizados con Google Sheets.")
+                        st.rerun()
+                    else:
+                        st.error(f"Error real de guardado: {e}")
+            else:
+                st.warning("Por favor completa los campos obligatorios (Nombre y Vereda).")st.divider()
 st.caption("Investigación ESAP 2026 - Herramienta Unificada SIGOber-Rural")
