@@ -121,3 +121,14 @@ with tab_actores:
 
 st.divider()
 st.caption("Investigación ESAP 2026 - Herramienta Unificada SIGOber-Rural")
+
+st.sidebar.divider()
+if st.sidebar.button("🛠️ Forzar Prueba de Escritura"):
+    try:
+        # Intentamos escribir un valor de prueba en una celda nueva
+        test_df = pd.DataFrame([{"Prueba": "Conexión Exitosa", "Fecha": str(uuid.uuid4())[:5]}])
+        conn.update(worksheet="Actores", data=test_df)
+        st.sidebar.success("¡Escritura confirmada en Google Sheets!")
+        st.cache_data.clear()
+    except Exception as e:
+        st.sidebar.error(f"Fallo de escritura: {e}")
