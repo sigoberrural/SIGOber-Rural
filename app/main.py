@@ -64,14 +64,33 @@ with tab_mapa:
         st_folium(m, width=800, height=600, key="mapa_v3")
 
 # --- TAB 2: AUDITORÍA SADCI ---
+# --- TAB 2: AUDITORÍA SADCI ---
 with tab_sadci:
     st.subheader("Análisis de Capacidad Institucional")
     try:
-        # TTL=0 evita que Streamlit guarde datos viejos en memoria
-        df_ind = conn.read(ttl=0)
-        st.dataframe(df_ind.head()) 
+        # Usamos la conexión gspread que ya definimos arriba
+        sh = conectar_gspread()
+        
+        # CAMBIA "SADCI" por el nombre real de tu pestaña de indicadores
+        # Si es la primera pestaña y no sabes el nombre, usa: ws_sadci = sh.get_worksheet(0)
+        ws_sadci = sh.worksheet("SADCI") 
+        
+        data_sadci = ws_sadci.get_all_records()
+        df_ind = pd.DataFrame(data_sadci)
+        
+        if not df_ind.empty:
+            st.success("📊 Datos de indicadores cargados.")
+            st.dataframe(df_ind, use_container_width=True)
+            
+            # Ejemplo: Un pequeño gráfico rápido si tienes una columna 'Puntaje'
+            if 'Puntaje' in df_ind.columns:
+                st.bar_chart(df_ind.set_index(df_ind.columns[0])['Puntaje'])
+        else:
+            st.warning("La pestaña está vacía.")
+            
     except Exception as e:
-        st.error(f"Error de lectura: {e}")
+        st.error(f"Error de lectura en SADCI: {e}")
+        st.info("Asegúrate de que la pestaña se llame exactamente 'SADCI' o ajusta el nombre en el código.")
 
 # --- TAB 3: REGISTRO DE ACTORES ---
 with tab_actores:
