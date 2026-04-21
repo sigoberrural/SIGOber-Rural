@@ -61,7 +61,8 @@ with tab_mapa:
             df_conf['lat'] = pd.to_numeric(df_conf['lat'], errors='coerce')
             df_conf['lon'] = pd.to_numeric(df_conf['lon'], errors='coerce')
             df_conf = df_conf.dropna(subset=['lat', 'lon'])
-    except:
+    except Exception as e:
+        st.error(f"Error al conectar con Google Sheets: {e}")
         df_conf = pd.DataFrame()
 
     col_menu, col_mapa = st.columns([1, 3])
@@ -74,7 +75,7 @@ with tab_mapa:
         st.divider()
         st.markdown("### ⚠️ Registrar Conflicto")
         with st.form("form_conflictos", clear_on_submit=True):
-            # NUEVO: Campo para identificar quién diligencia
+            # Identificación de quien registra
             quien_registra = st.text_input("Nombre o Código del Encuestador/Funcionario")
             
             tipo_c = st.selectbox("Tipo de Conflicto", ["Linderos", "Uso de Suelo", "Ambiental", "Tenencia"])
@@ -88,7 +89,7 @@ with tab_mapa:
             
             if st.form_submit_button("📍 Marcar y Guardar"):
                 if vereda_c and quien_registra:
-                    # Se incluye 'quien_registra' en la nueva fila
+                    # Se asume que la hoja tiene las columnas: ID, Tipo, Vereda, Lat, Lon, Desc, Usuario
                     nueva_fila_c = [
                         str(uuid.uuid4())[:5], 
                         tipo_c, 
@@ -96,7 +97,7 @@ with tab_mapa:
                         lat_c, 
                         lon_c, 
                         desc_c, 
-                        quien_registra  # Asegúrate que tu Google Sheet tenga esta columna
+                        quien_registra 
                     ]
                     ws_conf.append_row(nueva_fila_c)
                     st.success(f"Punto registrado por {quien_registra}")
@@ -106,75 +107,71 @@ with tab_mapa:
                     st.error("Por favor completa el nombre de la vereda y quién registra.")
 
     with col_mapa:
+        # Inicializar mapa
         m = folium.Map(location=[1.91, -75.18], zoom_start=11, tiles="cartodbpositron")
         
-        # A. Renderizado de Veredas con Nombres
+        # A. RENDERIZADO ROBUSTO DE VEREDAS
         if veredas_topo and mostrar_veredas:
             try:
+                # DETECCIÓN DINÁMICA: Obtenemos el nombre del objeto interno del TopoJSON
+                # Esto evita que la capa sea invisible si el objeto no se llama 'veredas_puerto_rico'
                 obj_name = list(veredas_topo['objects'].keys())[0]
+                
+                # Explorar propiedades para encontrar el campo del nombre
                 sample_props = veredas_topo['objects'][obj_name]['geometries'][0].get('properties', {})
                 posibles_campos = list(sample_props.keys())
                 
-                # Priorizamos campos que suelen traer el NOMBRE
-                campo_nombre = None
-                for prioritario in ['NOMBRE_VEREDA', 'NOM_VER', 'NOMBRE', 'VEREDA']:
-                    if prioritario in posibles_campos:
-                        campo_nombre = prioritario
-                        break
+                # Buscar campo de nombre
+                campo_nombre = next((f for f in ['NOMBRE_VEREDA', 'NOM_VER', 'NOMBRE', 'VEREDA', 'nombre'] 
+                                   if f in posibles_campos), None)
                 
-                if campo_nombre:
-                    folium.TopoJson(
-                        veredas_topo, 
-                        f"objects.{obj_name}",
-                        name="Veredas Puerto Rico",
-                        # TOOLTIP: Aquí es donde se muestra el NOMBRE al pasar el mouse
-                        tooltip=folium.GeoJsonTooltip(
-                            fields=[campo_nombre], 
-                            aliases=['📍 Vereda:'],
-                            localize=True,
-                            sticky=True
-                        ),
-                        style_function=lambda x: {
-                            'fillColor': '#2ecc71', 
-                            'color': 'black', 
-                            'weight': 1, 
-                            'fillOpacity': 0.15
-                        }
-                    ).add_to(m)
+                folium.TopoJson(
+                    data=veredas_topo, 
+                    object_path=f"objects.{obj_name}", # Ruta corregida dinámica
+                    name="Límites Veredales",
+                    tooltip=folium.GeoJsonTooltip(
+                        fields=[campo_nombre] if campo_nombre else posibles_campos[:1], 
+                        aliases=['📍 Vereda:'],
+                        localize=True,
+                        sticky=True
+                    ) if campo_nombre else None,
+                    style_function=lambda x: {
+                        'fillColor': '#2ecc71', 
+                        'color': 'black', 
+                        'weight': 1.2, 
+                        'fillOpacity': 0.15
+                    }
+                ).add_to(m)
             except Exception as e:
-                st.error(f"Error en capa base: {e}")
+                st.error(f"Error técnico al cargar la capa de veredas: {e}")
 
-        # B. Capa de Conflictos con info de Responsable
+        # B. Capa de Conflictos
         if not df_conf.empty and mostrar_puntos:
             for _, row in df_conf.iterrows():
-                # Verificamos si la columna existe para evitar errores
-                responsable = row['registrado_por'] if 'registrado_por' in row else "No asignado"
+                # Manejo de columna de responsable (por si la hoja es vieja)
+                responsable = row.get('registrado_por', "No asignado")
                 
                 folium.CircleMarker(
                     location=[row['lat'], row['lon']],
                     radius=7,
                     color="red" if row['tipo_conflicto'] == "Tenencia" else "orange",
                     fill=True,
-                    # POPUP: Muestra la info completa al hacer click
                     popup=folium.Popup(f"""
                         <b>Vereda:</b> {row['vereda']}<br>
                         <b>Tipo:</b> {row['tipo_conflicto']}<br>
-                        <b>Diligenciado por:</b> {responsable}<br>
+                        <b>Responsable:</b> {responsable}<br>
+                        <hr>
                         <b>Nota:</b> {row['descripcion']}
                     """, max_width=250),
-                    tooltip=f"Conflicto en: {row['vereda']}"
+                    tooltip=f"Conflicto: {row['vereda']}"
                 ).add_to(m)
 
-        st_folium(m, width=800, height=600, key="mapa_v5")
+        st_folium(m, width=800, height=600, key="mapa_final_v1")
 
     # Listado inferior
     if not df_conf.empty:
         with st.expander("📊 Listado Detallado de Conflictos"):
-            # Mostramos también quién registró en la tabla
-            columnas_ver = ['tipo_conflicto', 'vereda', 'descripcion']
-            if 'registrado_por' in df_conf.columns:
-                columnas_ver.append('registrado_por')
-            st.dataframe(df_conf[columnas_ver], use_container_width=True)
+            st.dataframe(df_conf, use_container_width=True)
 
 # --- TAB 2: AUDITORÍA SADCI ---
 with tab_sadci:
