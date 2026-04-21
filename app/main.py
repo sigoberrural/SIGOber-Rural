@@ -44,7 +44,11 @@ with tab_mapa:
     with col_mapa:
         m = folium.Map(location=[1.91, -75.18], zoom_start=11)
         if veredas_topo and mostrar_veredas:
-            folium.TopoJson(veredas_topo, f"objects.{list(veredas_topo['objects'].keys())[0]}").add_to(m)
+            try:
+                obj_name = list(veredas_topo['objects'].keys())[0]
+                folium.TopoJson(veredas_topo, f"objects.{obj_name}").add_to(m)
+            except:
+                st.warning("No se pudo cargar la topología de veredas.")
         st_folium(m, width=800, height=600, key="mapa_v3")
 
 # --- TAB 2: AUDITORÍA SADCI ---
@@ -52,7 +56,7 @@ with tab_sadci:
     st.subheader("Análisis de Capacidad Institucional")
     try:
         df_ind = conn.read(ttl=0)
-        st.dataframe(df_ind.head()) # Vista previa rápida
+        st.dataframe(df_ind.head()) 
     except Exception as e:
         st.error(f"Error al conectar con Sheets: {e}")
 
@@ -60,13 +64,11 @@ with tab_sadci:
 with tab_actores:
     st.subheader("Caracterización de Actores Territoriales")
     
-    # Intentamos cargar los datos existentes
+    # Intentamos cargar los datos existentes antes del formulario
     try:
-        # Probamos con la pestaña específica
         df_social = conn.read(worksheet="Actores", ttl=0)
     except:
         try:
-            # Si falla, probamos la primera pestaña
             df_social = conn.read(ttl=0)
         except:
             df_social = pd.DataFrame()
@@ -95,24 +97,28 @@ with tab_actores:
                 }])
                 
                 try:
-                    # Combinar datos viejos con el nuevo
-                    if not df_social.empty:
-                        df_final_soc = pd.concat([df_social, nuevo_actor], ignore_index=True)
-                    else:
-                        df_final_soc = nuevo_actor
+                    # Concatenar si hay datos previos
+                    df_final_soc = pd.concat([df_social, nuevo_actor], ignore_index=True) if not df_social.empty else nuevo_actor
                     
-                    # Forzar la actualización
-                    # Si recibes <Response [200]> como error, es un falso positivo de la librería
+                    # Actualizar
                     conn.update(worksheet="Actores", data=df_final_soc)
                     st.success(f"✅ Actor {nombre_a} registrado correctamente.")
                     st.rerun()
                 except Exception as e:
-                    # Si el error es el código 200, lo tratamos como éxito
+                    # Manejo del falso positivo Response 200
                     if "200" in str(e):
                         st.success(f"✅ Datos sincronizados con Google Sheets.")
                         st.rerun()
                     else:
-                        st.error(f"Error real de guardado: {e}")
+                        st.error(f"Error al guardar: {e}")
             else:
-                st.warning("Por favor completa los campos obligatorios (Nombre y Vereda).")st.divider()
+                st.warning("Por favor completa los campos obligatorios (Nombre y Vereda).")
+
+    # Mostrar la tabla debajo del formulario
+    if not df_social.empty:
+        st.divider()
+        st.write("### Listado de Actores Registrados")
+        st.dataframe(df_social, use_container_width=True)
+
+st.divider()
 st.caption("Investigación ESAP 2026 - Herramienta Unificada SIGOber-Rural")
