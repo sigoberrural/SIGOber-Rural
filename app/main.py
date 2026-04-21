@@ -65,73 +65,90 @@ with tab_mapa:
 
 # --- TAB 2: AUDITORÍA SADCI ---
 with tab_sadci:
-    st.subheader("Capacidad Institucional - Registro de Entidades")
+    st.subheader("Auditoría SADCI: Capacidad Institucional Integral")
     
     try:
-        # 1. Conexión y Lectura de la hoja SADCI
         sh = conectar_gspread()
         ws_sadci = sh.worksheet("SADCI") 
         data_sadci = ws_sadci.get_all_records()
         df_sadci = pd.DataFrame(data_sadci)
         
-        # 2. Formulario de Captura de Información Institucional
-        st.markdown("#### 🏢 Formulario de Caracterización Institucional")
-        with st.form("registro_entidad_sadci", clear_on_submit=True):
-            c1, c2 = st.columns(2)
-            
-            with c1:
-                nombre_entidad = st.text_input("Nombre de la Entidad / Institución")
-                presupuesto = st.number_input("Presupuesto Anual Rural ($)", min_value=0, step=1000000)
-                n_planta = st.number_input("Número de Personal de Planta", min_value=0, step=1)
-                n_contratistas = st.number_input("Número de Personal Contratista", min_value=0, step=1)
-            
-            with c2:
-                protocolo = st.selectbox("¿Tiene protocolo de articulación?", ["Sí", "No", "En proceso"])
-                tramites = st.selectbox("¿Tiene trámites simplificados?", ["Sí", "No", "Parcialmente"])
-                rendicion = st.selectbox("Frecuencia de Rendición de Cuentas", ["Anual", "Semestral", "Trimestral", "Nunca"])
-                digitalizacion = st.select_slider("Nivel de Digitalización", options=["Bajo", "Medio", "Alto", "Excelente"])
-            
-            btn_entidad = st.form_submit_button("💾 Registrar Información Institucional")
-            
-            if btn_entidad:
-                if nombre_entidad:
-                    # Preparar la fila con el orden exacto de tu Sheet
-                    nueva_fila_entidad = [
-                        str(uuid.uuid4())[:8], # id_entidad
-                        nombre_entidad,
-                        presupuesto,
-                        n_planta,
-                        n_contratistas,
-                        protocolo,
-                        tramites,
-                        rendicion,
-                        digitalizacion
-                    ]
-                    
-                    # Guardar en Google Sheets
-                    ws_sadci.append_row(nueva_fila_entidad)
-                    
-                    st.success(f"✅ Institución '{nombre_entidad}' registrada con éxito.")
-                    st.cache_data.clear()
-                    st.rerun()
-                else:
-                    st.warning("⚠️ El nombre de la entidad es obligatorio.")
-
-        # 3. Visualización de Datos Existentes
         if not df_sadci.empty:
-            st.divider()
-            st.markdown("#### 📋 Entidades Registradas")
-            # Mostramos la tabla para verificar los datos cargados
-            st.dataframe(df_sadci, use_container_width=True)
+            # --- CÁLCULO DE DIMENSIONES SADCI ---
+            st.markdown("### 📊 Tablero de Dimensiones SADCI")
             
-            # Métrica rápida de ejemplo
-            st.info(f"Total entidades caracterizadas: {len(df_sadci)}")
-        else:
-            st.info("Aún no hay entidades registradas en la base de datos SADCI.")
+            # Dimensiones calculadas
+            # 1. Dimensión Administrativa (Planta vs Contratos)
+            df_sadci['dim_admin'] = (df_sadci['num_personal_planta'] / (df_sadci['num_personal_planta'] + df_sadci['num_personal_contratista'])) * 100
+            
+            # 2. Dimensión Tecnológica
+            dict_dig = {"Bajo": 25, "Medio": 50, "Alto": 75, "Excelente": 100}
+            df_sadci['dim_tec'] = df_sadci['nivel_digitalizacion'].map(dict_dig)
+            
+            # 3. Dimensión Eficacia (Ejecución + PDT)
+            df_sadci['dim_eficacia'] = (df_sadci['ejecucion_presupuestal_pct'] + df_sadci['cumplimiento_pdt_pct']) / 2
+            
+            # 4. Dimensión Transparencia (Rendición + Protocolos)
+            df_sadci['dim_transp'] = df_sadci['frecuencia_rendicion_cuentas'].apply(lambda x: 100 if x != "Nunca" else 0)
+
+            # Visualización de KPIs
+            m1, m2, m3, m4 = st.columns(4)
+            m1.metric("Gobernanza (Adm)", f"{df_sadci['dim_admin'].mean():.1f}%")
+            m2.metric("Eficacia Fiscal", f"{df_sadci['ejecucion_presupuestal_pct'].mean():.1f}%")
+            m3.metric("Desarrollo Tec.", f"{df_sadci['dim_tec'].mean():.1f}%")
+            m4.metric("Transparencia", f"{df_sadci['dim_transp'].mean():.1f}%")
+
+            # Gráfico Comparativo por Entidad
+            st.write("#### Comparativa Interinstitucional")
+            chart_data = df_sadci.set_index('nombre_entidad')[['dim_admin', 'dim_tec', 'dim_eficacia', 'dim_transp']]
+            st.bar_chart(chart_data)
+            
+            st.divider()
+
+        # --- FORMULARIO SADCI AMPLIADO ---
+        with st.expander("📝 Formulario de Auditoría Integral (Nuevas Dimensiones)", expanded=df_sadci.empty):
+            with st.form("registro_sadci_full", clear_on_submit=True):
+                c1, c2, c3 = st.columns(3)
+                with c1:
+                    st.info("📦 Gestión y Talento")
+                    nombre = st.text_input("Entidad")
+                    presupuesto = st.number_input("Presupuesto ($)", min_value=0)
+                    planta = st.number_input("Personal Planta", min_value=0)
+                    contratos = st.number_input("Personal Contrato", min_value=0)
+                
+                with c2:
+                    st.info("📈 Eficacia y Resultados")
+                    ejecucion = st.slider("% Ejecución Presupuestal", 0, 100, 50)
+                    pdt = st.slider("% Cumplimiento Plan Desarrollo", 0, 100, 50)
+                    mepi = st.number_input("Calificación MEPI (0-100)", 0, 100)
+                
+                with c3:
+                    st.info("🤝 Relacional y Digital")
+                    digital = st.select_slider("Digitalización", ["Bajo", "Medio", "Alto", "Excelente"])
+                    protocolo = st.selectbox("Protocolo Articulación", ["Sí", "No", "En proceso"])
+                    participacion = st.selectbox("Instancias Participación", ["Activas", "Inactivas", "Inexistentes"])
+                    rendicion = st.selectbox("Rendición Cuentas", ["Anual", "Semestral", "Nunca"])
+
+                if st.form_submit_button("🚀 Finalizar Auditoría"):
+                    if nombre:
+                        # Debe coincidir con el orden de las columnas de tu Excel
+                        nueva_fila = [
+                            str(uuid.uuid4())[:8], nombre, presupuesto, planta, contratos,
+                            protocolo, "Sí", rendicion, digital, 
+                            ejecucion, pdt, participacion, mepi
+                        ]
+                        ws_sadci.append_row(nueva_fila)
+                        st.success("Auditoría Integral Guardada.")
+                        st.cache_data.clear()
+                        st.rerun()
+
+        if not df_sadci.empty:
+            st.write("### Base de Datos SADCI")
+            st.dataframe(df_sadci, use_container_width=True)
 
     except Exception as e:
-        st.error(f"Error en la pestaña SADCI: {e}")
-        st.info("Asegúrate de que los encabezados en el Excel coincidan exactamente con el formulario.")
+        st.error(f"Error: {e}")
+        
 # --- TAB 3: REGISTRO DE ACTORES ---
 with tab_actores:
     st.subheader("Caracterización de Actores Territoriales")
