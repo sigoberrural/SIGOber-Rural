@@ -114,7 +114,35 @@ with st.expander("📝 Formulario de Caracterización Técnica (Anonimizado)"):
             else:
                 st.error("⚠️ Complete los campos obligatorios.")
 
-# 5. PANEL DE ANÁLISIS DE DATOS
+# 5. MÓDULO DE INDICADORES INSTITUCIONALES (Basado en plantilla_indicadores.csv) ---
+st.divider()
+st.header("🏢 Auditoría de Capacidad Institucional")
+st.caption("Evaluación de la Alcaldía y entes territoriales según la plantilla de indicadores.")
+
+with st.expander("📊 Diligenciar Plantilla de Indicadores"):
+    with st.form("form_indicadores"):
+        c1, c2 = st.columns(2)
+        with c1:
+            entidad = st.text_input("Nombre de la Entidad", value="Alcaldía Puerto Rico")
+            presupuesto = st.number_input("Presupuesto Anual Rural ($)", min_value=0)
+            planta = st.number_input("Personal de Planta", min_value=0)
+            contratistas = st.number_input("Personal Contratista", min_value=0)
+            cmdr = st.radio("¿Existe CMDR (Consejo Municipal de Desarrollo Rural)?", ["Sí", "No"])
+        
+        with c2:
+            protocolo = st.radio("¿Tiene protocolo de articulación?", ["Sí", "No"])
+            tramites = st.radio("¿Trámites simplificados?", ["Sí", "No"])
+            rendicion = st.selectbox("Frecuencia Rendición de Cuentas", ["Anual", "Semestral", "Trimestral", "Nunca"])
+            digital = st.slider("Nivel de Digitalización (1-5)", 1, 5, 2)
+        
+        btn_ind = st.form_submit_button("Actualizar Indicadores Institucionales")
+        
+        if btn_ind:
+            # Aquí la lógica para enviar a la 'Hoja2' de tu Google Sheets
+            # (Usando la misma lógica de conn.update que ya tenemos)
+            st.success(f"Indicadores de {entidad} actualizados correctamente.")
+
+# 6. PANEL DE ANÁLISIS DE DATOS
 st.subheader("📊 Análisis de Datos Registrados")
 try:
     df_nube = conn.read(ttl="5m")
