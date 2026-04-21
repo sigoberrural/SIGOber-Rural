@@ -21,10 +21,11 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 # Función para conexión robusta con gspread (para escritura)
 def conectar_gspread():
     scope = ["https://www.googleapis.com/auth/spreadsheets"]
-    creds_dict = st.secrets["connections"]["gsheets"]
-    creds = Credentials.from_service_account_info(creds_dict, scopes=scope)
+    # Accedemos a la sección exacta de los secrets
+    creds_info = st.secrets["connections"]["gsheets"]
+    creds = Credentials.from_service_account_info(creds_info, scopes=scope)
     client = gspread.authorize(creds)
-    return client.open_by_key(creds_dict["spreadsheet"])
+    return client.open_by_key(creds_info["spreadsheet"])
 
 def cargar_json_local(nombre):
     ruta = os.path.join('data', nombre)
@@ -89,7 +90,7 @@ with tab_actores:
         obs_a = st.text_area("Observaciones técnicas")
         btn_social = st.form_submit_button("📤 Registrar Actor")
     
-      if btn_social:
+        if btn_social:
             if nombre_a and vereda_a:
                 try:
                     # 1. Intentar conectar
@@ -110,18 +111,16 @@ with tab_actores:
                     ws.append_row(nueva_fila)
                     
                     st.cache_data.clear()
-                    st.success(f"✅ ¡Éxito! {nombre_a} registrado.")
+                    st.success(f"✅ ¡Éxito! {nombre_a} registrado en la nube.")
                     st.rerun()
                     
                 except gspread.exceptions.WorksheetNotFound:
-                    st.error("❌ Error: No existe una pestaña llamada 'Actores' en tu Excel.")
-                except gspread.exceptions.APIError as e:
-                    st.error(f"❌ Error de Google API: {e}")
+                    st.error("❌ Error: No existe la pestaña 'Actores'. Cámbiale el nombre en Excel.")
                 except Exception as e:
-                    # Esto nos dirá el nombre técnico del error si lo anterior falla
-                    st.error(f"❌ Error técnico: {type(e).__name__} - {str(e)}")
+                    # Esto atrapará errores de credenciales, permisos o red
+                    st.error(f"❌ Error detallado: {str(e)}")
             else:
-                st.warning("Completa Nombre y Vereda.")
+                st.warning("⚠️ Por favor completa los campos obligatorios (Nombre y Vereda).")
 
     if not df_social.empty:
         st.divider()
