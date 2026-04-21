@@ -67,30 +67,57 @@ with tab_mapa:
 # --- TAB 2: AUDITORÍA SADCI ---
 with tab_sadci:
     st.subheader("Análisis de Capacidad Institucional")
+    
     try:
-        # Usamos la conexión gspread que ya definimos arriba
+        # 1. Conexión y Lectura
         sh = conectar_gspread()
-        
-        # CAMBIA "SADCI" por el nombre real de tu pestaña de indicadores
-        # Si es la primera pestaña y no sabes el nombre, usa: ws_sadci = sh.get_worksheet(0)
+        # Asegúrate de que la pestaña se llame "SADCI" en tu Excel
         ws_sadci = sh.worksheet("SADCI") 
-        
         data_sadci = ws_sadci.get_all_records()
         df_ind = pd.DataFrame(data_sadci)
         
+        # 2. Formulario de Carga
+        st.markdown("#### 📝 Registrar Nuevo Indicador")
+        with st.form("registro_sadci", clear_on_submit=True):
+            col1, col2 = st.columns(2)
+            with col1:
+                eje = st.selectbox("Eje Evaluado", ["Gestión de Tierras", "Capacidad Técnica", "Transparencia", "Participación"])
+                indicador = st.text_input("Nombre del Indicador")
+            with col2:
+                puntaje = st.slider("Puntaje Obtenido", 0, 100, 50)
+                estado = st.selectbox("Estado", ["Crítico", "En Proceso", "Cumplido"])
+            
+            detalles = st.text_area("Evidencia / Observaciones")
+            btn_sadci = st.form_submit_button("💾 Guardar Auditoría")
+            
+            if btn_sadci:
+                if indicador:
+                    nueva_fila_sadci = [
+                        str(uuid.uuid4())[:5], # ID corto
+                        eje,
+                        indicador,
+                        puntaje,
+                        estado,
+                        detalles
+                    ]
+                    ws_sadci.append_row(nueva_fila_sadci)
+                    st.success("✅ Datos de auditoría guardados.")
+                    st.cache_data.clear()
+                    st.rerun()
+                else:
+                    st.warning("Debes poner un nombre al indicador.")
+
+        # 3. Visualización de la Tabla
         if not df_ind.empty:
-            st.success("📊 Datos de indicadores cargados.")
+            st.divider()
+            st.markdown("#### 📋 Historial de Auditorías")
             st.dataframe(df_ind, use_container_width=True)
-            
-            # Ejemplo: Un pequeño gráfico rápido si tienes una columna 'Puntaje'
-            if 'Puntaje' in df_ind.columns:
-                st.bar_chart(df_ind.set_index(df_ind.columns[0])['Puntaje'])
         else:
-            st.warning("La pestaña está vacía.")
-            
+            st.info("No hay datos registrados en la pestaña SADCI todavía.")
+
     except Exception as e:
-        st.error(f"Error de lectura en SADCI: {e}")
-        st.info("Asegúrate de que la pestaña se llame exactamente 'SADCI' o ajusta el nombre en el código.")
+        st.error(f"Error en Auditoría: {e}")
+        st.info("Revisa que en tu Excel exista una pestaña llamada 'SADCI'.")
 
 # --- TAB 3: REGISTRO DE ACTORES ---
 with tab_actores:
