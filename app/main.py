@@ -7,14 +7,14 @@ import json
 import os
 import uuid
 
-# 1. CONFIGURACIÓN DE LA PÁGINA
+# 1. CONFIGURACIÓN E INTERFAZ
 st.set_page_config(page_title="SIGOber-Rural Puerto Rico", layout="wide")
-
 st.title("🛰️ SIGOber-Rural: Puerto Rico (Caquetá)")
-st.markdown("**Sistema de Información Geográfica para la Reforma Agraria**")
+st.markdown("### Sistema de Análisis de Capacidad Institucional (SADCI) y Reforma Agraria")
 st.divider()
 
-# 2. CONEXIÓN A DATOS (Google Sheets y Archivos Locales)
+# 2. CONEXIÓN A DATOS
+# Conexión con Google Sheets (Configurada en Secrets)
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 def cargar_json_local(nombre):
@@ -25,152 +25,132 @@ def cargar_json_local(nombre):
     return None
 
 veredas_topo = cargar_json_local('veredas_puerto_rico.json')
-conflictos_geo = cargar_json_local('ejemplo_conflictos.geojson')
 
-# 3. INTERFAZ PRINCIPAL (MAPA)
-st.subheader("🗺️ Visualizador de Tenencia y Conflictos")
-col1, col2 = st.columns([1, 3])
+# 3. VISUALIZADOR GEOGRÁFICO
+c_map1, c_map2 = st.columns([1, 3])
 
-with col1:
-    st.info("Utilice las capas del mapa para identificar áreas de intervención prioritaria.")
-    if veredas_topo:
-        st.success("✅ Capa veredal cargada")
-    if conflictos_geo:
-        st.warning(f"📍 {len(conflictos_geo['features'])} Puntos de conflicto")
+with c_map1:
+    st.info("📍 **Mapa de Tenencia**\nExplore las veredas priorizadas para la formalización de la propiedad.")
+    st.write("---")
+    st.caption("Capas activas: Límites veredales (ANT)")
 
-with col2:
-    # Centrar mapa en Puerto Rico, Caquetá
+with c_map2:
     m = folium.Map(location=[1.91, -75.18], zoom_start=11)
-    
-    # Capa Satelital
-    folium.TileLayer(
-        tiles='https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}',
-        attr='Google', name='Vista Satelital', overlay=False
-    ).add_to(m)
+    folium.TileLayer('https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}', 
+                     attr='Google', name='Satélite', overlay=False).add_to(m)
 
-    # Dibujar Veredas (TopoJSON)
     if veredas_topo:
-        nombre_capa = list(veredas_topo['objects'].keys())[0]
+        nombre_obj = list(veredas_topo['objects'].keys())[0]
         folium.TopoJson(
-            data=veredas_topo,
-            object_path=f"objects.{nombre_capa}",
-            name="Límites Veredales",
-            style_function=lambda x: {'fillColor': '#2e7d32', 'color': 'white', 'weight': 1, 'fillOpacity': 0.3},
+            veredas_topo, f"objects.{nombre_obj}", name="Veredas",
+            style_function=lambda x: {'fillColor': '#2e7d32', 'color': 'white', 'weight': 1, 'fillOpacity': 0.2},
             tooltip=folium.GeoJsonTooltip(fields=['NOMBRE_VER'], aliases=['Vereda:'])
         ).add_to(m)
-
-    # Dibujar Conflictos (GeoJSON)
-    if conflictos_geo:
-        folium.GeoJson(
-            conflictos_geo,
-            name="Conflictos de Tierra",
-            marker=folium.Marker(icon=folium.Icon(color='red', icon='exclamation-sign')),
-            tooltip=folium.GeoJsonTooltip(fields=['tipo_conflicto'], aliases=['Conflicto:'])
-        ).add_to(m)
-
+    
     folium.LayerControl().add_to(m)
-    st_folium(m, width=900, height=500)
+    st_folium(m, width="100%", height=450)
 
-# 4. MÓDULO DE REGISTRO (GOOGLE SHEETS)
+# 4. MÓDULO SADCI: ANÁLISIS DE CAPACIDAD INSTITUCIONAL
 st.divider()
-st.header("👥 Registro de Actores y Situación Agraria")
-
-with st.expander("📝 Formulario de Caracterización Técnica (Anonimizado)"):
-    with st.form("registro_actor"):
-        f1, f2 = st.columns(2)
-        with f1:
-            perfil = st.selectbox("Perfil del Actor", ["Pequeño Productor", "Poseedor sin Título", "JAC", "Mujer Rural", "Reclamante"])
-            vereda_ref = st.text_input("Vereda donde se ubica")
-        with f2:
-            tenencia = st.selectbox("Situación de Tenencia", ["Baldío Ocupado", "Propiedad con Título", "Posesión Informal", "Litigio"])
-            prioridad = st.select_slider("Urgencia de Intervención", options=["Baja", "Media", "Alta", "Crítica"])
-        
-        observacion = st.text_area("Descripción técnica de la situación (Evite datos personales)")
-        
-        btn_guardar = st.form_submit_button("📤 Sincronizar con Google Sheets")
-
-        if btn_guardar:
-            if vereda_ref and observacion:
-                # Crear DataFrame para la nueva fila
-                nuevo_registro = pd.DataFrame([{
-                    "ID_Actor": str(uuid.uuid4())[:8],
-                    "Tipo_Actor": perfil,
-                    "Vereda": vereda_ref,
-                    "Situacion_Tenencia": tenencia,
-                    "Prioridad": prioridad,
-                    "Observaciones_Anonimas": observacion
-                }])
-                
-                # Leer datos actuales y actualizar
-                try:
-                    actuales = conn.read()
-                    actualizado = pd.concat([actuales, nuevo_registro], ignore_index=True)
-                    conn.update(data=actualizado)
-                    st.success("✅ Registro guardado en la base de datos de la investigación.")
-                except:
-                    # Si la hoja está vacía
-                    conn.update(data=nuevo_registro)
-                    st.success("✅ Base de datos iniciada con el primer registro.")
-            else:
-                st.error("⚠️ Complete los campos obligatorios.")
-
-# 5. MÓDULO DE INDICADORES INSTITUCIONALES (Basado en plantilla_indicadores.csv) ---
-st.divider()
-st.header("🏢 Auditoría de Capacidad Institucional")
-st.caption("Evaluación de la Alcaldía y entes territoriales según la plantilla de indicadores.")
-
-with st.expander("📊 Diligenciar Plantilla de Indicadores"):
-    with st.form("form_indicadores"):
-        c1, c2 = st.columns(2)
-        with c1:
-            entidad = st.text_input("Nombre de la Entidad", value="Alcaldía Puerto Rico")
-            presupuesto = st.number_input("Presupuesto Anual Rural ($)", min_value=0)
-            planta = st.number_input("Personal de Planta", min_value=0)
-            contratistas = st.number_input("Personal Contratista", min_value=0)
-            cmdr = st.radio("¿Existe CMDR (Consejo Municipal de Desarrollo Rural)?", ["Sí", "No"])
-        
-        with c2:
-            protocolo = st.radio("¿Tiene protocolo de articulación?", ["Sí", "No"])
-            tramites = st.radio("¿Trámites simplificados?", ["Sí", "No"])
-            rendicion = st.selectbox("Frecuencia Rendición de Cuentas", ["Anual", "Semestral", "Trimestral", "Nunca"])
-            digital = st.slider("Nivel de Digitalización (1-5)", 1, 5, 2)
-        
-        btn_ind = st.form_submit_button("Actualizar Indicadores Institucionales")
-        
-        if btn_ind:
-            # Aquí la lógica para enviar a la 'Hoja2' de tu Google Sheets
-            # (Usando la misma lógica de conn.update que ya tenemos)
-            st.success(f"Indicadores de {entidad} actualizados correctamente.")
-
-# 6. PANEL DE ANÁLISIS DE DATOS
-# --- 5. PANEL DE ANÁLISIS Y SEMÁFORO SADCI ---
-st.subheader("📊 Diagnóstico de Capacidad Institucional (SADCI)")
+st.header("📊 Diagnóstico Institucional (SADCI)")
 
 try:
-    # 1. Leer la hoja de indicadores (asegúrate de especificar la hoja si usas varias)
-    df_indicadores = conn.read(worksheet="Sheet1") # O el nombre de tu pestaña
+    # Leer datos con ttl=0 para forzar actualización en tiempo real
+    df_ind = conn.read(ttl=0)
+    
+    # Normalizar nombres de columnas (Quitar espacios y pasar a minúsculas)
+    df_ind.columns = df_ind.columns.str.strip().str.lower().str.replace(' ', '_')
 
-# Reemplaza la parte del cálculo dentro del try con esto:
-if not df_indicadores.empty:
-    # Seleccionamos la última fila
-    ultimo = df_indicadores.iloc[-1]
-    
-    # Convertimos a strings y números seguros para evitar errores de tipo
-    puntos = 0
-    
-    # Validación de CMDR (limpiamos espacios y pasamos a mayúsculas)
-    if str(ultimo.get('existencia_cmdr', 'No')).strip().upper() == 'SÍ': 
-        puntos += 30
+    if not df_ind.empty:
+        # Tomamos el registro más reciente
+        actual = df_ind.iloc[-1]
         
-    if str(ultimo.get('tiene_protocolo_articulacion', 'No')).strip().upper() == 'SÍ': 
-        puntos += 20
+        # Lógica de Puntuación SADCI
+        puntos = 0
+        # CMDR (30 pts)
+        if str(actual.get('existencia_cmdr', 'No')).strip().upper() in ['SÍ', 'SI']:
+            puntos += 30
+        # Protocolo (20 pts)
+        if str(actual.get('tiene_protocolo_articulacion', 'No')).strip().upper() in ['SÍ', 'SI']:
+            puntos += 20
+        # Digitalización (Hasta 50 pts)
+        try:
+            dig_val = int(actual.get('nivel_digitalizacion', 0))
+            puntos += (dig_val * 10)
+        except: pass
+
+        # Render del Semáforo
+        col_sem, col_txt = st.columns([1, 2])
         
-    # Validación de Digitalización (aseguramos que sea entero)
-    try:
-        nivel = int(ultimo.get('nivel_digitalizacion', 0))
-        puntos += (nivel * 10)
-    except:
-        puntos += 0
+        with col_sem:
+            if puntos < 40:
+                st.error(f"### 🔴 NIVEL CRÍTICO\n**Puntaje SADCI: {puntos}/100**")
+            elif puntos < 75:
+                st.warning(f"### 🟡 NIVEL MEDIO\n**Puntaje SADCI: {puntos}/100**")
+            else:
+                st.success(f"### 🟢 NIVEL ÓPTIMO\n**Puntaje SADCI: {puntos}/100**")
+        
+        with col_txt:
+            st.progress(puntos / 100)
+            st.markdown(f"""
+            **Entidad:** {actual.get('nombre_entidad', 'N/A')}  
+            **Estado:** El sistema detecta una capacidad {'insuficiente' if puntos < 40 else 'en proceso' if puntos < 75 else 'robusta'} 
+            para liderar procesos de Reforma Agraria en el municipio.
+            """)
+
+        # Métricas de la Plantilla
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("Presupuesto Rural", f"${actual.get('presupuesto_anual_rural', 0):,.0f}")
+        m2.metric("Pers. Planta", actual.get('num_personal_planta', 0))
+        m3.metric("Contratistas", actual.get('num_personal_contratista', 0))
+        m4.metric("Nivel Digital", f"{actual.get('nivel_digitalizacion', 0)}/5")
+
+    else:
+        st.info("📌 No hay registros previos. Use el formulario para ingresar datos de la Alcaldía.")
+
+except Exception as e:
+    st.error(f"⚠️ Error de sincronización: Asegúrese de que las columnas en Google Sheets coincidan con la plantilla SADCI.")
+    if st.checkbox("Ver detalle técnico del error"):
+        st.write(e)
+
+# 5. FORMULARIO DE ACTUALIZACIÓN DE INDICADORES
+with st.expander("📝 Actualizar Datos de Auditoría Institucional"):
+    with st.form("sadci_form"):
+        f1, f2 = st.columns(2)
+        with f1:
+            nombre = st.text_input("Nombre de la Entidad", value="Alcaldía Puerto Rico")
+            pres = st.number_input("Presupuesto Anual Rural ($)", min_value=0, value=500000000)
+            planta = st.number_input("Personal de Planta", min_value=0, value=5)
+            contratos = st.number_input("Personal Contratistas", min_value=0, value=10)
+        with f2:
+            cmdr_input = st.selectbox("¿Existe CMDR activo?", ["No", "Sí"])
+            prot_input = st.selectbox("¿Tiene Protocolo de Articulación?", ["No", "Sí"])
+            dig_input = st.slider("Nivel Digitalización", 1, 5, 2)
+            rendicion = st.selectbox("Rendición de Cuentas", ["Anual", "Semestral", "Nunca"])
+
+        if st.form_submit_button("📤 Guardar y Calcular SADCI"):
+            nuevo_df = pd.DataFrame([{
+                "id_entidad": 1,
+                "nombre_entidad": nombre,
+                "presupuesto_anual_rural": pres,
+                "num_personal_planta": planta,
+                "num_personal_contratista": contratos,
+                "tiene_protocolo_articulacion": prot_input,
+                "nivel_digitalizacion": dig_input,
+                "existencia_cmdr": cmdr_input,
+                "frecuencia_rendicion_cuentas": rendicion
+            }])
+            
+            # Actualizar Google Sheets
+            try:
+                df_existente = conn.read()
+                df_final = pd.concat([df_existente, nuevo_df], ignore_index=True)
+                conn.update(data=df_final)
+                st.success("✅ Datos sincronizados. El semáforo se actualizará en breve.")
+                st.balloons()
+            except:
+                conn.update(data=nuevo_df)
+                st.success("✅ Primera base de datos creada.")
 
 st.divider()
-st.caption("Investigación ESAP 2026 - Colectivo Guadalupe Salcedo")
+st.caption("Investigación ESAP 2026 - Herramienta de Auditoría Social para la Reforma Agraria")
