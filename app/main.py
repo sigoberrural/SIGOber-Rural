@@ -14,7 +14,7 @@ st.markdown("### Gestión Territorial, Actores y Capacidad Institucional (SADCI)
 st.divider()
 
 # 2. CONEXIÓN A DATOS
-conn = st.connection("gsheets", type=GSheetsConnection)
+conn = st.connection("DB_SIGOber_Actores", type=GSheetsConnection)
 
 def cargar_json_local(nombre):
     ruta = os.path.join('data', nombre)
