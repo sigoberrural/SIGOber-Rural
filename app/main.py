@@ -64,61 +64,74 @@ with tab_mapa:
         st_folium(m, width=800, height=600, key="mapa_v3")
 
 # --- TAB 2: AUDITORÍA SADCI ---
-# --- TAB 2: AUDITORÍA SADCI ---
 with tab_sadci:
-    st.subheader("Análisis de Capacidad Institucional")
+    st.subheader("Capacidad Institucional - Registro de Entidades")
     
     try:
-        # 1. Conexión y Lectura
+        # 1. Conexión y Lectura de la hoja SADCI
         sh = conectar_gspread()
-        # Asegúrate de que la pestaña se llame "SADCI" en tu Excel
         ws_sadci = sh.worksheet("SADCI") 
         data_sadci = ws_sadci.get_all_records()
-        df_ind = pd.DataFrame(data_sadci)
+        df_sadci = pd.DataFrame(data_sadci)
         
-        # 2. Formulario de Carga
-        st.markdown("#### 📝 Registrar Nuevo Indicador")
-        with st.form("registro_sadci", clear_on_submit=True):
-            col1, col2 = st.columns(2)
-            with col1:
-                eje = st.selectbox("Eje Evaluado", ["Gestión de Tierras", "Capacidad Técnica", "Transparencia", "Participación"])
-                indicador = st.text_input("Nombre del Indicador")
-            with col2:
-                puntaje = st.slider("Puntaje Obtenido", 0, 100, 50)
-                estado = st.selectbox("Estado", ["Crítico", "En Proceso", "Cumplido"])
+        # 2. Formulario de Captura de Información Institucional
+        st.markdown("#### 🏢 Formulario de Caracterización Institucional")
+        with st.form("registro_entidad_sadci", clear_on_submit=True):
+            c1, c2 = st.columns(2)
             
-            detalles = st.text_area("Evidencia / Observaciones")
-            btn_sadci = st.form_submit_button("💾 Guardar Auditoría")
+            with c1:
+                nombre_entidad = st.text_input("Nombre de la Entidad / Institución")
+                presupuesto = st.number_input("Presupuesto Anual Rural ($)", min_value=0, step=1000000)
+                n_planta = st.number_input("Número de Personal de Planta", min_value=0, step=1)
+                n_contratistas = st.number_input("Número de Personal Contratista", min_value=0, step=1)
             
-            if btn_sadci:
-                if indicador:
-                    nueva_fila_sadci = [
-                        str(uuid.uuid4())[:5], # ID corto
-                        eje,
-                        indicador,
-                        puntaje,
-                        estado,
-                        detalles
+            with c2:
+                protocolo = st.selectbox("¿Tiene protocolo de articulación?", ["Sí", "No", "En proceso"])
+                tramites = st.selectbox("¿Tiene trámites simplificados?", ["Sí", "No", "Parcialmente"])
+                rendicion = st.selectbox("Frecuencia de Rendición de Cuentas", ["Anual", "Semestral", "Trimestral", "Nunca"])
+                digitalizacion = st.select_slider("Nivel de Digitalización", options=["Bajo", "Medio", "Alto", "Excelente"])
+            
+            btn_entidad = st.form_submit_button("💾 Registrar Información Institucional")
+            
+            if btn_entidad:
+                if nombre_entidad:
+                    # Preparar la fila con el orden exacto de tu Sheet
+                    nueva_fila_entidad = [
+                        str(uuid.uuid4())[:8], # id_entidad
+                        nombre_entidad,
+                        presupuesto,
+                        n_planta,
+                        n_contratistas,
+                        protocolo,
+                        tramites,
+                        rendicion,
+                        digitalizacion
                     ]
-                    ws_sadci.append_row(nueva_fila_sadci)
-                    st.success("✅ Datos de auditoría guardados.")
+                    
+                    # Guardar en Google Sheets
+                    ws_sadci.append_row(nueva_fila_entidad)
+                    
+                    st.success(f"✅ Institución '{nombre_entidad}' registrada con éxito.")
                     st.cache_data.clear()
                     st.rerun()
                 else:
-                    st.warning("Debes poner un nombre al indicador.")
+                    st.warning("⚠️ El nombre de la entidad es obligatorio.")
 
-        # 3. Visualización de la Tabla
-        if not df_ind.empty:
+        # 3. Visualización de Datos Existentes
+        if not df_sadci.empty:
             st.divider()
-            st.markdown("#### 📋 Historial de Auditorías")
-            st.dataframe(df_ind, use_container_width=True)
+            st.markdown("#### 📋 Entidades Registradas")
+            # Mostramos la tabla para verificar los datos cargados
+            st.dataframe(df_sadci, use_container_width=True)
+            
+            # Métrica rápida de ejemplo
+            st.info(f"Total entidades caracterizadas: {len(df_sadci)}")
         else:
-            st.info("No hay datos registrados en la pestaña SADCI todavía.")
+            st.info("Aún no hay entidades registradas en la base de datos SADCI.")
 
     except Exception as e:
-        st.error(f"Error en Auditoría: {e}")
-        st.info("Revisa que en tu Excel exista una pestaña llamada 'SADCI'.")
-
+        st.error(f"Error en la pestaña SADCI: {e}")
+        st.info("Asegúrate de que los encabezados en el Excel coincidan exactamente con el formulario.")
 # --- TAB 3: REGISTRO DE ACTORES ---
 with tab_actores:
     st.subheader("Caracterización de Actores Territoriales")
