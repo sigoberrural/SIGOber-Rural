@@ -64,7 +64,6 @@ with tab_mapa:
         st_folium(m, width=800, height=600, key="mapa_v3")
 
 # --- TAB 2: AUDITORÍA SADCI ---
-# --- TAB 2: AUDITORÍA SADCI ---
 with tab_sadci:
     st.subheader("📊 Diagnóstico de Capacidad Institucional (SADCI)")
     
@@ -173,54 +172,83 @@ with tab_sadci:
         
 # --- TAB 3: REGISTRO DE ACTORES ---
 with tab_actores:
-    st.subheader("Caracterización de Actores Territoriales")
+    st.subheader("👥 Caracterización de Actores Territoriales")
     
     try:
-        df_social = conn.read(worksheet="Actores", ttl=0)
-    except:
-        df_social = pd.DataFrame()
-
-    with st.form("registro_social", clear_on_submit=True):
-        c1, c2 = st.columns(2)
-        with c1:
-            nombre_a = st.text_input("Nombre del Actor/Líder")
-            perfil_a = st.selectbox("Perfil", ["Pequeño Productor", "Poseedor", "JAC", "Mujer Rural", "Reclamante"])
-        with c2:
-            vereda_a = st.text_input("Vereda de ubicación")
-            tenencia_a = st.selectbox("Situación de Tenencia", ["Propiedad", "Posesión", "Ocupación", "Baldío"])
+        # 1. Lectura de datos
+        sh = conectar_gspread()
+        ws = sh.worksheet("Actores")
+        data_actores = ws.get_all_records()
+        df_social = pd.DataFrame(data_actores)
         
-        obs_a = st.text_area("Observaciones técnicas")
-        btn_social = st.form_submit_button("📤 Registrar Actor")
-    
-        if btn_social:
-            if nombre_a and vereda_a:
-                try:
-                    sh = conectar_gspread()
-                    ws = sh.worksheet("Actores")
-                    
-                    nueva_fila = [
-                        str(uuid.uuid4())[:8],
-                        nombre_a,
-                        perfil_a,
-                        vereda_a,
-                        tenencia_a,
-                        obs_a
-                    ]
-                    
-                    ws.append_row(nueva_fila)
-                    
-                    st.success(f"✅ ¡Éxito! {nombre_a} registrado correctamente.")
-                    st.cache_data.clear()
-                    # No usamos rerun inmediato aquí para que el usuario vea el mensaje de éxito
-                except Exception as e:
-                    st.error(f"❌ Error al guardar: {str(e)}")
-            else:
-                st.warning("⚠️ Nombre y Vereda son obligatorios.")
+        # --- SECCIÓN DE ANÁLISIS VISUAL ---
+        if not df_social.empty:
+            st.markdown("#### 📊 Análisis de Composición Social")
+            c_graf1, c_graf2 = st.columns(2)
+            
+            with c_graf1:
+                st.write("**Distribución por Perfil**")
+                # Conteo de perfiles para gráfico de barras
+                perfil_counts = df_social['Perfil'].value_counts()
+                st.bar_chart(perfil_counts)
+                
+            with c_graf2:
+                st.write("**Seguridad Jurídica (Tenencia)**")
+                # Conteo de tenencia para gráfico de área/líneas
+                tenencia_counts = df_social['Tenencia'].value_counts()
+                st.line_chart(tenencia_counts)
+            
+            # Métricas rápidas
+            m1, m2, m3 = st.columns(3)
+            m1.metric("Total Actores", len(df_social))
+            m2.metric("Veredas Cubiertas", df_social['Vereda'].nunique())
+            # Cálculo de % de propiedad formal
+            propiedad_total = len(df_social[df_social['Tenencia'] == 'Propiedad'])
+            pct_formal = (propiedad_total / len(df_social)) * 100 if len(df_social) > 0 else 0
+            m3.metric("Formalidad", f"{pct_formal:.1f}%")
+            
+            st.divider()
 
-    if not df_social.empty:
-        st.divider()
-        st.write("### Base de Datos Actual")
-        st.dataframe(df_social, use_container_width=True)
+        # --- FORMULARIO DE REGISTRO ---
+        with st.expander("📝 Registrar Nuevo Actor Territorial", expanded=df_social.empty):
+            with st.form("registro_social", clear_on_submit=True):
+                c1, c2 = st.columns(2)
+                with c1:
+                    nombre_a = st.text_input("Nombre del Actor/Líder")
+                    perfil_a = st.selectbox("Perfil", ["Pequeño Productor", "Poseedor", "JAC", "Mujer Rural", "Reclamante"])
+                with c2:
+                    vereda_a = st.text_input("Vereda de ubicación")
+                    tenencia_a = st.selectbox("Situación de Tenencia", ["Propiedad", "Posesión", "Ocupación", "Baldío"])
+                
+                obs_a = st.text_area("Observaciones técnicas")
+                btn_social = st.form_submit_button("📤 Registrar Actor")
+            
+                if btn_social:
+                    if nombre_a and vereda_a:
+                        try:
+                            nueva_fila = [
+                                str(uuid.uuid4())[:8],
+                                nombre_a,
+                                perfil_a,
+                                vereda_a,
+                                tenencia_a,
+                                obs_a
+                            ]
+                            ws.append_row(nueva_fila)
+                            st.success(f"✅ {nombre_a} registrado correctamente.")
+                            st.cache_data.clear()
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"❌ Error al guardar: {str(e)}")
+                    else:
+                        st.warning("⚠️ Nombre y Vereda son obligatorios.")
 
+        # --- TABLA DE DATOS ---
+        if not df_social.empty:
+            with st.expander("🔍 Ver listado completo"):
+                st.dataframe(df_social, use_container_width=True)
+
+    except Exception as e:
+        st.error(f"Error en el módulo de actores: {e}")
 st.divider()
 st.caption("Investigación ESAP 2026")
