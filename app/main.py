@@ -251,9 +251,9 @@ with tab_actores:
                 try:
                     # Intentamos leer la base de datos actual para anexar
                     # Nota: Si usas una pestaña diferente, usa conn.read(worksheet="Actores")
-                    df_actual_soc = conn.read(ttl=0) 
+                    df_actual_soc = conn.read(worksheet="Actores", ttl=0) 
                     df_final_soc = pd.concat([df_actual_soc, nuevo_actor], ignore_index=True)
-                    conn.update(data=df_final_soc)
+                    conn.update(worksheet="Actores", data=df_final_soc)
                     st.success(f"✅ Actor {nombre_a} registrado exitosamente.")
                 except:
                     conn.update(data=nuevo_actor)
