@@ -143,19 +143,49 @@ with st.expander("📊 Diligenciar Plantilla de Indicadores"):
             st.success(f"Indicadores de {entidad} actualizados correctamente.")
 
 # 6. PANEL DE ANÁLISIS DE DATOS
-st.subheader("📊 Análisis de Datos Registrados")
+# --- 5. PANEL DE ANÁLISIS Y SEMÁFORO SADCI ---
+st.subheader("📊 Diagnóstico de Capacidad Institucional (SADCI)")
+
 try:
-    df_nube = conn.read(ttl="5m")
-    if not df_nube.empty:
-        c_met1, c_met2 = st.columns(2)
-        c_met1.metric("Total Actores", len(df_nube))
+    # 1. Leer la hoja de indicadores (asegúrate de especificar la hoja si usas varias)
+    df_indicadores = conn.read(worksheet="Sheet1") # O el nombre de tu pestaña
+
+    if not df_indicadores.empty:
+        # Tomamos la última entrada registrada
+        ultimo_registro = df_indicadores.iloc[-1]
         
-        # Mostrar tabla sin el ID para mayor privacidad visual
-        st.dataframe(df_nube.drop(columns=['ID_Actor']), use_container_width=True)
+        # 2. LÓGICA DEL SEMÁFORO
+        puntos = 0
+        if ultimo_registro['existencia_cmdr'] == 'Sí': puntos += 30
+        if ultimo_registro['tiene_protocolo_articulacion'] == 'Sí': puntos += 20
+        puntos += (int(ultimo_registro['nivel_digitalizacion']) * 10) # Escala 1-5 = 10-50 pts
+
+        # 3. RENDERIZADO VISUAL DEL SEMÁFORO
+        col_s1, col_s2 = st.columns([1, 2])
+        
+        with col_s1:
+            if puntos < 40:
+                st.error(f"🔴 CRÍTICO\n\nSADCI: {puntos}/100")
+            elif puntos < 75:
+                st.warning(f"🟡 MEDIO\n\nSADCI: {puntos}/100")
+            else:
+                st.success(f"🟢 ÓPTIMO\n\nSADCI: {puntos}/100")
+        
+        with col_s2:
+            st.progress(puntos / 100)
+            st.write(f"**Análisis:** La entidad '{ultimo_registro['nombre_entidad']}' presenta un nivel de preparación institucional {'bajo' if puntos < 40 else 'aceptable' if puntos < 75 else 'alto'} para la gestión de la Reforma Agraria.")
+
+        # 4. MÉTRICAS RÁPIDAS
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Presupuesto Rural", f"${ultimo_registro['presupuesto_anual_rural']:,.0f}")
+        c2.metric("Personal Planta", ultimo_registro['num_personal_planta'])
+        c3.metric("Contratistas", ultimo_registro['num_personal_contratista'])
+
     else:
-        st.info("No hay registros previos en la nube.")
-except:
-    st.write("Conectando con la base de datos...")
+        st.info("No hay datos de indicadores para calcular el SADCI.")
+
+except Exception as e:
+    st.error("Error al conectar con la base de datos de indicadores.")
 
 st.divider()
 st.caption("Investigación ESAP 2026 - Colectivo Guadalupe Salcedo")
