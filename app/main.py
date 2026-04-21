@@ -6,6 +6,8 @@ import pandas as pd
 import json
 import os
 import uuid
+import gspread
+from google.oauth2.service_account import Credentials
 
 # 1. CONFIGURACIÓN E INTERFAZ
 st.set_page_config(page_title="SIGOber-Rural Puerto Rico", layout="wide")
@@ -15,6 +17,14 @@ st.divider()
 
 # 2. CONEXIÓN A DATOS
 conn = st.connection("gsheets", type=GSheetsConnection)
+
+# Función para conexión robusta con gspread (para escritura)
+def conectar_gspread():
+    scope = ["https://www.googleapis.com/auth/spreadsheets"]
+    creds_dict = st.secrets["connections"]["gsheets"]
+    creds = Credentials.from_service_account_info(creds_dict, scopes=scope)
+    client = gspread.authorize(creds)
+    return client.open_by_key(creds_dict["spreadsheet"])
 
 def cargar_json_local(nombre):
     ruta = os.path.join('data', nombre)
@@ -62,7 +72,7 @@ with tab_actores:
     st.subheader("Caracterización de Actores Territoriales")
     
     try:
-        # Forzamos lectura sin caché para ver cambios reales
+        # Leemos con la conexión normal para visualización
         df_social = conn.read(worksheet="Actores", ttl=0)
     except:
         df_social = pd.DataFrame()
@@ -81,33 +91,30 @@ with tab_actores:
     
         if btn_social:
             if nombre_a and vereda_a:
-                nuevo_actor = pd.DataFrame([{
-                    "ID_Actor": str(uuid.uuid4())[:8],
-                    "Nombre": nombre_a,
-                    "Perfil": perfil_a,
-                    "Vereda": vereda_a,
-                    "Tenencia": tenencia_a,
-                    "Observaciones": obs_a
-                }])
-                
+                # Usamos gspread para la escritura física
                 try:
-                    # Intentamos la unión de datos
-                    df_final = pd.concat([df_social, nuevo_actor], ignore_index=True) if not df_social.empty else nuevo_actor
+                    sh = conectar_gspread()
+                    ws = sh.worksheet("Actores")
                     
-                    # EJECUCIÓN CRÍTICA
-                    conn.update(worksheet="Actores", data=df_final)
+                    # Preparar la fila
+                    nueva_fila = [
+                        str(uuid.uuid4())[:8],
+                        nombre_a,
+                        perfil_a,
+                        vereda_a,
+                        tenencia_a,
+                        obs_a
+                    ]
+                    
+                    # Escritura directa
+                    ws.append_row(nueva_fila)
+                    
                     st.cache_data.clear()
-                    st.success("✅ Guardado exitoso.")
+                    st.success("✅ Guardado exitoso en Google Sheets.")
                     st.rerun()
                     
                 except Exception as e:
-                    # Si el error contiene "200", es un éxito disfrazado
-                    if "200" in str(e):
-                        st.cache_data.clear()
-                        st.success("✅ Datos sincronizados correctamente (Refresco OK).")
-                        st.rerun()
-                    else:
-                        st.error(f"Error real detectado: {e}")
+                    st.error(f"Error real detectado: {e}")
             else:
                 st.warning("Completa Nombre y Vereda.")
 
