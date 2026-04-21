@@ -104,24 +104,86 @@ with tab_sadci:
     except:
         st.error("Error al cargar datos SADCI")
 
-# --- TAB 3: REGISTRO DE ACTORES ---
+# --- TAB 3: REGISTRO DE ACTORES (SOCIAL) ---
 with tab_actores:
     st.subheader("Caracterización de Actores Territoriales")
+    
+    # 1. FORMULARIO DE REGISTRO
     with st.form("registro_social"):
         c1, c2 = st.columns(2)
         with c1:
             nombre_a = st.text_input("Nombre del Actor/Líder")
-            perfil_a = st.selectbox("Perfil", ["Pequeño Productor", "Poseedor", "JAC", "Mujer Rural"])
+            perfil_a = st.selectbox("Perfil", ["Pequeño Productor", "Poseedor", "JAC", "Mujer Rural", "Reclamante"])
         with c2:
-            vereda_a = st.text_input("Vereda")
-            tenencia_a = st.selectbox("Tenencia", ["Propiedad", "Posesión", "Ocupación"])
+            vereda_a = st.text_input("Vereda de ubicación")
+            tenencia_a = st.selectbox("Situación de Tenencia", ["Propiedad", "Posesión", "Ocupación", "Baldío"])
         
-        obs_a = st.text_area("Observaciones del conflicto/situación")
+        obs_a = st.text_area("Observaciones técnicas de la situación")
         
-        if st.form_submit_button("Registrar en Base de Datos Social"):
-            # Generar ID único y guardar
-            id_a = str(uuid.uuid4())[:8]
-            st.success(f"Actor {id_a} registrado exitosamente.")
+        btn_social = st.form_submit_button("📤 Registrar en Base de Datos Social")
+        
+        if btn_social:
+            if nombre_a and vereda_a:
+                nuevo_actor = pd.DataFrame([{
+                    "ID_Actor": str(uuid.uuid4())[:8],
+                    "Nombre": nombre_a,
+                    "Perfil": perfil_a,
+                    "Vereda": vereda_a,
+                    "Tenencia": tenencia_a,
+                    "Observaciones": obs_a
+                }])
+                
+                try:
+                    # Intentamos leer la base de datos actual para anexar
+                    # Nota: Si usas una pestaña diferente, usa conn.read(worksheet="Actores")
+                    df_actual_soc = conn.read(ttl=0) 
+                    df_final_soc = pd.concat([df_actual_soc, nuevo_actor], ignore_index=True)
+                    conn.update(data=df_final_soc)
+                    st.success(f"✅ Actor {nombre_a} registrado exitosamente.")
+                except:
+                    conn.update(data=nuevo_actor)
+                    st.success("✅ Base de datos social iniciada.")
+            else:
+                st.warning("⚠️ Por favor complete el nombre y la vereda.")
+
+    st.divider()
+
+    # 2. SECCIÓN DE ESTADÍSTICAS Y GRÁFICOS (VISUALIZACIÓN)
+    st.subheader("📊 Análisis de Caracterización Social")
+    
+    try:
+        # Volvemos a leer para asegurar que incluya el último registro
+        df_social = conn.read(ttl=0)
+        
+        if not df_social.empty:
+            # Métricas rápidas
+            col_m1, col_m2, col_m3 = st.columns(3)
+            col_m1.metric("Total Actores", len(df_social))
+            col_m2.metric("Veredas Cubiertas", df_social['Vereda'].nunique())
+            
+            # Gráficos Dinámicos
+            g1, g2 = st.columns(2)
+            
+            with g1:
+                st.markdown("**Distribución por Perfil**")
+                # Gráfico de barras por perfil
+                perfil_count = df_social['Perfil'].value_counts()
+                st.bar_chart(perfil_count, color="#2e7d32")
+                
+            with g2:
+                st.markdown("**Situación de Tenencia**")
+                # Gráfico de áreas o líneas (usaremos barras para claridad en tenencia)
+                tenencia_count = df_social['Tenencia'].value_counts()
+                st.bar_chart(tenencia_count, color="#ff9800")
+
+            # Tabla de datos para auditoría visual
+            with st.expander("🔍 Ver listado detallado de actores"):
+                st.dataframe(df_social, use_container_width=True)
+        else:
+            st.info("Aún no hay datos sociales registrados para generar gráficos.")
+            
+    except Exception as e:
+        st.error("No se pudo cargar la visualización de datos sociales.")
 
 st.divider()
 st.caption("Investigación ESAP 2026 - Herramienta Unificada SIGOber-Rural")
