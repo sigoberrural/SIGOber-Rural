@@ -63,7 +63,7 @@ from streamlit_js_eval import get_geolocation
 with tab_mapa:
     st.subheader("Visualizador de Tenencia y Conflictos")
     
-    # 1. CARGA Y LIMPIEZA DE DATOS
+    # 1. CARGA Y LIMPIEZA DE DATOS (Mantenemos tu lógica base)
     df_raw = cargar_datos_con_cache("Conflictos")
     df_plot = pd.DataFrame()
     if df_raw is not None and not df_raw.empty:
@@ -75,129 +75,126 @@ with tab_mapa:
                 df_plot[col] = pd.to_numeric(df_plot[col], errors='coerce')
         df_plot = df_plot.dropna(subset=['lat', 'lon'])
 
-    # 2. CAPTURA AUTOMÁTICA DE GEOLOCALIZACIÓN (Al cargar la App)
-    # Solo se ejecuta si no hay coordenadas ya seleccionadas por clic
+    # 2. CAPTURA AUTOMÁTICA DE GEOLOCALIZACIÓN
     if "gps_capturado" not in st.session_state:
         loc = get_geolocation()
         if loc:
             st.session_state.lat_click = loc['coords']['latitude']
             st.session_state.lon_click = loc['coords']['longitude']
-            st.session_state.gps_capturado = True # Evita bucles de refresco constante
+            st.session_state.gps_capturado = True
 
-    # Inicialización de respaldo (Puerto Rico, Caquetá) si el GPS falla
+    # Coordenadas por defecto (Puerto Rico, Caquetá)
     if "lat_click" not in st.session_state:
-        st.session_state.lat_click = 1.91
+        st.session_state.lat_click = 1.9123
     if "lon_click" not in st.session_state:
-        st.session_state.lon_click = -75.18
+        st.session_state.lon_click = -75.1842
 
-    # 3. LÓGICA DE VALIDACIÓN (GEOFENCING)
-    def validar_punto(lat, lon, topo_data):
-        if topo_data is None: return True, "Capa no disponible"
+    # 3. LÓGICA DE VALIDACIÓN CORREGIDA (GEOFENCING)
+    def validar_punto_preciso(lat, lon, topo_data):
+        if topo_data is None: 
+            return True, "Capa no cargada"
         try:
-            punto = Point(lon, lat)
-            topo_geojson = tp.to_geojson(topo_data)
-            for feature in topo_geojson['features']:
-                if shape(feature['geometry']).contains(punto):
+            # CRÍTICO: Shapely usa Point(Longitud, Latitud) -> (X, Y)
+            punto_eval = Point(float(lon), float(lat))
+            
+            # Convertimos TopoJSON a GeoJSON para la validación
+            from topojson import to_geojson
+            geojson_data = to_geojson(topo_data)
+            
+            for feature in geojson_data['features']:
+                poligono = shape(feature['geometry'])
+                # Usamos un pequeño margen de error (buffer) si es necesario, 
+                # pero 'contains' es lo ideal para límites veredales.
+                if poligono.contains(punto_eval):
                     return True, feature['properties'].get('NOMBRE_VER', 'Vereda Localizada')
             return False, None
-        except: return False, None
+        except Exception as e:
+            return True, f"Error técnico: {e}" # No bloqueamos si hay error de código
 
-    # 4. DEFINICIÓN DE COLUMNAS
+    # 4. INTERFAZ DE REGISTRO
     col_menu, col_mapa = st.columns([1, 3])
 
     with col_menu:
         st.markdown("### ⚠️ Registrar Conflicto")
-        st.caption("Coordenadas detectadas automáticamente. Puedes ajustarlas tocando el mapa o escribiendo.")
         
         with st.form("form_conflictos", clear_on_submit=True):
-            quien = st.text_input("Encuestador")
+            quien = st.text_input("Encuestador / Líder")
             tipo = st.selectbox("Tipo", ["Linderos", "Uso de Suelo", "Ambiental", "Tenencia"])
-            vereda_input = st.text_input("Vereda")
+            vereda_manual = st.text_input("Nombre de la Vereda")
             
             c1, c2 = st.columns(2)
-            # Campos editables manualmente
+            # El usuario puede editar estos números si el GPS o el clic no son exactos
             lat_i = c1.number_input("Latitud", value=float(st.session_state.lat_click), format="%.6f")
             lon_i = c2.number_input("Longitud", value=float(st.session_state.lon_click), format="%.6f")
             
             desc = st.text_area("Descripción del conflicto")
             
             if st.form_submit_button("📍 Guardar Registro"):
-                # Validación de seguridad antes de guardar[cite: 1, 2]
-                es_valido, nombre_v = validar_punto(lat_i, lon_i, veredas_topo)
+                # VALIDACIÓN ANTES DE ENVIAR A SHEETS
+                es_valido, vereda_detectada = validar_punto_preciso(lat_i, lon_i, veredas_topo)
                 
-                if es_valido and vereda_input and quien:
+                if es_valido and quien:
                     try:
                         sh = conectar_gspread()
                         ws = sh.worksheet("Conflictos")
-                        ws.append_row([str(uuid.uuid4())[:5], tipo, vereda_input, str(lat_i), str(lon_i), desc, quien])
-                        st.success(f"✅ Guardado en {nombre_v if nombre_v else vereda_input}")
+                        # Guardamos con el nombre de vereda detectado o el manual
+                        v_final = vereda_detectada if vereda_detectada else vereda_manual
+                        ws.append_row([str(uuid.uuid4())[:5], tipo, v_final, str(lat_i), str(lon_i), desc, quien])
+                        
+                        st.success(f"✅ Registrado en {v_final}")
                         st.cache_data.clear()
                         st.rerun()
                     except Exception as e:
-                        st.error(f"Error: {e}")
+                        st.error(f"Error al guardar: {e}")
                 elif not es_valido:
-                    st.error("🚨 Las coordenadas están fuera de Puerto Rico.")
+                    st.error(f"📍 Fuera de límites: Las coordenadas ({lat_i}, {lon_i}) no coinciden con los polígonos de Puerto Rico cargados.")
                 else:
-                    st.warning("Completa los campos obligatorios.")
+                    st.warning("Por favor completa el nombre del encuestador.")
 
-    # 5. BLOQUE DE MAPA (Con Selector de Capas)
+    # 5. MAPA CON SELECTOR DE CAPAS
     with col_mapa:
         m = folium.Map(
             location=[st.session_state.lat_click, st.session_state.lon_click], 
-            zoom_start=15,
-            tiles=None # Desactivamos los tiles base para usar el selector
+            zoom_start=14,
+            tiles=None
         )
 
-        # CAPA 1: Satelital (Google) - Prioritaria para campo
+        # CAPAS BASE
         folium.TileLayer(
             tiles='https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}',
-            attr='Google Satellite',
-            name='Vista Satelital (Híbrida)',
-            overlay=False,
-            control=True
+            attr='Google', name='Satélite (Híbrido)', overlay=False
         ).add_to(m)
+        
+        folium.TileLayer('openstreetmap', name='Mapa Vial', overlay=False).add_to(m)
 
-        # CAPA 2: Calles y Ríos (OSM)
-        folium.TileLayer(
-            tiles='openstreetmap',
-            name='Mapa de Vías y Ríos',
-            overlay=False,
-            control=True
-        ).add_to(m)
-
-        # CAPA 3: Límites Veredales (TopoJSON)
+        # CAPA VEREDAL
         if veredas_topo:
             try:
                 obj_name = list(veredas_topo['objects'].keys())[0]
                 folium.TopoJson(
                     veredas_topo, 
                     f"objects.{obj_name}",
-                    name="Límites de Puerto Rico",
-                    style_function=lambda x: {
-                        'fillColor': 'transparent', 'color': '#FFFF00', 'weight': 2
-                    }
+                    name="Límites Veredales",
+                    style_function=lambda x: {'fillColor': 'transparent', 'color': '#FFFF00', 'weight': 2}
                 ).add_to(m)
             except: pass
 
-        # CAPA 4: Puntos Registrados (Historial)
-        fg_puntos = folium.FeatureGroup(name="Incidentes Guardados")
+        # MARCADORES EXISTENTES
+        fg = folium.FeatureGroup(name="Conflictos Registrados")
         if not df_plot.empty:
             for _, row in df_plot.iterrows():
                 folium.CircleMarker(
                     location=[row['lat'], row['lon']],
-                    radius=6, color="white", weight=1,
-                    fill_color="red" if "tenencia" in str(row.get('tipo', '')).lower() else "orange",
-                    fill=True, fill_opacity=0.8
-                ).add_to(fg_puntos)
-        fg_puntos.add_to(m)
+                    radius=6, color="red", fill=True, popup=row.get('tipo')
+                ).add_to(fg)
+        fg.add_to(m)
 
-        # --- SELECTOR DE CAPAS ---
-        folium.LayerControl(collapsed=False, position='topright').add_to(m)
+        # CONTROL DE CAPAS
+        folium.LayerControl(collapsed=False).add_to(m)
         
-        # Renderizado
-        output = st_folium(m, width=700, height=500, key="mapa_final")
+        # RENDERIZADO Y CAPTURA DE CLIC
+        output = st_folium(m, width=700, height=550, key="mapa_final")
 
-        # Captura de clic para actualización manual
         if output and output.get("last_clicked"):
             clic = output["last_clicked"]
             if abs(st.session_state.lat_click - clic["lat"]) > 0.0001:
