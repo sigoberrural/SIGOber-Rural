@@ -137,7 +137,7 @@ with tab_mapa:
         with st.form("form_conflictos", clear_on_submit=True):
             quien = st.text_input("Encuestador / Líder")
             tipo = st.selectbox("Tipo", ["Linderos", "Uso de Suelo", "Ambiental", "Tenencia"])
-            vereda_manual = st.text_input("Vereda (Si el GPS no la detecta)")
+            vereda_manual = st.text_input("Vereda")
             
             c1, c2 = st.columns(2)
             lat_i = c1.number_input("Latitud", value=float(st.session_state.lat_click), format="%.6f")
