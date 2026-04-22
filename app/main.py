@@ -296,7 +296,7 @@ with col_f2:
         """
         <div class="footer-text">
             <strong>Investigación ESAP 2026</strong><br>
-            Desarrollado en colaboración con el <strong>Colectivo de Estudios Sociales Guadalupe Salcedo</strong><br>
+            Desarrollado por el <strong>Colectivo de Estudios Sociales Guadalupe Salcedo</strong><br>
             <em>Propiedad Intelectual y Académica Reservada</em>
         </div>
         """, 
