@@ -20,13 +20,9 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 
 def conectar_gspread():
     scope = ["https://www.googleapis.com/auth/spreadsheets"]
-    # Cargamos los secrets
     creds_info = dict(st.secrets["connections"]["gsheets"])
-    
-    # TRUCO CRÍTICO: Asegurar que los \n se lean como saltos de línea reales
     if "private_key" in creds_info:
         creds_info["private_key"] = creds_info["private_key"].replace("\\n", "\n")
-        
     creds = Credentials.from_service_account_info(creds_info, scopes=scope)
     client = gspread.authorize(creds)
     return client.open_by_key(creds_info["spreadsheet"])
@@ -38,18 +34,8 @@ def cargar_json_local(nombre):
             return json.load(f)
     return None
 
-veredas_topo = cargar_json_local('veredas_puerto_rico.json')
-
-# 3. PANELES DE CONTROL
-tab_mapa, tab_sadci, tab_actores = st.tabs([
-    "🗺️ Mapa de Conflictos", 
-    "📊 Auditoría SADCI", 
-    "👥 Registro de Actores"
-])
-
-# --- FUNCIONES DE CARGA CON CACHÉ (Pon esto antes de las Tabs) ---
-
-@st.cache_data(ttl=600) # La caché dura 10 minutos
+# --- FUNCIONES DE CARGA CON CACHÉ ---
+@st.cache_data(ttl=600)
 def cargar_datos_con_cache(nombre_hoja):
     try:
         sh = conectar_gspread()
@@ -59,32 +45,96 @@ def cargar_datos_con_cache(nombre_hoja):
         st.error(f"Error al cargar la hoja {nombre_hoja}: {e}")
         return pd.DataFrame()
 
+veredas_topo = cargar_json_local('veredas_puerto_rico.json')
+
+# 3. PANELES DE CONTROL
+tab_mapa, tab_sadci, tab_actores = st.tabs([
+    "🗺️ Mapa de Conflictos", 
+    "📊 Auditoría SADCI", 
+    "👥 Registro de Actores"
+])
 
 # --- TAB 1: MAPA ---
 with tab_mapa:
-    # REEMPLAZA ESTO:
-    # ws_conf = sh.worksheet("Conflictos")
-    # df_conf = pd.DataFrame(ws_conf.get_all_records())
+    st.subheader("Visualizador de Tenencia y Conflictos")
     
-    # POR ESTO:
     df_conf = cargar_datos_con_cache("Conflictos")
     
-    # Aseguramos tipos numéricos
     if not df_conf.empty:
         df_conf['lat'] = pd.to_numeric(df_conf['lat'], errors='coerce')
         df_conf['lon'] = pd.to_numeric(df_conf['lon'], errors='coerce')
         df_conf = df_conf.dropna(subset=['lat', 'lon'])
 
+    col_menu, col_mapa = st.columns([1, 3])
+
+    with col_menu:
+        st.markdown("### 🛠️ Capas y Filtros")
+        mostrar_veredas = st.checkbox("Límites Veredales (Nombres)", value=True)
+        mostrar_puntos = st.checkbox("Puntos de Conflicto", value=True)
+        
+        st.divider()
+        st.markdown("### ⚠️ Registrar Conflicto")
+        with st.form("form_conflictos", clear_on_submit=True):
+            quien_registra = st.text_input("Nombre o Código del Encuestador")
+            tipo_c = st.selectbox("Tipo", ["Linderos", "Uso de Suelo", "Ambiental", "Tenencia"])
+            vereda_c = st.text_input("Nombre de la Vereda")
+            
+            c1, c2 = st.columns(2)
+            lat_c = c1.number_input("Latitud", value=1.91, format="%.4f")
+            lon_c = c2.number_input("Longitud", value=-75.18, format="%.4f")
+            desc_c = st.text_area("Descripción")
+            
+            if st.form_submit_button("📍 Marcar y Guardar"):
+                if vereda_c and quien_registra:
+                    sh_direct = conectar_gspread()
+                    ws_direct = sh_direct.worksheet("Conflictos")
+                    nueva_fila = [str(uuid.uuid4())[:5], tipo_c, vereda_c, lat_c, lon_c, desc_c, quien_registra]
+                    ws_direct.append_row(nueva_fila)
+                    st.success(f"Punto registrado por {quien_registra}")
+                    st.cache_data.clear()
+                    st.rerun()
+                else:
+                    st.error("Completa la vereda y el nombre de quien registra.")
+
+    with col_mapa:
+        m = folium.Map(location=[1.91, -75.18], zoom_start=11, tiles="cartodbpositron")
+        
+        if veredas_topo and mostrar_veredas:
+            try:
+                obj_name = list(veredas_topo['objects'].keys())[0]
+                props = veredas_topo['objects'][obj_name]['geometries'][0].get('properties', {})
+                campo_nombre = next((f for f in ['NOMBRE_VEREDA', 'NOM_VER', 'NOMBRE', 'VEREDA'] if f in props), list(props.keys())[0])
+                
+                folium.TopoJson(
+                    data=veredas_topo, 
+                    object_path=f"objects.{obj_name}",
+                    name="Veredas",
+                    tooltip=folium.GeoJsonTooltip(fields=[campo_nombre], aliases=['📍 Vereda:']),
+                    style_function=lambda x: {'fillColor': '#2ecc71', 'color': 'black', 'weight': 1, 'fillOpacity': 0.15}
+                ).add_to(m)
+            except Exception as e:
+                st.error(f"Error en capa de veredas: {e}")
+
+        if not df_conf.empty and mostrar_puntos:
+            for _, row in df_conf.iterrows():
+                # Obtenemos responsable dinámicamente según la columna 7 de tu Sheet
+                resp = row.get('registrado_por') if 'registrado_por' in df_conf.columns else "N/A"
+                folium.CircleMarker(
+                    location=[row['lat'], row['lon']],
+                    radius=6,
+                    color="red" if row['tipo_conflicto'] == "Tenencia" else "orange",
+                    fill=True,
+                    popup=f"Vereda: {row['vereda']}<br>Responsable: {resp}",
+                    tooltip=f"Tipo: {row['tipo_conflicto']}"
+                ).add_to(m)
+
+        st_folium(m, width=800, height=600, key="mapa_puerto_rico")
+
 # --- TAB 2: AUDITORÍA SADCI ---
 with tab_sadci:
     st.subheader("📊 Diagnóstico de Capacidad Institucional (SADCI)")
-    
     try:
-        sh = conectar_gspread()
-        ws_sadci = sh.worksheet("SADCI") 
-        data_sadci = ws_sadci.get_all_records()
-        df_sadci = pd.DataFrame(data_sadci)
-        
+        df_sadci = cargar_datos_con_cache("SADCI")
         if not df_sadci.empty:
             dict_dig = {"Bajo": 25, "Medio": 50, "Alto": 75, "Excelente": 100}
             df_sadci['puntos_digital'] = df_sadci['nivel_digitalizacion'].map(dict_dig)
@@ -93,21 +143,17 @@ with tab_sadci:
 
             col_kpi1, col_kpi2, col_kpi3 = st.columns(3)
             with col_kpi1:
-                promedio_ejecucion = df_sadci['ejecucion_presupuestal_pct'].mean()
-                st.metric("Eficacia Presupuestal", f"{promedio_ejecucion:.1f}%")
+                st.metric("Eficacia Presupuestal", f"{df_sadci['ejecucion_presupuestal_pct'].mean():.1f}%")
             with col_kpi2:
-                promedio_pdt = df_sadci['cumplimiento_pdt_pct'].mean()
-                st.metric("Meta PDT Media", f"{promedio_pdt:.1f}%")
+                st.metric("Meta PDT Media", f"{df_sadci['cumplimiento_pdt_pct'].mean():.1f}%")
             with col_kpi3:
-                mepi_avg = df_sadci['calificacion_mepi'].mean()
-                st.metric("Puntaje MEPI Promedio", f"{mepi_avg:.1f}/100")
+                st.metric("Puntaje MEPI Promedio", f"{df_sadci['calificacion_mepi'].mean():.1f}/100")
 
             st.divider()
             col_graph1, col_graph2 = st.columns(2)
             with col_graph1:
                 st.markdown("##### 🚀 Eficacia vs. Cumplimiento Meta")
                 st.bar_chart(df_sadci.set_index('nombre_entidad')[['ejecucion_presupuestal_pct', 'cumplimiento_pdt_pct']])
-            
             with col_graph2:
                 st.markdown("##### 💻 Madurez Digital por Entidad")
                 st.line_chart(df_sadci.set_index('nombre_entidad')['puntos_digital'])
@@ -115,12 +161,8 @@ with tab_sadci:
             st.markdown("##### 🏛️ Balance de Dimensiones")
             resumen_dim = pd.DataFrame({
                 "Dimensión": ["Administrativa", "Digital", "Eficacia", "Desempeño (MEPI)"],
-                "Puntaje": [
-                    df_sadci['robustez_adm'].mean(),
-                    df_sadci['puntos_digital'].mean(),
-                    df_sadci['ejecucion_presupuestal_pct'].mean(),
-                    df_sadci['calificacion_mepi'].mean()
-                ]
+                "Puntaje": [df_sadci['robustez_adm'].mean(), df_sadci['puntos_digital'].mean(), 
+                           df_sadci['ejecucion_presupuestal_pct'].mean(), df_sadci['calificacion_mepi'].mean()]
             })
             st.area_chart(resumen_dim.set_index("Dimensión"))
 
@@ -132,57 +174,47 @@ with tab_sadci:
                     presupuesto = st.number_input("Presupuesto Anual Rural ($)", min_value=0)
                     planta = st.number_input("Personal Planta", min_value=0)
                     contratos = st.number_input("Personal Contratista", min_value=0)
-                
                 with c2:
                     ejecucion = st.slider("% Ejecución Gasto", 0, 100, 70)
                     pdt = st.slider("% Avance Metas PDT", 0, 100, 50)
                     mepi = st.number_input("Calificación MEPI", 0, 100, 60)
-                
                 with c3:
                     digital = st.select_slider("Nivel Digital", ["Bajo", "Medio", "Alto", "Excelente"])
                     protocolo = st.selectbox("¿Protocolo Articulación?", ["Sí", "No", "En proceso"])
                     participacion = st.selectbox("Instancias Participación", ["Activas", "Inactivas", "Inexistentes"])
                     rendicion = st.selectbox("Rendición Cuentas", ["Anual", "Semestral", "Nunca"])
 
-                if st.form_submit_button("🚀 Guardar y Actualizar Dashboard"):
+                if st.form_submit_button("🚀 Guardar y Actualizar"):
                     if nombre:
+                        sh_d = conectar_gspread()
+                        ws_d = sh_d.worksheet("SADCI")
                         nueva_fila = [str(uuid.uuid4())[:8], nombre, presupuesto, planta, contratos,
-                                    protocolo, "Sí", rendicion, digital, 
-                                    ejecucion, pdt, participacion, mepi]
-                        ws_sadci.append_row(nueva_fila)
-                        st.success("✅ Auditoría guardada.")
+                                    protocolo, "Sí", rendicion, digital, ejecucion, pdt, participacion, mepi]
+                        ws_d.append_row(nueva_fila)
+                        st.success("✅ Guardado.")
                         st.cache_data.clear()
                         st.rerun()
-                    else:
-                        st.warning("⚠️ El nombre de la entidad es obligatorio.")
-
     except Exception as e:
-        st.error(f"Error en el sistema SADCI: {e}")
-        
+        st.error(f"Error SADCI: {e}")
+
 # --- TAB 3: REGISTRO DE ACTORES ---
 with tab_actores:
     st.subheader("👥 Caracterización de Actores Territoriales")
     try:
-        sh = conectar_gspread()
-        ws = sh.worksheet("Actores")
-        df_social = pd.DataFrame(ws.get_all_records())
-        
+        df_social = cargar_datos_con_cache("Actores")
         if not df_social.empty:
             st.markdown("#### 📊 Análisis de Composición Social")
             c_graf1, c_graf2 = st.columns(2)
             with c_graf1:
-                st.write("**Distribución por Perfil**")
                 st.bar_chart(df_social['Perfil'].value_counts())
             with c_graf2:
-                st.write("**Seguridad Jurídica (Tenencia)**")
                 st.line_chart(df_social['Tenencia'].value_counts())
             
             m1, m2, m3 = st.columns(3)
             m1.metric("Total Actores", len(df_social))
             m2.metric("Veredas Cubiertas", df_social['Vereda'].nunique())
             propiedad_total = len(df_social[df_social['Tenencia'] == 'Propiedad'])
-            pct_formal = (propiedad_total / len(df_social)) * 100 if len(df_social) > 0 else 0
-            m3.metric("Formalidad", f"{pct_formal:.1f}%")
+            m3.metric("Formalidad", f"{(propiedad_total/len(df_social))*100:.1f}%")
 
         with st.expander("📝 Registrar Nuevo Actor", expanded=df_social.empty):
             with st.form("registro_social", clear_on_submit=True):
@@ -194,16 +226,17 @@ with tab_actores:
                     vereda_a = st.text_input("Vereda de ubicación")
                     tenencia_a = st.selectbox("Situación de Tenencia", ["Propiedad", "Posesión", "Ocupación", "Baldío"])
                 
-                obs_a = st.text_area("Observaciones técnicas")
+                obs_a = st.text_area("Observaciones")
                 if st.form_submit_button("📤 Registrar Actor"):
                     if nombre_a and vereda_a:
-                        ws.append_row([str(uuid.uuid4())[:8], nombre_a, perfil_a, vereda_a, tenencia_a, obs_a])
+                        sh_act = conectar_gspread()
+                        ws_act = sh_act.worksheet("Actores")
+                        ws_act.append_row([str(uuid.uuid4())[:8], nombre_a, perfil_a, vereda_a, tenencia_a, obs_a])
                         st.success(f"✅ {nombre_a} registrado.")
                         st.cache_data.clear()
                         st.rerun()
-
     except Exception as e:
-        st.error(f"Error en el módulo de actores: {e}")
+        st.error(f"Error módulo actores: {e}")
 
 st.divider()
 st.caption("Investigación ESAP 2026")
