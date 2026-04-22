@@ -54,126 +54,84 @@ tab_mapa, tab_sadci, tab_actores = st.tabs([
     "👥 Registro de Actores"
 ])
 
-# --- TAB 1: MAPA ---
-with tab_mapa:
-    st.subheader("Visualizador de Tenencia y Conflictos")
-    
-    # 1. CARGA Y LIMPIEZA DE DATOS
-    df_raw = cargar_datos_con_cache("Conflictos")
-    df_plot = pd.DataFrame()
-
-    if df_raw is not None and not df_raw.empty:
-        df_plot = df_raw.copy()
-        df_plot.columns = df_plot.columns.str.strip().str.lower()
-        
-        # Limpieza de coordenadas
-        for col in ['lat', 'lon']:
-            if col in df_plot.columns:
-                df_plot[col] = df_plot[col].astype(str).str.replace(',', '.').str.strip()
-                df_plot[col] = pd.to_numeric(df_plot[col], errors='coerce')
-        
-        df_plot = df_plot.dropna(subset=['lat', 'lon'])
-
-    col_menu, col_mapa = st.columns([1, 3])
-
-    if "lat_click" not in st.session_state:
-        st.session_state.lat_click = 1.91
-    if "lon_click" not in st.session_state:
-        st.session_state.lon_click = -75.18
-
-    with col_menu:
-        st.markdown("### ⚠️ Registrar Conflicto")
-        with st.form("form_conflictos", clear_on_submit=True):
-            quien = st.text_input("Encuestador")
-            tipo = st.selectbox("Tipo", ["Linderos", "Uso de Suelo", "Ambiental", "Tenencia"])
-            vereda = st.text_input("Vereda")
-            
-            c1, c2 = st.columns(2)
-            lat_i = c1.number_input("Latitud", value=float(st.session_state.lat_click), format="%.6f")
-            lon_i = c2.number_input("Longitud", value=float(st.session_state.lon_click), format="%.6f")
-            
-            # --- CAMPO DESCRIPCIÓN RESTAURADO ---
-            desc = st.text_area("Descripción del conflicto", placeholder="Detalles adicionales...")
-            
-            if st.form_submit_button("📍 Guardar Registro"):
-                if vereda and quien:
-                    sh = conectar_gspread()
-                    ws = sh.worksheet("Conflictos")
-                    # Se guardan los datos incluyendo la descripción
-                    ws.append_row([
-                        str(uuid.uuid4())[:5], 
-                        tipo, 
-                        vereda, 
-                        str(lat_i), 
-                        str(lon_i), 
-                        desc if desc else "Sin descripción", 
-                        quien
-                    ])
-                    st.success("✅ Guardado.")
-                    st.cache_data.clear()
-                    st.rerun()
-
-    with col_mapa:
-        # Creación del mapa base
+with col_mapa:
+        # 1. DEFINICIÓN DE MAPA BASE Y CAPAS SATELITALES
         m = folium.Map(
             location=[st.session_state.lat_click, st.session_state.lon_click], 
-            zoom_start=12, 
-            tiles="cartodbpositron"
+            zoom_start=12,
+            tiles=None  # Desactivamos el default para manejar las capas nosotros
         )
-        
-        # --- CAPA DE VEREDAS ---
+
+        # Capa Satelital (Google) - La mejor para referencias de campo
+        folium.TileLayer(
+            tiles='https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}',
+            attr='Google',
+            name='Vista Satelital (Híbrida)',
+            overlay=False,
+            control=True
+        ).add_to(m)
+
+        # Capa de Calles y Vías (OpenStreetMap)
+        folium.TileLayer(
+            tiles='openstreetmap',
+            name='Mapa de Vías y Ríos',
+            overlay=False,
+            control=True
+        ).add_to(m)
+
+        # 2. CAPA DE VEREDAS (Límites vectoriales)
         if veredas_topo:
             try:
                 obj_name = list(veredas_topo['objects'].keys())[0]
                 folium.TopoJson(
                     veredas_topo, 
                     f"objects.{obj_name}",
-                    name="Capa de Veredas", # Nombre para el LayerControl
-                    style_function=lambda x: {'fillColor': '#2ecc71', 'color': 'black', 'weight': 0.5, 'fillOpacity': 0.1}
+                    name="Límites Veredales",
+                    style_function=lambda x: {
+                        'fillColor': 'transparent', 
+                        'color': '#FFFF00', # Amarillo brillante para resaltar sobre satélite
+                        'weight': 2, 
+                        'fillOpacity': 0.1
+                    }
                 ).add_to(m)
             except: pass
 
-        # --- CAPA DE PUNTOS DE CONFLICTO ---
-        # Creamos un FeatureGroup para que aparezca en el control de capas
-        fg_conflictos = folium.FeatureGroup(name="Puntos de Conflicto")
-        
+        # 3. CAPA DE PUNTOS DE CONFLICTO
+        fg_conflictos = folium.FeatureGroup(name="Puntos Registrados")
         if not df_plot.empty:
             for _, row in df_plot.iterrows():
                 try:
-                    # Usamos .get() para evitar errores si la columna cambia de nombre
                     tipo_val = str(row.get('tipo', row.get('tipo_conflicto', ''))).lower()
                     color_p = "red" if "tenencia" in tipo_val else "orange"
                     
                     folium.CircleMarker(
                         location=[row['lat'], row['lon']],
                         radius=8,
-                        color=color_p,
+                        color="white", # Borde blanco para contraste
+                        weight=2,
+                        fill_color=color_p,
                         fill=True,
-                        fill_opacity=0.8,
-                        popup=folium.Popup(
-                            f"<b>Vereda:</b> {row.get('vereda')}<br>"
-                            f"<b>Tipo:</b> {row.get('tipo', 'S/D')}<br>"
-                            f"<b>Descripción:</b> {row.get('descripcion', 'S/D')}", 
-                            max_width=250
-                        )
+                        fill_opacity=1,
+                        popup=f"<b>Vereda:</b> {row.get('vereda')}<br><b>Tipo:</b> {row.get('tipo', 'S/D')}"
                     ).add_to(fg_conflictos)
                 except: continue
         
         fg_conflictos.add_to(m)
 
-        # --- RESTAURAR CONTROL DE CAPAS ---
-        folium.LayerControl(collapsed=False).add_to(m)
+        # 4. CONTROL DE CAPAS (Aquí es donde el usuario elige qué ver)
+        folium.LayerControl(position='topright', collapsed=False).add_to(m)
 
-        # Renderizado del mapa
+        # Renderizado
         output = st_folium(m, width=700, height=500, key="mapa_final")
 
-        # Captura de clic para actualizar coordenadas en el formulario
+        # Lógica de captura de clic
         if output and output.get("last_clicked"):
             clic = output["last_clicked"]
             if abs(st.session_state.lat_click - clic["lat"]) > 0.0001:
                 st.session_state.lat_click = clic["lat"]
                 st.session_state.lon_click = clic["lng"]
-                st.rerun()                
+                st.rerun()
+                
 # --- TAB 2: AUDITORÍA SADCI ---
 with tab_sadci:
     st.subheader("📊 Diagnóstico de Capacidad Institucional (SADCI)")
