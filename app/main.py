@@ -94,22 +94,17 @@ with tab_mapa:
         if topo_data is None: 
             return True, "Capa no cargada"
         try:
-            # CRÍTICO: Shapely usa Point(Longitud, Latitud) -> (X, Y)
             punto_eval = Point(float(lon), float(lat))
-            
-            # Convertimos TopoJSON a GeoJSON para la validación
             from topojson import to_geojson
             geojson_data = to_geojson(topo_data)
             
             for feature in geojson_data['features']:
                 poligono = shape(feature['geometry'])
-                # Usamos un pequeño margen de error (buffer) si es necesario, 
-                # pero 'contains' es lo ideal para límites veredales.
                 if poligono.contains(punto_eval):
                     return True, feature['properties'].get('NOMBRE_VER', 'Vereda Localizada')
             return False, None
         except Exception as e:
-            return True, f"Error técnico: {e}" # No bloqueamos si hay error de código
+            return True, f"Error técnico: {e}"
 
     # 4. INTERFAZ DE REGISTRO
     col_menu, col_mapa = st.columns([1, 3])
@@ -123,21 +118,18 @@ with tab_mapa:
             vereda_manual = st.text_input("Nombre de la Vereda")
             
             c1, c2 = st.columns(2)
-            # El usuario puede editar estos números si el GPS o el clic no son exactos
             lat_i = c1.number_input("Latitud", value=float(st.session_state.lat_click), format="%.6f")
             lon_i = c2.number_input("Longitud", value=float(st.session_state.lon_click), format="%.6f")
             
             desc = st.text_area("Descripción del conflicto")
             
             if st.form_submit_button("📍 Guardar Registro"):
-                # VALIDACIÓN ANTES DE ENVIAR A SHEETS
                 es_valido, vereda_detectada = validar_punto_preciso(lat_i, lon_i, veredas_topo)
                 
                 if es_valido and quien:
                     try:
                         sh = conectar_gspread()
                         ws = sh.worksheet("Conflictos")
-                        # Guardamos con el nombre de vereda detectado o el manual
                         v_final = vereda_detectada if vereda_detectada else vereda_manual
                         ws.append_row([str(uuid.uuid4())[:5], tipo, v_final, str(lat_i), str(lon_i), desc, quien])
                         
@@ -147,11 +139,11 @@ with tab_mapa:
                     except Exception as e:
                         st.error(f"Error al guardar: {e}")
                 elif not es_valido:
-                    st.error(f"📍 Fuera de límites: Las coordenadas ({lat_i}, {lon_i}) no coinciden con los polígonos de Puerto Rico cargados.")
+                    st.error(f"📍 Fuera de límites: Las coordenadas ({lat_i}, {lon_i}) no coinciden con Puerto Rico.")
                 else:
                     st.warning("Por favor completa el nombre del encuestador.")
 
-    # 5. MAPA CON SELECTOR DE CAPAS
+    # 5. MAPA CON SELECTOR DE CAPAS Y TOOLTIP
     with col_mapa:
         m = folium.Map(
             location=[st.session_state.lat_click, st.session_state.lon_click], 
@@ -159,7 +151,6 @@ with tab_mapa:
             tiles=None
         )
 
-        # CAPAS BASE
         folium.TileLayer(
             tiles='https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}',
             attr='Google', name='Satélite (Híbrido)', overlay=False
@@ -167,7 +158,7 @@ with tab_mapa:
         
         folium.TileLayer('openstreetmap', name='Mapa Vial', overlay=False).add_to(m)
 
-        # CAPA VEREDAL
+        # CAPA VEREDAL CON TOOLTIP (HOVER)
         if veredas_topo:
             try:
                 obj_name = list(veredas_topo['objects'].keys())[0]
@@ -175,7 +166,20 @@ with tab_mapa:
                     veredas_topo, 
                     f"objects.{obj_name}",
                     name="Límites Veredales",
-                    style_function=lambda x: {'fillColor': 'transparent', 'color': '#FFFF00', 'weight': 2}
+                    style_function=lambda x: {
+                        'fillColor': 'transparent', 
+                        'color': '#FFFF00', 
+                        'weight': 2,
+                        'fillOpacity': 0.1
+                    },
+                    # NUEVO: Al pasar el cursor muestra el nombre de la vereda
+                    tooltip=folium.GeoJsonTooltip(
+                        fields=['NOMBRE_VER'],
+                        aliases=['Vereda:'],
+                        localize=True,
+                        sticky=True,
+                        labels=True
+                    )
                 ).add_to(m)
             except: pass
 
@@ -189,10 +193,8 @@ with tab_mapa:
                 ).add_to(fg)
         fg.add_to(m)
 
-        # CONTROL DE CAPAS
         folium.LayerControl(collapsed=False).add_to(m)
         
-        # RENDERIZADO Y CAPTURA DE CLIC
         output = st_folium(m, width=700, height=550, key="mapa_final")
 
         if output and output.get("last_clicked"):
