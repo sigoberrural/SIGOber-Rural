@@ -63,13 +63,22 @@ with tab_mapa:
     if not df_conf.empty:
         # Limpieza profunda de nombres de columnas
         df_conf.columns = df_conf.columns.str.strip().str.lower()
-        df_conf['lat'] = pd.to_numeric(df_conf['lat'], errors='coerce')
-        df_conf['lon'] = pd.to_numeric(df_conf['lon'], errors='coerce')
+        
+        # --- CORRECCIÓN DE COMAS DECIMALES ---
+        for col in ['lat', 'lon']:
+            if col in df_conf.columns:
+                df_conf[col] = (
+                    df_conf[col]
+                    .astype(str)
+                    .str.replace(',', '.')
+                    .pipe(pd.to_numeric, errors='coerce')
+                )
+        
         df_conf = df_conf.dropna(subset=['lat', 'lon'])
 
     col_menu, col_mapa = st.columns([1, 3])
 
-    # Inicializar coordenadas en session_state
+    # Inicializar coordenadas en session_state si no existen
     if "lat_click" not in st.session_state:
         st.session_state.lat_click = 1.91
     if "lon_click" not in st.session_state:
@@ -85,7 +94,7 @@ with tab_mapa:
             vereda = st.text_input("Vereda")
             
             c1, c2 = st.columns(2)
-            # Usamos lat_click y lon_click
+            # Los valores se actualizan con el session_state capturado del clic
             lat_input = c1.number_input("Latitud", value=float(st.session_state.lat_click), format="%.6f")
             lon_input = c2.number_input("Longitud", value=float(st.session_state.lon_click), format="%.6f")
             
@@ -93,25 +102,26 @@ with tab_mapa:
             
             if st.form_submit_button("📍 Guardar Registro"):
                 if vereda and quien:
-                    sh = conectar_gspread()
-                    ws = sh.worksheet("Conflictos")
-                    ws.append_row([str(uuid.uuid4())[:5], tipo, vereda, lat_input, lon_input, desc, quien])
-                    st.success("✅ Guardado.")
-                    st.cache_data.clear()
-                    st.rerun()
+                    try:
+                        sh = conectar_gspread()
+                        ws = sh.worksheet("Conflictos")
+                        ws.append_row([str(uuid.uuid4())[:5], tipo, vereda, lat_input, lon_input, desc, quien])
+                        st.success("✅ Guardado.")
+                        st.cache_data.clear()
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Error al guardar: {e}")
 
     with col_mapa:
+        # El mapa se centra en el último clic o posición inicial
         m = folium.Map(location=[st.session_state.lat_click, st.session_state.lon_click], 
                        zoom_start=12, tiles="cartodbpositron")
         
-        # 2. CAPA VEREDAS (Solución al AssertionError)
+        # 2. CAPA VEREDAS
         if veredas_topo:
             try:
                 obj_name = list(veredas_topo['objects'].keys())[0]
-                # Extraemos las propiedades del primer elemento para ver cómo se llama el campo
                 sample_props = veredas_topo['objects'][obj_name]['geometries'][0].get('properties', {})
-                
-                # Buscamos el campo de nombre dinámicamente
                 posibles = ['NOMBRE_VEREDA', 'NOM_VER', 'NOMBRE', 'VEREDA', 'NOMB_VER']
                 campo_final = next((f for f in posibles if f in sample_props), None)
 
@@ -122,41 +132,42 @@ with tab_mapa:
                     style_function=lambda x: {'fillColor': '#2ecc71', 'color': 'black', 'weight': 0.5, 'fillOpacity': 0.1}
                 )
                 
-                # Solo agregamos tooltip si encontramos el campo, para evitar el AssertionError
                 if campo_final:
                     folium.GeoJsonTooltip(fields=[campo_final], aliases=['Vereda:']).add_to(tj)
                 
                 tj.add_to(m)
             except Exception as e:
-                st.warning(f"Capa veredas cargada sin etiquetas (Error: {e})")
+                st.warning(f"Capa veredas sin etiquetas: {e}")
 
-        # 3. CAPA PUNTOS (Asegurando visibilidad)
+        # 3. CAPA PUNTOS
         if not df_conf.empty:
             for _, row in df_conf.iterrows():
-                # Buscamos el nombre de columna correcto para el tipo
                 t_conf = row.get('tipo_conflicto', row.get('tipo', 'Conflicto'))
+                # Se asegura de que t_conf sea string para el .lower()
+                color_p = "red" if str(t_conf).lower() == "tenencia" else "orange"
+                
                 folium.CircleMarker(
                     location=[row['lat'], row['lon']],
                     radius=7,
-                    color="red" if str(t_conf).lower() == "tenencia" else "orange",
+                    color=color_p,
                     fill=True,
                     fill_opacity=0.8,
-                    popup=f"Vereda: {row.get('vereda')}<br>Tipo: {t_conf}"
+                    popup=f"<b>Vereda:</b> {row.get('vereda')}<br><b>Tipo:</b> {t_conf}<br><b>Responsable:</b> {row.get('registrado_por', 'S/D')}"
                 ).add_to(m)
 
-        # 4. CAPTURA DE CLIC
+        # 4. CAPTURA DE CLIC (Renderizado del mapa)
         output = st_folium(m, width=700, height=500, key="mapa_pr")
 
-        # Si el usuario hace clic, actualizamos la posición
-        if output.get("last_clicked"):
+        # Lógica para detectar el clic y actualizar el formulario
+        if output and output.get("last_clicked"):
             click_lat = output["last_clicked"]["lat"]
             click_lon = output["last_clicked"]["lng"]
             
-            # Solo si el clic es nuevo, actualizamos y recargamos
+            # Comparamos con un margen de error pequeño para evitar bucles infinitos de rerun
             if abs(st.session_state.lat_click - click_lat) > 0.00001:
                 st.session_state.lat_click = click_lat
                 st.session_state.lon_click = click_lon
-                st.rerun()
+                st.rerun()           
                 
 # --- TAB 2: AUDITORÍA SADCI ---
 with tab_sadci:
