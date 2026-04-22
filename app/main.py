@@ -47,6 +47,19 @@ tab_mapa, tab_sadci, tab_actores = st.tabs([
     "👥 Registro de Actores"
 ])
 
+# --- FUNCIONES DE CARGA CON CACHÉ (Pon esto antes de las Tabs) ---
+
+@st.cache_data(ttl=600) # La caché dura 10 minutos
+def cargar_datos_con_cache(nombre_hoja):
+    try:
+        sh = conectar_gspread()
+        ws = sh.worksheet(nombre_hoja)
+        return pd.DataFrame(ws.get_all_records())
+    except Exception as e:
+        st.error(f"Error al cargar la hoja {nombre_hoja}: {e}")
+        return pd.DataFrame()
+
+
 # --- TAB 1: MAPA ---
 with tab_mapa:
     # REEMPLAZA ESTO:
