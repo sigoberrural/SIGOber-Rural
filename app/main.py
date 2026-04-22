@@ -19,20 +19,32 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# --- ESTILO CSS PERSONALIZADO (Mejora UX en móvil) ---
+# --- ESTILO CSS PERSONALIZADO ---
 st.markdown("""
     <style>
-    /* Botones más grandes para dedos en móvil */
     .stButton>button {
         width: 100%;
         border-radius: 8px;
         height: 3em;
         font-weight: bold;
     }
-    /* Ajuste de márgenes para pantallas pequeñas */
     .block-container {
         padding-top: 1rem;
         padding-bottom: 1rem;
+    }
+    /* Estilo para los créditos finales */
+    .footer-container {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 20px;
+        padding: 10px;
+        margin-top: 20px;
+    }
+    .footer-text {
+        font-size: 0.9rem;
+        color: #555;
+        text-align: center;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -83,7 +95,6 @@ tab_mapa, tab_sadci, tab_actores = st.tabs([
 with tab_mapa:
     st.subheader("Visualizador de Tenencia y Conflictos")
     
-    # 1. CARGA Y LIMPIEZA
     df_raw = cargar_datos_con_cache("Conflictos")
     df_plot = pd.DataFrame()
     if df_raw is not None and not df_raw.empty:
@@ -95,7 +106,6 @@ with tab_mapa:
                 df_plot[col] = pd.to_numeric(df_plot[col], errors='coerce')
         df_plot = df_plot.dropna(subset=['lat', 'lon'])
 
-    # 2. CAPTURA AUTOMÁTICA DE GEOLOCALIZACIÓN
     if "gps_capturado" not in st.session_state:
         loc = get_geolocation()
         if loc:
@@ -108,11 +118,10 @@ with tab_mapa:
     if "lon_click" not in st.session_state:
         st.session_state.lon_click = -75.1842
 
-    # 3. LÓGICA DE VALIDACIÓN (GEOFENCING CORREGIDO)
     def validar_punto_preciso(lat, lon, topo_data):
         if topo_data is None: return True, "Capa no cargada"
         try:
-            punto_eval = Point(float(lon), float(lat)) # Longitud, Latitud
+            punto_eval = Point(float(lon), float(lat))
             from topojson import to_geojson
             geojson_data = to_geojson(topo_data)
             for feature in geojson_data['features']:
@@ -121,7 +130,6 @@ with tab_mapa:
             return False, None
         except: return True, "Error técnico de validación"
 
-    # 4. INTERFAZ DE REGISTRO
     col_menu, col_mapa = st.columns([1, 3])
 
     with col_menu:
@@ -153,7 +161,6 @@ with tab_mapa:
                     st.error("📍 Ubicación fuera de los límites de Puerto Rico.")
                 else: st.warning("Completa el nombre del encuestador.")
 
-    # 5. MAPA CON SELECTOR Y TOOLTIP
     with col_mapa:
         m = folium.Map(
             location=[st.session_state.lat_click, st.session_state.lon_click], 
@@ -190,7 +197,7 @@ with tab_mapa:
                 st.session_state.lon_click = clic["lng"]
                 st.rerun()
 
-# --- TAB 2: AUDITORÍA SADCI --- (Sin cambios en tu lógica)
+# --- TAB 2: AUDITORÍA SADCI ---
 with tab_sadci:
     st.subheader("📊 Diagnóstico de Capacidad Institucional (SADCI)")
     try:
@@ -239,7 +246,7 @@ with tab_sadci:
                         st.rerun()
     except Exception as e: st.error(f"Error SADCI: {e}")
 
-# --- TAB 3: ACTORES --- (Sin cambios en tu lógica)
+# --- TAB 3: ACTORES ---
 with tab_actores:
     st.subheader("👥 Caracterización de Actores")
     try:
@@ -272,5 +279,26 @@ with tab_actores:
                         st.rerun()
     except Exception as e: st.error(f"Error actores: {e}")
 
+# --- CRÉDITOS FINALES ---
 st.divider()
-st.caption("Investigación ESAP 2026")
+col_f1, col_f2 = st.columns([1, 4])
+
+with col_f1:
+    # Intenta cargar el logo de la ESAP si existe en la carpeta assets o data
+    logo_path = os.path.join('data', 'logo_esap.png')
+    if os.path.exists(logo_path):
+        st.image(logo_path, width=120)
+    else:
+        st.markdown("**ESAP**")
+
+with col_f2:
+    st.markdown(
+        """
+        <div class="footer-text">
+            <strong>Investigación ESAP 2026</strong><br>
+            Desarrollado en colaboración con el <strong>Colectivo de Estudios Sociales Guadalupe Salcedo</strong><br>
+            <em>Propiedad Intelectual y Académica Reservada</em>
+        </div>
+        """, 
+        unsafe_allow_html=True
+    )
