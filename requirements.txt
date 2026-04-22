@@ -6,3 +6,5 @@ pandas
 gspread
 google-auth
 streamlit-js-eval
+shapely
+topojson
