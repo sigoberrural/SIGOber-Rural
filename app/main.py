@@ -8,6 +8,8 @@ import os
 import uuid
 import gspread
 from google.oauth2.service_account import Credentials
+from shapely.geometry import shape, Point
+import topojson as tp
 
 # 1. CONFIGURACIÓN E INTERFAZ
 st.set_page_config(page_title="SIGOber-Rural Puerto Rico", layout="wide")
@@ -61,7 +63,7 @@ from streamlit_js_eval import get_geolocation
 with tab_mapa:
     st.subheader("Visualizador de Tenencia y Conflictos")
     
-    # 1. CARGA Y LIMPIEZA DE DATOS (Tu código base)
+    # 1. CARGA Y LIMPIEZA DE DATOS
     df_raw = cargar_datos_con_cache("Conflictos")
     df_plot = pd.DataFrame()
     if df_raw is not None and not df_raw.empty:
@@ -72,6 +74,23 @@ with tab_mapa:
                 df_plot[col] = df_plot[col].astype(str).str.replace(',', '.').str.strip()
                 df_plot[col] = pd.to_numeric(df_plot[col], errors='coerce')
         df_plot = df_plot.dropna(subset=['lat', 'lon'])
+
+    # --- LÓGICA DE VALIDACIÓN GEOGRÁFICA ---
+    def validar_punto_en_veredas(lat, lon, topo_data):
+        """Verifica si el punto está dentro de los polígonos de veredas_topo."""
+        if topo_data is None:
+            return True, "Sin capa"
+        try:
+            punto = Point(lon, lat) # Shapely usa (x, y)
+            # Convertimos TopoJSON a GeoJSON para iterar polígonos
+            topo_geojson = tp.to_geojson(topo_data)
+            for feature in topo_geojson['features']:
+                poligono = shape(feature['geometry'])
+                if poligono.contains(punto):
+                    return True, feature['properties'].get('NOMBRE_VER', 'Vereda Localizada')
+            return False, None
+        except:
+            return False, None
 
     # DEFINICIÓN DE COLUMNAS
     col_menu, col_mapa = st.columns([1, 3])
@@ -84,17 +103,27 @@ with tab_mapa:
     with col_menu:
         st.markdown("### ⚠️ Registrar Conflicto")
         
-        # --- NUEVA FUNCIONALIDAD: BOTÓN GPS ---
+        # --- FUNCIONALIDAD GPS CON GEOFENCING ---
         st.write("---")
         if st.button("📡 Capturar mi ubicación GPS"):
             loc = get_geolocation()
             if loc:
-                st.session_state.lat_click = loc['coords']['latitude']
-                st.session_state.lon_click = loc['coords']['longitude']
-                st.success("Ubicación capturada con éxito")
-                st.rerun()
+                temp_lat = loc['coords']['latitude']
+                temp_lon = loc['coords']['longitude']
+                
+                # Validamos si la posición GPS está dentro de Puerto Rico
+                es_valido, nombre_v = validar_punto_en_veredas(temp_lat, temp_lon, veredas_topo)
+                
+                if es_valido:
+                    st.session_state.lat_click = temp_lat
+                    st.session_state.lon_click = temp_lon
+                    st.success(f"Ubicación en {nombre_v} capturada.")
+                    st.rerun()
+                else:
+                    st.error("Ubicación fuera del municipio.")
+                    st.info("El GPS indica que estás fuera del área. Por favor, toca el mapa manualmente para ubicar el predio.")
             else:
-                st.warning("Por favor, activa el GPS y permite el acceso en tu navegador.")
+                st.warning("Activa el GPS y permite el acceso.")
         st.write("---")
         
         st.caption("Selecciona un punto en el mapa o usa el botón GPS.")
@@ -105,7 +134,6 @@ with tab_mapa:
             vereda = st.text_input("Vereda")
             
             c1, c2 = st.columns(2)
-            # Usamos los valores del session_state que se actualizan por clic O por GPS
             lat_i = c1.number_input("Latitud", value=float(st.session_state.lat_click), format="%.6f")
             lon_i = c2.number_input("Longitud", value=float(st.session_state.lon_click), format="%.6f")
             
@@ -113,30 +141,54 @@ with tab_mapa:
             
             if st.form_submit_button("📍 Guardar Registro"):
                 if vereda and quien:
-                    try:
-                        sh = conectar_gspread()
-                        ws = sh.worksheet("Conflictos")
-                        ws.append_row([str(uuid.uuid4())[:5], tipo, vereda, str(lat_i), str(lon_i), desc, quien])
-                        st.success("✅ Guardado.")
-                        st.cache_data.clear()
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"Error al conectar: {e}")
+                    # Validamos una última vez antes de guardar (por si movieron los números manualmente)
+                    es_valido_final, _ = validar_punto_en_veredas(lat_i, lon_i, veredas_topo)
+                    if es_valido_final:
+                        try:
+                            sh = conectar_gspread()
+                            ws = sh.worksheet("Conflictos")
+                            ws.append_row([str(uuid.uuid4())[:5], tipo, vereda, str(lat_i), str(lon_i), desc, quien])
+                            st.success("✅ Guardado.")
+                            st.cache_data.clear()
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Error al conectar: {e}")
+                    else:
+                        st.error("Error: Las coordenadas están fuera de los límites permitidos.")
 
-    # BLOQUE DE MAPA (Tu código base sin cambios, pero ahora reaccionará al GPS)
+    # BLOQUE DE MAPA
     with col_mapa:
         m = folium.Map(
             location=[st.session_state.lat_click, st.session_state.lon_click], 
-            zoom_start=15 if st.session_state.lat_click != 1.91 else 12, # Zoom más cerca si es GPS
+            zoom_start=15 if st.session_state.lat_click != 1.91 else 12,
             tiles=None
         )
 
-        # ... (Aquí va todo tu código de folium.TileLayer y folium.TopoJson)
-        # Asegúrate de mantener el renderizado de folium.LayerControl y st_folium
+        # Capas base y TopoJSON (Igual a tu código previo)
+        folium.TileLayer(
+            tiles='https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}',
+            attr='Google', name='Vista Satelital (Híbrida)', overlay=False
+        ).add_to(m)
+
+        if veredas_topo:
+            obj_name = list(veredas_topo['objects'].keys())[0]
+            folium.TopoJson(
+                veredas_topo, 
+                f"objects.{obj_name}",
+                name="Límites Veredales",
+                style_function=lambda x: {'fillColor': 'transparent', 'color': '#FFFF00', 'weight': 2}
+            ).add_to(m)
+
+        # Puntos de conflictos existentes
+        for _, row in df_plot.iterrows():
+            folium.CircleMarker(
+                location=[row['lat'], row['lon']],
+                radius=5, color="red", fill=True
+            ).add_to(m)
         
         output = st_folium(m, width=700, height=500, key="mapa_final")
 
-        # Captura de clic (Sigue funcionando en paralelo)
+        # Captura de clic (Nota: Aquí NO bloqueamos el clic para permitir que ubiquen el predio visualmente)
         if output and output.get("last_clicked"):
             clic = output["last_clicked"]
             if abs(st.session_state.lat_click - clic["lat"]) > 0.0001:
