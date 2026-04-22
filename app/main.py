@@ -58,131 +58,99 @@ tab_mapa, tab_sadci, tab_actores = st.tabs([
 with tab_mapa:
     st.subheader("Visualizador de Tenencia y Conflictos")
     
-    # 1. Carga y Limpieza de datos
+    # 1. CARGA DE DATOS (Forzamos limpieza de nombres de columnas)
     df_conf = cargar_datos_con_cache("Conflictos")
-    
     if not df_conf.empty:
-        # Limpiamos nombres de columnas (quita espacios extra)
-        df_conf.columns = df_conf.columns.str.strip()
+        df_conf.columns = df_conf.columns.str.strip().str.lower() # Todo a minúsculas y sin espacios
         df_conf['lat'] = pd.to_numeric(df_conf['lat'], errors='coerce')
         df_conf['lon'] = pd.to_numeric(df_conf['lon'], errors='coerce')
         df_conf = df_conf.dropna(subset=['lat', 'lon'])
 
     col_menu, col_mapa = st.columns([1, 3])
 
+    # --- LÓGICA DE CAPTURA DE CLIC (Fuera del Formulario para que funcione) ---
+    # Inicializamos valores por defecto en session_state si no existen
+    if "lat_click" not in st.session_state:
+        st.session_state.lat_click = 1.91
+    if "lon_click" not in st.session_state:
+        st.session_state.lon_click = -75.18
+
     with col_menu:
-        st.markdown("### 🛠️ Capas y Filtros")
+        st.markdown("### 🛠️ Capas")
         mostrar_veredas = st.checkbox("Límites Veredales", value=True)
         mostrar_puntos = st.checkbox("Puntos de Conflicto", value=True)
         
         st.divider()
         st.markdown("### ⚠️ Registrar Conflicto")
-        st.info("💡 **Tip:** Haz clic en cualquier lugar del mapa para capturar las coordenadas automáticamente.")
+        st.caption("Selecciona un punto en el mapa para cargar coordenadas.")
         
-        # --- LÓGICA DE CAPTURA DE COORDENADAS ---
-        # Si el usuario hace clic en el mapa, st_folium devuelve el dato en la sesión
-        lat_previa = 1.91
-        lon_previa = -75.18
-        
-        # Verificamos si hubo un clic en el renderizado anterior
-        if f"mapa_puerto_rico" in st.session_state and st.session_state["mapa_puerto_rico"].get("last_clicked"):
-            click = st.session_state["mapa_puerto_rico"]["last_clicked"]
-            lat_previa = click["lat"]
-            lon_previa = click["lng"]
-
+        # EL FORMULARIO
         with st.form("form_conflictos", clear_on_submit=True):
-            quien_registra = st.text_input("Nombre o Código del Encuestador")
-            tipo_c = st.selectbox("Tipo de Conflicto", ["Linderos", "Uso de Suelo", "Ambiental", "Tenencia"])
-            vereda_c = st.text_input("Nombre de la Vereda")
+            quien = st.text_input("Encuestador")
+            tipo = st.selectbox("Tipo", ["Linderos", "Uso de Suelo", "Ambiental", "Tenencia"])
+            vereda = st.text_input("Vereda")
             
+            # Usamos los valores guardados en el session_state que vienen del clic
             c1, c2 = st.columns(2)
-            # Los campos se actualizan con el clic del mapa
-            lat_c = c1.number_input("Latitud", value=float(lat_previa), format="%.6f")
-            lon_c = c2.number_input("Longitud", value=float(lon_previa), format="%.6f")
+            lat_input = c1.number_input("Latitud", value=float(st.session_state.lat_click), format="%.6f")
+            lon_input = c2.number_input("Longitud", value=float(st.session_state.lon_click), format="%.6f")
             
-            desc_c = st.text_area("Descripción del caso")
+            desc = st.text_area("Descripción")
             
-            if st.form_submit_button("📍 Marcar y Guardar en Google Sheets"):
-                if vereda_c and quien_registra:
+            btn_guardar = st.form_submit_button("📍 Guardar Registro")
+            
+            if btn_guardar:
+                if vereda and quien:
                     try:
-                        sh_direct = conectar_gspread()
-                        ws_direct = sh_direct.worksheet("Conflictos")
-                        # Aseguramos que el orden coincida con tu Excel
-                        nueva_fila = [str(uuid.uuid4())[:5], tipo_c, vereda_c, lat_c, lon_c, desc_c, quien_registra]
-                        ws_direct.append_row(nueva_fila)
+                        sh = conectar_gspread()
+                        ws = sh.worksheet("Conflictos")
+                        # OJO: Verifica que el orden de columnas en tu Excel sea este:
+                        # ID, Tipo, Vereda, Lat, Lon, Desc, Quien
+                        ws.append_row([str(uuid.uuid4())[:5], tipo, vereda, lat_input, lon_input, desc, quien])
                         
-                        st.success("✅ ¡Punto guardado! Actualizando mapa...")
-                        st.cache_data.clear()
+                        st.success("✅ ¡Guardado!")
+                        st.cache_data.clear() # LIMPIA LA CACHÉ PARA QUE EL PUNTO APAREZCA
                         st.rerun()
                     except Exception as e:
-                        st.error(f"Error al guardar: {e}")
-                else:
-                    st.warning("⚠️ Por favor ingresa la Vereda y tu Nombre.")
+                        st.error(f"Error: {e}")
 
     with col_mapa:
-        # Creamos el mapa base
-        m = folium.Map(location=[lat_previa, lon_previa], zoom_start=12, tiles="cartodbpositron")
+        # Definir mapa
+        m = folium.Map(location=[st.session_state.lat_click, st.session_state.lon_click], 
+                       zoom_start=12, tiles="cartodbpositron")
         
-        # 2. CAPA VEREDAS (Mejorada para mostrar nombres)
+        # Capa Veredas
         if veredas_topo and mostrar_veredas:
-            try:
-                obj_name = list(veredas_topo['objects'].keys())[0]
-                # Lista de posibles nombres de columnas en el TopoJSON para nombres de veredas
-                posibles_campos = ['NOMBRE_VEREDA', 'NOM_VER', 'NOMBRE', 'vereda', 'NOMB_VER']
-                props_ejemplo = veredas_topo['objects'][obj_name]['geometries'][0].get('properties', {})
-                
-                campo_nombre = next((f for f in posibles_campos if f in props_ejemplo), list(props_ejemplo.keys())[0])
-                
-                folium.TopoJson(
-                    data=veredas_topo, 
-                    object_path=f"objects.{obj_name}",
-                    name="Veredas",
-                    tooltip=folium.GeoJsonTooltip(
-                        fields=[campo_nombre], 
-                        aliases=['📍 Vereda:'],
-                        style=("background-color: white; color: #333333; font-family: arial; font-size: 12px; padding: 10px;")
-                    ),
-                    style_function=lambda x: {
-                        'fillColor': '#2ecc71', 
-                        'color': 'black', 
-                        'weight': 0.5, 
-                        'fillOpacity': 0.1
-                    }
-                ).add_to(m)
-            except Exception as e:
-                st.error(f"Error en visualización de veredas: {e}")
+            obj_name = list(veredas_topo['objects'].keys())[0]
+            folium.TopoJson(
+                data=veredas_topo, 
+                object_path=f"objects.{obj_name}",
+                tooltip=folium.GeoJsonTooltip(fields=['NOMBRE_VEREDA'], aliases=['Vereda:']), # AJUSTA AL NOMBRE REAL EN TU JSON
+                style_function=lambda x: {'fillColor': '#2ecc71', 'color': 'black', 'weight': 0.5, 'fillOpacity': 0.1}
+            ).add_to(m)
 
-        # 3. CAPA DE PUNTOS DE CONFLICTO (Corregida)
+        # Capa Puntos (La que no se mostraba)
         if mostrar_puntos and not df_conf.empty:
-            for i, row in df_conf.iterrows():
-                # Validación de seguridad para nombres de columnas
-                tipo = row.get('tipo_conflicto', 'No definido')
-                nom_vereda = row.get('vereda', 'Sin nombre')
-                autor = row.get('registrado_por', 'Anónimo')
-                
-                # Definir color según tipo
-                color_punto = "red" if tipo == "Tenencia" else "orange"
-                if tipo == "Ambiental": color_punto = "green"
-                
+            for _, row in df_conf.iterrows():
                 folium.CircleMarker(
                     location=[row['lat'], row['lon']],
-                    radius=7,
-                    color=color_punto,
+                    radius=6,
+                    color="red" if row['tipo_conflicto'] == "tenencia" else "orange",
                     fill=True,
-                    fill_opacity=0.7,
-                    popup=folium.Popup(f"""
-                        <b>Conflicto:</b> {tipo}<br>
-                        <b>Vereda:</b> {nom_vereda}<br>
-                        <b>Descripción:</b> {row.get('descripcion', 'S/D')}<br>
-                        <b>Registró:</b> {autor}
-                    """, max_width=250),
-                    tooltip=f"Haga clic para detalles - {tipo}"
+                    popup=f"Tipo: {row.get('tipo_conflicto')}<br>Vereda: {row.get('vereda')}"
                 ).add_to(m)
 
-        # Renderizado con captura de eventos
-        # st_folium devolverá el punto exacto donde el usuario toque.
-        st_folium(m, width=800, height=600, key="mapa_puerto_rico")
+        # RENDERIZADO Y CAPTURA
+        output = st_folium(m, width=800, height=600, key="mapa_interactivo")
 
+        # SI HAY CLIC, ACTUALIZAMOS EL SESSION STATE Y RECARGAMOS PARA QUE EL FORMULARIO LO VEA
+        if output.get("last_clicked"):
+            nuevo_lat = output["last_clicked"]["lat"]
+            nuevo_lon = output["last_clicked"]["lng"]
+            if nuevo_lat != st.session_state.lat_click: # Solo recarga si el punto es distinto
+                st.session_state.lat_click = nuevo_lat
+                st.session_state.lon_click = nuevo_lon
+                st.rerun()
 # --- TAB 2: AUDITORÍA SADCI ---
 with tab_sadci:
     st.subheader("📊 Diagnóstico de Capacidad Institucional (SADCI)")
