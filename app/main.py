@@ -58,31 +58,36 @@ tab_mapa, tab_sadci, tab_actores = st.tabs([
 with tab_mapa:
     st.subheader("Visualizador de Tenencia y Conflictos")
     
-    # 1. CARGA Y LIMPIEZA AGRESIVA
-    df_conf = cargar_datos_con_cache("Conflictos")
+    # 1. CARGA DE DATOS
+    df_raw = cargar_datos_con_cache("Conflictos")
     
-    # Creamos una copia para no alterar la caché original y procesamos
-    if df_conf is not None and not df_conf.empty:
-        df_plot = df_conf.copy()
-        # Estandarizar nombres de columnas: sin espacios y en minúsculas
-        df_plot.columns = df_plot.columns.str.strip().str.lower()
-        
-        # Limpieza de coordenadas: Convertir a string, quitar espacios, cambiar coma por punto
-        for col in ['lat', 'lon']:
-            if col in df_plot.columns:
-                df_plot[col] = (
-                    df_plot[col]
-                    .astype(str)
-                    .str.replace(' ', '')
-                    .str.replace(',', '.')
-                )
-                # Convertir a número forzado (lo que no sea número será NaN)
-                df_plot[col] = pd.to_numeric(df_plot[col], errors='coerce')
-        
-        # ELIMINAR filas donde la conversión falló (importante para que Folium no explote)
-        df_plot = df_plot.dropna(subset=['lat', 'lon'])
-    else:
-        df_plot = pd.DataFrame()
+    # Contenedor de depuración (puedes quitarlo luego)
+    with st.expander("🔍 Diagnóstico de Datos (Si no ves puntos, abre aquí)"):
+        if df_raw is None or df_raw.empty:
+            st.error("La hoja 'Conflictos' está vacía o no se pudo leer.")
+            df_plot = pd.DataFrame()
+        else:
+            st.write("Columnas detectadas:", list(df_raw.columns))
+            # Limpieza inmediata
+            df_plot = df_raw.copy()
+            df_plot.columns = df_plot.columns.str.strip().str.lower()
+            
+            # Verificación de columnas críticas
+            cols_necesarias = ['lat', 'lon']
+            cols_presentes = [c for c in cols_necesarias if c in df_plot.columns]
+            
+            if len(cols_presentes) < 2:
+                st.error(f"Faltan columnas de coordenadas. Encontradas: {cols_presentes}")
+            else:
+                # Limpieza de valores
+                for col in ['lat', 'lon']:
+                    df_plot[col] = df_plot[col].astype(str).str.replace(',', '.').str.strip()
+                    df_plot[col] = pd.to_numeric(df_plot[col], errors='coerce')
+                
+                df_plot = df_plot.dropna(subset=['lat', 'lon'])
+                st.write(f"Puntos listos para dibujar: {len(df_plot)}")
+                if len(df_plot) > 0:
+                    st.dataframe(df_plot[['lat', 'lon', 'vereda']].head())
 
     col_menu, col_mapa = st.columns([1, 3])
 
@@ -92,68 +97,67 @@ with tab_mapa:
         st.session_state.lon_click = -75.18
 
     with col_menu:
-        st.markdown("### ⚠️ Registrar Conflicto")
+        st.markdown("### ⚠️ Registrar")
         with st.form("form_conflictos", clear_on_submit=True):
             quien = st.text_input("Encuestador")
             tipo = st.selectbox("Tipo", ["Linderos", "Uso de Suelo", "Ambiental", "Tenencia"])
             vereda = st.text_input("Vereda")
             
             c1, c2 = st.columns(2)
-            lat_input = c1.number_input("Latitud", value=float(st.session_state.lat_click), format="%.6f")
-            lon_input = c2.number_input("Longitud", value=float(st.session_state.lon_click), format="%.6f")
+            lat_i = c1.number_input("Lat", value=float(st.session_state.lat_click), format="%.6f")
+            lon_i = c2.number_input("Lon", value=float(st.session_state.lon_click), format="%.6f")
             
-            desc = st.text_area("Descripción")
-            
-            if st.form_submit_button("📍 Guardar Registro"):
+            if st.form_submit_button("📍 Guardar"):
                 if vereda and quien:
                     sh = conectar_gspread()
                     ws = sh.worksheet("Conflictos")
-                    # Guardamos siempre con punto decimal para evitar problemas futuros
-                    ws.append_row([str(uuid.uuid4())[:5], tipo, vereda, lat_input, lon_input, desc, quien])
-                    st.success("✅ Guardado en la nube.")
-                    st.cache_data.clear() # ¡CRÍTICO! Borra la memoria para leer el nuevo punto
+                    # Forzamos el guardado con punto decimal siempre
+                    ws.append_row([str(uuid.uuid4())[:5], tipo, vereda, str(lat_i), str(lon_i), "S/D", quien])
+                    st.cache_data.clear()
                     st.rerun()
 
     with col_mapa:
+        # Forzar centro en el último clic
         m = folium.Map(location=[st.session_state.lat_click, st.session_state.lon_click], 
                        zoom_start=12, tiles="cartodbpositron")
         
-        # Capa Veredas
+        # Capa Veredas (Opcional, con try para que no rompa el resto)
         if veredas_topo:
             try:
-                obj_name = list(veredas_topo['objects'].keys())[0]
-                folium.TopoJson(
-                    data=veredas_topo, 
-                    object_path=f"objects.{obj_name}",
-                    name="Límites",
-                    style_function=lambda x: {'fillColor': '#2ecc71', 'color': 'black', 'weight': 0.5, 'fillOpacity': 0.1}
-                ).add_to(m)
+                folium.TopoJson(veredas_topo, f"objects.{list(veredas_topo['objects'].keys())[0]}",
+                                style_function=lambda x: {'fillOpacity': 0.1, 'weight': 0.5}).add_to(m)
             except: pass
 
-        # --- DIBUJO DE PUNTOS (CORREGIDO) ---
+        # --- DIBUJO DE PUNTOS ---
         if not df_plot.empty:
-            for i, row in df_plot.iterrows():
-                # Verificamos que las coordenadas sean finitas (no NaN ni Infinito)
-                import math
-                if not (math.isnan(row['lat']) or math.isnan(row['lon'])):
+            for _, row in df_plot.iterrows():
+                # Validación de seguridad
+                try:
+                    lat_val = float(row['lat'])
+                    lon_val = float(row['lon'])
+                    
                     folium.CircleMarker(
-                        location=[row['lat'], row['lon']],
+                        location=[lat_val, lon_val],
                         radius=8,
                         color="red" if "tenencia" in str(row.get('tipo_conflicto', '')).lower() else "blue",
                         fill=True,
-                        fill_opacity=0.9,
-                        popup=f"Vereda: {row.get('vereda', 'S/D')}<br>Tipo: {row.get('tipo_conflicto', 'S/D')}",
-                        tooltip="Click para ver detalle"
+                        fill_opacity=0.8,
+                        popup=f"Vereda: {row.get('vereda')}"
                     ).add_to(m)
+                except:
+                    continue
 
-        output = st_folium(m, width=700, height=500, key="mapa_pr")
+        # Renderizado
+        output = st_folium(m, width=700, height=500, key="mapa_final")
 
+        # Captura de clic
         if output and output.get("last_clicked"):
-            c_lat, c_lon = output["last_clicked"]["lat"], output["last_clicked"]["lng"]
-            if abs(st.session_state.lat_click - c_lat) > 0.0001:
-                st.session_state.lat_click = c_lat
-                st.session_state.lon_click = c_lon
-                st.rerun()                
+            clic = output["last_clicked"]
+            if abs(st.session_state.lat_click - clic["lat"]) > 0.0001:
+                st.session_state.lat_click = clic["lat"]
+                st.session_state.lon_click = clic["lng"]
+                st.rerun()
+                
 # --- TAB 2: AUDITORÍA SADCI ---
 with tab_sadci:
     st.subheader("📊 Diagnóstico de Capacidad Institucional (SADCI)")
