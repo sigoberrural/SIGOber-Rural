@@ -58,36 +58,21 @@ tab_mapa, tab_sadci, tab_actores = st.tabs([
 with tab_mapa:
     st.subheader("Visualizador de Tenencia y Conflictos")
     
-    # 1. CARGA DE DATOS
+    # 1. CARGA Y LIMPIEZA DE DATOS
     df_raw = cargar_datos_con_cache("Conflictos")
-    
-    # Contenedor de depuración (puedes quitarlo luego)
-    with st.expander("🔍 Diagnóstico de Datos (Si no ves puntos, abre aquí)"):
-        if df_raw is None or df_raw.empty:
-            st.error("La hoja 'Conflictos' está vacía o no se pudo leer.")
-            df_plot = pd.DataFrame()
-        else:
-            st.write("Columnas detectadas:", list(df_raw.columns))
-            # Limpieza inmediata
-            df_plot = df_raw.copy()
-            df_plot.columns = df_plot.columns.str.strip().str.lower()
-            
-            # Verificación de columnas críticas
-            cols_necesarias = ['lat', 'lon']
-            cols_presentes = [c for c in cols_necesarias if c in df_plot.columns]
-            
-            if len(cols_presentes) < 2:
-                st.error(f"Faltan columnas de coordenadas. Encontradas: {cols_presentes}")
-            else:
-                # Limpieza de valores
-                for col in ['lat', 'lon']:
-                    df_plot[col] = df_plot[col].astype(str).str.replace(',', '.').str.strip()
-                    df_plot[col] = pd.to_numeric(df_plot[col], errors='coerce')
-                
-                df_plot = df_plot.dropna(subset=['lat', 'lon'])
-                st.write(f"Puntos listos para dibujar: {len(df_plot)}")
-                if len(df_plot) > 0:
-                    st.dataframe(df_plot[['lat', 'lon', 'vereda']].head())
+    df_plot = pd.DataFrame()
+
+    if df_raw is not None and not df_raw.empty:
+        df_plot = df_raw.copy()
+        df_plot.columns = df_plot.columns.str.strip().str.lower()
+        
+        # Limpieza de coordenadas
+        for col in ['lat', 'lon']:
+            if col in df_plot.columns:
+                df_plot[col] = df_plot[col].astype(str).str.replace(',', '.').str.strip()
+                df_plot[col] = pd.to_numeric(df_plot[col], errors='coerce')
+        
+        df_plot = df_plot.dropna(subset=['lat', 'lon'])
 
     col_menu, col_mapa = st.columns([1, 3])
 
@@ -97,67 +82,98 @@ with tab_mapa:
         st.session_state.lon_click = -75.18
 
     with col_menu:
-        st.markdown("### ⚠️ Registrar")
+        st.markdown("### ⚠️ Registrar Conflicto")
         with st.form("form_conflictos", clear_on_submit=True):
             quien = st.text_input("Encuestador")
             tipo = st.selectbox("Tipo", ["Linderos", "Uso de Suelo", "Ambiental", "Tenencia"])
             vereda = st.text_input("Vereda")
             
             c1, c2 = st.columns(2)
-            lat_i = c1.number_input("Lat", value=float(st.session_state.lat_click), format="%.6f")
-            lon_i = c2.number_input("Lon", value=float(st.session_state.lon_click), format="%.6f")
+            lat_i = c1.number_input("Latitud", value=float(st.session_state.lat_click), format="%.6f")
+            lon_i = c2.number_input("Longitud", value=float(st.session_state.lon_click), format="%.6f")
             
-            if st.form_submit_button("📍 Guardar"):
+            # --- CAMPO DESCRIPCIÓN RESTAURADO ---
+            desc = st.text_area("Descripción del conflicto", placeholder="Detalles adicionales...")
+            
+            if st.form_submit_button("📍 Guardar Registro"):
                 if vereda and quien:
                     sh = conectar_gspread()
                     ws = sh.worksheet("Conflictos")
-                    # Forzamos el guardado con punto decimal siempre
-                    ws.append_row([str(uuid.uuid4())[:5], tipo, vereda, str(lat_i), str(lon_i), "S/D", quien])
+                    # Se guardan los datos incluyendo la descripción
+                    ws.append_row([
+                        str(uuid.uuid4())[:5], 
+                        tipo, 
+                        vereda, 
+                        str(lat_i), 
+                        str(lon_i), 
+                        desc if desc else "Sin descripción", 
+                        quien
+                    ])
+                    st.success("✅ Guardado.")
                     st.cache_data.clear()
                     st.rerun()
 
     with col_mapa:
-        # Forzar centro en el último clic
-        m = folium.Map(location=[st.session_state.lat_click, st.session_state.lon_click], 
-                       zoom_start=12, tiles="cartodbpositron")
+        # Creación del mapa base
+        m = folium.Map(
+            location=[st.session_state.lat_click, st.session_state.lon_click], 
+            zoom_start=12, 
+            tiles="cartodbpositron"
+        )
         
-        # Capa Veredas (Opcional, con try para que no rompa el resto)
+        # --- CAPA DE VEREDAS ---
         if veredas_topo:
             try:
-                folium.TopoJson(veredas_topo, f"objects.{list(veredas_topo['objects'].keys())[0]}",
-                                style_function=lambda x: {'fillOpacity': 0.1, 'weight': 0.5}).add_to(m)
+                obj_name = list(veredas_topo['objects'].keys())[0]
+                folium.TopoJson(
+                    veredas_topo, 
+                    f"objects.{obj_name}",
+                    name="Capa de Veredas", # Nombre para el LayerControl
+                    style_function=lambda x: {'fillColor': '#2ecc71', 'color': 'black', 'weight': 0.5, 'fillOpacity': 0.1}
+                ).add_to(m)
             except: pass
 
-        # --- DIBUJO DE PUNTOS ---
+        # --- CAPA DE PUNTOS DE CONFLICTO ---
+        # Creamos un FeatureGroup para que aparezca en el control de capas
+        fg_conflictos = folium.FeatureGroup(name="Puntos de Conflicto")
+        
         if not df_plot.empty:
             for _, row in df_plot.iterrows():
-                # Validación de seguridad
                 try:
-                    lat_val = float(row['lat'])
-                    lon_val = float(row['lon'])
+                    # Usamos .get() para evitar errores si la columna cambia de nombre
+                    tipo_val = str(row.get('tipo', row.get('tipo_conflicto', ''))).lower()
+                    color_p = "red" if "tenencia" in tipo_val else "orange"
                     
                     folium.CircleMarker(
-                        location=[lat_val, lon_val],
+                        location=[row['lat'], row['lon']],
                         radius=8,
-                        color="red" if "tenencia" in str(row.get('tipo_conflicto', '')).lower() else "blue",
+                        color=color_p,
                         fill=True,
                         fill_opacity=0.8,
-                        popup=f"Vereda: {row.get('vereda')}"
-                    ).add_to(m)
-                except:
-                    continue
+                        popup=folium.Popup(
+                            f"<b>Vereda:</b> {row.get('vereda')}<br>"
+                            f"<b>Tipo:</b> {row.get('tipo', 'S/D')}<br>"
+                            f"<b>Descripción:</b> {row.get('descripcion', 'S/D')}", 
+                            max_width=250
+                        )
+                    ).add_to(fg_conflictos)
+                except: continue
+        
+        fg_conflictos.add_to(m)
 
-        # Renderizado
+        # --- RESTAURAR CONTROL DE CAPAS ---
+        folium.LayerControl(collapsed=False).add_to(m)
+
+        # Renderizado del mapa
         output = st_folium(m, width=700, height=500, key="mapa_final")
 
-        # Captura de clic
+        # Captura de clic para actualizar coordenadas en el formulario
         if output and output.get("last_clicked"):
             clic = output["last_clicked"]
             if abs(st.session_state.lat_click - clic["lat"]) > 0.0001:
                 st.session_state.lat_click = clic["lat"]
                 st.session_state.lon_click = clic["lng"]
-                st.rerun()
-                
+                st.rerun()                
 # --- TAB 2: AUDITORÍA SADCI ---
 with tab_sadci:
     st.subheader("📊 Diagnóstico de Capacidad Institucional (SADCI)")
