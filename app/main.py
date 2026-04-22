@@ -49,129 +49,18 @@ tab_mapa, tab_sadci, tab_actores = st.tabs([
 
 # --- TAB 1: MAPA ---
 with tab_mapa:
-    st.subheader("Visualizador de Tenencia y Conflictos")
+    # REEMPLAZA ESTO:
+    # ws_conf = sh.worksheet("Conflictos")
+    # df_conf = pd.DataFrame(ws_conf.get_all_records())
     
-    # 1. Cargar datos de conflictos desde la nube
-    try:
-        sh = conectar_gspread()
-        ws_conf = sh.worksheet("Conflictos")
-        df_conf = pd.DataFrame(ws_conf.get_all_records())
-        
-        if not df_conf.empty:
-            df_conf['lat'] = pd.to_numeric(df_conf['lat'], errors='coerce')
-            df_conf['lon'] = pd.to_numeric(df_conf['lon'], errors='coerce')
-            df_conf = df_conf.dropna(subset=['lat', 'lon'])
-    except Exception as e:
-        st.error(f"Error al conectar con Google Sheets: {e}")
-        df_conf = pd.DataFrame()
-
-    col_menu, col_mapa = st.columns([1, 3])
-
-    with col_menu:
-        st.markdown("### 🛠️ Capas y Filtros")
-        mostrar_veredas = st.checkbox("Límites Veredales (Nombres)", value=True)
-        mostrar_puntos = st.checkbox("Puntos de Conflicto", value=True)
-        
-        st.divider()
-        st.markdown("### ⚠️ Registrar Conflicto")
-        with st.form("form_conflictos", clear_on_submit=True):
-            # Identificación de quien registra
-            quien_registra = st.text_input("Nombre o Código del Encuestador/Funcionario")
-            
-            tipo_c = st.selectbox("Tipo de Conflicto", ["Linderos", "Uso de Suelo", "Ambiental", "Tenencia"])
-            vereda_c = st.text_input("Nombre de la Vereda afectada")
-            
-            c1, c2 = st.columns(2)
-            lat_c = c1.number_input("Latitud", value=1.91, format="%.4f")
-            lon_c = c2.number_input("Longitud", value=-75.18, format="%.4f")
-            
-            desc_c = st.text_area("Descripción breve del caso")
-            
-            if st.form_submit_button("📍 Marcar y Guardar"):
-                if vereda_c and quien_registra:
-                    # Se asume que la hoja tiene las columnas: ID, Tipo, Vereda, Lat, Lon, Desc, Usuario
-                    nueva_fila_c = [
-                        str(uuid.uuid4())[:5], 
-                        tipo_c, 
-                        vereda_c, 
-                        lat_c, 
-                        lon_c, 
-                        desc_c, 
-                        quien_registra 
-                    ]
-                    ws_conf.append_row(nueva_fila_c)
-                    st.success(f"Punto registrado por {quien_registra}")
-                    st.cache_data.clear()
-                    st.rerun()
-                else:
-                    st.error("Por favor completa el nombre de la vereda y quién registra.")
-
-    with col_mapa:
-        # Inicializar mapa
-        m = folium.Map(location=[1.91, -75.18], zoom_start=11, tiles="cartodbpositron")
-        
-        # A. RENDERIZADO ROBUSTO DE VEREDAS
-        if veredas_topo and mostrar_veredas:
-            try:
-                # DETECCIÓN DINÁMICA: Obtenemos el nombre del objeto interno del TopoJSON
-                # Esto evita que la capa sea invisible si el objeto no se llama 'veredas_puerto_rico'
-                obj_name = list(veredas_topo['objects'].keys())[0]
-                
-                # Explorar propiedades para encontrar el campo del nombre
-                sample_props = veredas_topo['objects'][obj_name]['geometries'][0].get('properties', {})
-                posibles_campos = list(sample_props.keys())
-                
-                # Buscar campo de nombre
-                campo_nombre = next((f for f in ['NOMBRE_VEREDA', 'NOM_VER', 'NOMBRE', 'VEREDA', 'nombre'] 
-                                   if f in posibles_campos), None)
-                
-                folium.TopoJson(
-                    data=veredas_topo, 
-                    object_path=f"objects.{obj_name}", # Ruta corregida dinámica
-                    name="Límites Veredales",
-                    tooltip=folium.GeoJsonTooltip(
-                        fields=[campo_nombre] if campo_nombre else posibles_campos[:1], 
-                        aliases=['📍 Vereda:'],
-                        localize=True,
-                        sticky=True
-                    ) if campo_nombre else None,
-                    style_function=lambda x: {
-                        'fillColor': '#2ecc71', 
-                        'color': 'black', 
-                        'weight': 1.2, 
-                        'fillOpacity': 0.15
-                    }
-                ).add_to(m)
-            except Exception as e:
-                st.error(f"Error técnico al cargar la capa de veredas: {e}")
-
-        # B. Capa de Conflictos
-        if not df_conf.empty and mostrar_puntos:
-            for _, row in df_conf.iterrows():
-                # Manejo de columna de responsable (por si la hoja es vieja)
-                responsable = row.get('registrado_por', "No asignado")
-                
-                folium.CircleMarker(
-                    location=[row['lat'], row['lon']],
-                    radius=7,
-                    color="red" if row['tipo_conflicto'] == "Tenencia" else "orange",
-                    fill=True,
-                    popup=folium.Popup(f"""
-                        <b>Vereda:</b> {row['vereda']}<br>
-                        <b>Tipo:</b> {row['tipo_conflicto']}<br>
-                        <b>Responsable:</b> {responsable}<br>
-                        <hr>
-                        <b>Nota:</b> {row['descripcion']}
-                    """, max_width=250),
-                    tooltip=f"Conflicto: {row['vereda']}"
-                ).add_to(m)
-
-        st_folium(m, width=800, height=600, key="mapa_final_v1")
-
-    # Listado inferior
+    # POR ESTO:
+    df_conf = cargar_datos_con_cache("Conflictos")
+    
+    # Aseguramos tipos numéricos
     if not df_conf.empty:
-        with st.expander("📊 Listado Detallado de Conflictos"):
-            st.dataframe(df_conf, use_container_width=True)
+        df_conf['lat'] = pd.to_numeric(df_conf['lat'], errors='coerce')
+        df_conf['lon'] = pd.to_numeric(df_conf['lon'], errors='coerce')
+        df_conf = df_conf.dropna(subset=['lat', 'lon'])
 
 # --- TAB 2: AUDITORÍA SADCI ---
 with tab_sadci:
