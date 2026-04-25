@@ -208,53 +208,53 @@ with tab_sadci:
         df_sadci = cargar_datos_con_cache("SADCI")
         if not df_sadci.empty:
             # --- 1. PROCESAMIENTO DE LOS 6 DCI ---
-            # DCI-1: Reglas de Juego (Basado en MEPI y Existencia de Protocolos)
+            # DCI-1: Reglas de Juego
             df_sadci['dci_1_reglas'] = (df_sadci['calificacion_mepi'] * 0.7 + 
                                        (df_sadci['protocolo'].map({"Sí": 100, "En proceso": 50, "No": 0}) * 0.3))
             
-            # DCI-2: Relaciones Interinstitucionales (Simulado con rendición y fluidez)
+            # DCI-2: Relaciones Interinstitucionales
             df_sadci['dci_2_interinst'] = df_sadci['rendicion'].map({"Anual": 100, "Semestral": 80, "Nunca": 20})
             
-            # DCI-4: Disponibilidad de Recursos (Financieros y Tecnológicos)
+            # DCI-3: Estructura Organizativa (Mapeo Cualitativo)
+            map_est = {"Ágil/Coherente": 100, "Funciones Duplicadas": 60, "Rígida/Burocrática": 30, "Inexistente": 0}
+            df_sadci['dci_3_estructura'] = df_sadci['estructura'].map(map_est).fillna(50)
+            
+            # DCI-4: Disponibilidad de Recursos
             dict_dig = {"Bajo": 25, "Medio": 50, "Alto": 75, "Excelente": 100}
             df_sadci['puntos_digital'] = df_sadci['nivel_digitalizacion'].map(dict_dig)
             df_sadci['dci_4_recursos'] = (df_sadci['ejecucion_presupuestal_pct'] + df_sadci['puntos_digital']) / 2
             
-            # DCI-5: Políticas de Personal (Robustez de la Planta vs Contratistas)
+            # DCI-5: Políticas de Personal
             df_sadci['dci_5_personal'] = (df_sadci['num_personal_planta'] / 
                                          (df_sadci['num_personal_planta'] + df_sadci['num_personal_contratista']) * 100).fillna(0)
+            
+            # DCI-6: Capacidad Individual (Know-how)
+            map_cap = {"Especializado": 100, "Técnico Suficiente": 75, "Requiere Capacitación": 40, "Crítico/No Idóneo": 10}
+            df_sadci['dci_6_individual'] = df_sadci['capacitacion'].map(map_cap).fillna(50)
 
-            # --- 2. VISUALIZACIÓN DE INDICADORES SADCI ---
+            # --- 2. VISUALIZACIÓN DE INDICADORES SADCI (6 Columnas) ---
             st.markdown("### Pilares de Capacidad Real")
-            c_dci1, c_dci2, c_dci4, c_dci5 = st.columns(4)
+            cols = st.columns(6)
             
-            with c_dci1:
-                val1 = df_sadci['dci_1_reglas'].mean()
-                st.metric("DCI-1: Reglas de Juego", f"{val1:.1f}%", help="Claridad normativa y protocolos institucionales")
+            indicadores = [
+                ("DCI-1: Reglas", 'dci_1_reglas'), ("DCI-2: Interinst.", 'dci_2_interinst'),
+                ("DCI-3: Estructura", 'dci_3_estructura'), ("DCI-4: Recursos", 'dci_4_recursos'),
+                ("DCI-5: Personal", 'dci_5_personal'), ("DCI-6: Individual", 'dci_6_individual')
+            ]
             
-            with c_dci2:
-                val2 = df_sadci['dci_2_interinst'].mean()
-                st.metric("DCI-2: Interinstitucional", f"{val2:.1f}%", help="Capacidad de articulación y rendición de cuentas")
-            
-            with c_dci4:
-                val4 = df_sadci['dci_4_recursos'].mean()
-                st.metric("DCI-4: Recursos", f"{val4:.1f}%", help="Disponibilidad de insumos financieros y físicos")
-            
-            with c_dci5:
-                val5 = df_sadci['dci_5_personal'].mean()
-                st.metric("DCI-5: Personal", f"{val5:.1f}%", help="Robustez y estabilidad de la planta de personal")
+            for i, (label, col_name) in enumerate(indicadores):
+                with cols[i]:
+                    val = df_sadci[col_name].mean()
+                    st.metric(label, f"{val:.0f}%")
 
             st.divider()
-
-            # --- 3. ANÁLISIS DE BRECHA (Aspiración vs Realidad) ---
-            st.write("**Análisis de Brecha: Aspiración (Metas) vs. Realidad (Ejecución)**")
-            # Esta gráfica muestra la 'capacidad real' de transformar insumos en productos
+            st.write("**Análisis de Brecha: Aspiración vs. Realidad**")
             st.line_chart(df_sadci.set_index('nombre_entidad')[['cumplimiento_pdt_pct', 'ejecucion_presupuestal_pct']])
 
-        # --- 4. FORMULARIO DE CAPTURA (Formularios A al D del SADCI) ---
+        # --- 4. FORMULARIO DE CAPTURA ACTUALIZADO ---
         with st.expander("📝 Realizar Nueva Auditoría de Capacidad"):
             with st.form("registro_sadci_full", clear_on_submit=True):
-                st.info("Esta encuesta identifica los obstáculos (DCI) que impiden el cumplimiento de metas[cite: 1].")
+                st.info("Esta encuesta identifica los obstáculos (DCI) según Oszlak.")
                 c1, c2, c3 = st.columns(3)
                 with c1:
                     nombre = st.text_input("Nombre Entidad")
@@ -263,21 +263,26 @@ with tab_sadci:
                     contratos = st.number_input("Contratistas (DCI-5)", min_value=0)
                 with c2:
                     ejecucion = st.slider("% Eficacia Gasto (DCI-4)", 0, 100, 70)
-                    pdt = st.slider("% Cumplimiento Metas (Brecha)", 0, 100, 50)
+                    pdt = st.slider("% Cumplimiento Metas", 0, 100, 50)
                     mepi = st.number_input("Calificación MEPI (DCI-1)", 0, 100, 60)
                 with c3:
-                    digital = st.select_slider("Capacidad Tecnológica (DCI-4)", ["Bajo", "Medio", "Alto", "Excelente"])
-                    protocolo = st.selectbox("¿Existen Protocolos? (DCI-1)", ["Sí", "No", "En proceso"])
-                    rendicion = st.selectbox("Rendición de Cuentas (DCI-2)", ["Anual", "Semestral", "Nunca"])
+                    digital = st.select_slider("Tecnología (DCI-4)", ["Bajo", "Medio", "Alto", "Excelente"])
+                    estructura = st.selectbox("Estructura (DCI-3)", ["Ágil/Coherente", "Funciones Duplicadas", "Rígida/Burocrática", "Inexistente"])
+                    capacitacion = st.selectbox("Personal (DCI-6)", ["Especializado", "Técnico Suficiente", "Requiere Capacitación", "Crítico/No Idóneo"])
+                    protocolo = st.selectbox("¿Protocolos? (DCI-1)", ["Sí", "No", "En proceso"])
+                    rendicion = st.selectbox("Rendición (DCI-2)", ["Anual", "Semestral", "Nunca"])
 
                 if st.form_submit_button("🚀 Guardar Auditoría"):
                     if nombre:
                         sh_d = conectar_gspread()
                         ws_d = sh_d.worksheet("SADCI")
-                        # Mapeo según la estructura de tu Google Sheets
-                        ws_d.append_row([str(uuid.uuid4())[:8], nombre, presupuesto, planta, contratos,
-                                         protocolo, "Fluida", rendicion, digital, ejecucion, pdt, "Activas", mepi])
-                        st.success("✅ Datos de capacidad registrados correctamente.")
+                        # Mapeo de 14 columnas
+                        ws_d.append_row([
+                            str(uuid.uuid4())[:8], nombre, presupuesto, planta, contratos,
+                            protocolo, estructura, rendicion, digital, ejecucion, 
+                            pdt, "Activas", mepi, capacitacion
+                        ])
+                        st.success("✅ Diagnóstico completo registrado.")
                         st.cache_data.clear()
                         st.rerun()
 
