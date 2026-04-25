@@ -254,7 +254,7 @@ with tab_sadci:
         # --- 4. FORMULARIO DE CAPTURA ACTUALIZADO ---
         with st.expander("📝 Realizar Nueva Auditoría de Capacidad"):
             with st.form("registro_sadci_full", clear_on_submit=True):
-                st.info("Esta encuesta identifica los obstáculos (DCI) según Oszlak.")
+                st.info("Esta encuesta identifica los obstáculos (DCI)")
                 c1, c2, c3 = st.columns(3)
                 with c1:
                     nombre = st.text_input("Nombre Entidad")
