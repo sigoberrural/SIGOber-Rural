@@ -200,130 +200,89 @@ with tab_mapa:
                 st.rerun()
 
 
-# --- TAB 2: AUDITORÍA SADCI (Metodología Oszlak-Tobelem) ---
+# --- TAB 2: AUDITORÍA SADCI (Basado en Oszlak y Orellana) ---
 with tab_sadci:
     st.subheader("📊 Diagnóstico de Capacidad Institucional (SADCI)")
     
     try:
         df_sadci = cargar_datos_con_cache("SADCI")
         if not df_sadci.empty:
-            # 1. CÁLCULO DE ÍNDICES DE CAPACIDAD REAL (Basado en metodología)[cite: 1]
-            df_sadci['capacidad_personal'] = (df_sadci['num_personal_planta'] / 
-                                            (df_sadci['num_personal_planta'] + df_sadci['num_personal_contratista']) * 100).fillna(0)
+            # --- 1. PROCESAMIENTO DE LOS 6 DCI ---
+            # DCI-1: Reglas de Juego (Basado en MEPI y Existencia de Protocolos)
+            df_sadci['dci_1_reglas'] = (df_sadci['calificacion_mepi'] * 0.7 + 
+                                       (df_sadci['protocolo'].map({"Sí": 100, "En proceso": 50, "No": 0}) * 0.3))
             
-            dict_dig = {"Bajo": 20, "Medio": 50, "Alto": 80, "Excelente": 100}
+            # DCI-2: Relaciones Interinstitucionales (Simulado con rendición y fluidez)
+            df_sadci['dci_2_interinst'] = df_sadci['rendicion'].map({"Anual": 100, "Semestral": 80, "Nunca": 20})
+            
+            # DCI-4: Disponibilidad de Recursos (Financieros y Tecnológicos)
+            dict_dig = {"Bajo": 25, "Medio": 50, "Alto": 75, "Excelente": 100}
             df_sadci['puntos_digital'] = df_sadci['nivel_digitalizacion'].map(dict_dig)
+            df_sadci['dci_4_recursos'] = (df_sadci['ejecucion_presupuestal_pct'] + df_sadci['puntos_digital']) / 2
+            
+            # DCI-5: Políticas de Personal (Robustez de la Planta vs Contratistas)
+            df_sadci['dci_5_personal'] = (df_sadci['num_personal_planta'] / 
+                                         (df_sadci['num_personal_planta'] + df_sadci['num_personal_contratista']) * 100).fillna(0)
 
-            col_kpi1, col_kpi2, col_kpi3 = st.columns(3)
-            with col_kpi1:
-                st.metric("Capacidad Financiera", f"{df_sadci['ejecucion_presupuestal_pct'].mean():.1f}%", help="DCI relacionado con la capacidad financiera[cite: 1]")
-            with col_kpi2:
-                st.metric("Efectividad Metas PDT", f"{df_sadci['cumplimiento_pdt_pct'].mean():.1f}%", help="Brecha entre aspiración y logro real[cite: 1]")
-            with col_kpi3:
-                st.metric("Desempeño Institucional", f"{df_sadci['calificacion_mepi'].mean():.1f}/100")
+            # --- 2. VISUALIZACIÓN DE INDICADORES SADCI ---
+            st.markdown("### Pilares de Capacidad Real")
+            c_dci1, c_dci2, c_dci4, c_dci5 = st.columns(4)
+            
+            with c_dci1:
+                val1 = df_sadci['dci_1_reglas'].mean()
+                st.metric("DCI-1: Reglas de Juego", f"{val1:.1f}%", help="Claridad normativa y protocolos institucionales")
+            
+            with c_dci2:
+                val2 = df_sadci['dci_2_interinst'].mean()
+                st.metric("DCI-2: Interinstitucional", f"{val2:.1f}%", help="Capacidad de articulación y rendición de cuentas")
+            
+            with c_dci4:
+                val4 = df_sadci['dci_4_recursos'].mean()
+                st.metric("DCI-4: Recursos", f"{val4:.1f}%", help="Disponibilidad de insumos financieros y físicos")
+            
+            with c_dci5:
+                val5 = df_sadci['dci_5_personal'].mean()
+                st.metric("DCI-5: Personal", f"{val5:.1f}%", help="Robustez y estabilidad de la planta de personal")
 
             st.divider()
-            
-            # 2. VISUALIZACIÓN DE BRECHAS
-            col_graph1, col_graph2 = st.columns(2)
-            with col_graph1:
-                st.write("**Brecha de Ejecución vs. Metas**")
-                st.bar_chart(df_sadci.set_index('nombre_entidad')[['ejecucion_presupuestal_pct', 'cumplimiento_pdt_pct']])
-            
-            with col_graph2:
-                st.write("**Nivel de Digitalización (DCI Insumos)**")
-                st.line_chart(df_sadci.set_index('nombre_entidad')['puntos_digital'])
 
-        # 3. FORMULARIO DE CAPTURA
-        with st.expander("📝 Registrar Nueva Evaluación de Capacidad (DCI)"):
+            # --- 3. ANÁLISIS DE BRECHA (Aspiración vs Realidad) ---
+            st.write("**Análisis de Brecha: Aspiración (Metas) vs. Realidad (Ejecución)**")
+            # Esta gráfica muestra la 'capacidad real' de transformar insumos en productos
+            st.line_chart(df_sadci.set_index('nombre_entidad')[['cumplimiento_pdt_pct', 'ejecucion_presupuestal_pct']])
+
+        # --- 4. FORMULARIO DE CAPTURA (Formularios A al D del SADCI) ---
+        with st.expander("📝 Realizar Nueva Auditoría de Capacidad"):
             with st.form("registro_sadci_full", clear_on_submit=True):
-                st.info("Complete los datos para identificar el grado de capacidad actual[cite: 1].")
-                
+                st.info("Esta encuesta identifica los obstáculos (DCI) que impiden el cumplimiento de metas[cite: 1].")
                 c1, c2, c3 = st.columns(3)
                 with c1:
-                    st.markdown("**Identificación (Form A)**")
-                    nombre = st.text_input("Nombre de la Agencia/Entidad")
-                    presupuesto = st.number_input("Presupuesto Asignado ($)", min_value=0)
+                    nombre = st.text_input("Nombre Entidad")
+                    presupuesto = st.number_input("Presupuesto Rural ($)", min_value=0)
                     planta = st.number_input("Personal de Planta (DCI-5)", min_value=0)
                     contratos = st.number_input("Contratistas (DCI-5)", min_value=0)
-                
                 with c2:
-                    st.markdown("**Desempeño (Form B/C)**")
-                    ejecucion = st.slider("% Eficacia Financiera (DCI-4)", 0, 100, 70)
-                    pdt = st.slider("% Avance Tareas Físicas", 0, 100, 50)
-                    mepi = st.number_input("Puntaje MEPI (DCI-1)", 0, 100, 60)
-                
+                    ejecucion = st.slider("% Eficacia Gasto (DCI-4)", 0, 100, 70)
+                    pdt = st.slider("% Cumplimiento Metas (Brecha)", 0, 100, 50)
+                    mepi = st.number_input("Calificación MEPI (DCI-1)", 0, 100, 60)
                 with c3:
-                    st.markdown("**Obstáculos (Form D1-D6)**")
-                    digital = st.select_slider("Capacidad Tecnológica", ["Bajo", "Medio", "Alto", "Excelente"])
-                    protocolo = st.selectbox("¿Existen Reglas/Normas claras? (DCI-1)", ["Sí", "No", "En proceso"])
-                    interinst = st.selectbox("Relación Interinstitucional (DCI-2)", ["Fluida", "Con Conflictos", "Inexistente"])
+                    digital = st.select_slider("Capacidad Tecnológica (DCI-4)", ["Bajo", "Medio", "Alto", "Excelente"])
+                    protocolo = st.selectbox("¿Existen Protocolos? (DCI-1)", ["Sí", "No", "En proceso"])
+                    rendicion = st.selectbox("Rendición de Cuentas (DCI-2)", ["Anual", "Semestral", "Nunca"])
 
                 if st.form_submit_button("🚀 Guardar Auditoría"):
                     if nombre:
                         sh_d = conectar_gspread()
                         ws_d = sh_d.worksheet("SADCI")
-                        ws_d.append_row([
-                            str(uuid.uuid4())[:8], nombre, presupuesto, planta, contratos,
-                            protocolo, interinst, "Anual", digital, ejecucion, pdt, "Activas", mepi
-                        ])
-                        st.success("✅ Diagnóstico guardado.")
+                        # Mapeo según la estructura de tu Google Sheets
+                        ws_d.append_row([str(uuid.uuid4())[:8], nombre, presupuesto, planta, contratos,
+                                         protocolo, "Fluida", rendicion, digital, ejecucion, pdt, "Activas", mepi])
+                        st.success("✅ Datos de capacidad registrados correctamente.")
                         st.cache_data.clear()
                         st.rerun()
 
     except Exception as e: 
         st.error(f"Error en el Sistema SADCI: {e}")
-
-# --- LÓGICA DE RECOMENDACIONES Y RADAR ---
-st.divider()
-st.subheader("🚀 Plan de Acción y Fortalecimiento")
-
-if not df_sadci.empty:
-    entidad_sel = st.selectbox("Seleccione Entidad para Ver Plan de Acción", df_sadci['nombre_entidad'].unique())
-    data_entidad = df_sadci[df_sadci['nombre_entidad'] == entidad_sel].iloc[0]
-
-    # Gráfico de Radar: Perfil de Capacidad[cite: 1]
-    categorias = ['DCI-1: Reglas', 'DCI-2: Interinst.', 'DCI-3: Estructura', 
-                  'DCI-4: Recursos', 'DCI-5: Personal', 'DCI-6: Individual']
-    
-    # Mapeo de valores para el radar (Escala 0-100)
-    valores_radar = [
-        data_entidad['calificacion_mepi'], 
-        100 if data_entidad['interinst'] == "Fluida" else (50 if data_entidad['interinst'] == "Con Conflictos" else 20),
-        75, # Valor estático para Estructura si no hay campo específico
-        data_entidad['ejecucion_presupuestal_pct'],
-        data_entidad['capacidad_personal'],
-        data_entidad['puntos_digital']
-    ]
-
-    df_radar = pd.DataFrame(dict(r=valores_radar, theta=categorias))
-    fig_radar = px.line_polar(df_radar, r='r', theta='theta', line_close=True, range_r=[0,100])
-    fig_radar.update_traces(fill='toself', line_color='#1f77b4')
-
-    col_rad, col_rec = st.columns([1, 1])
-    
-    with col_rad:
-        st.plotly_chart(fig_radar, use_container_width=True)
-
-    with col_rec:
-        def generar_recomendaciones(row):
-            recoms = []
-            if row['capacidad_personal'] < 40:
-                recoms.append({"Déficit": "DCI-5: Inestabilidad del Personal", "Acción": "Diseñar un plan de formalización laboral.", "Prioridad": "Alta"})
-            if row['puntos_digital'] < 50:
-                recoms.append({"Déficit": "DCI-4: Obsolescencia Tecnológica", "Acción": "Adquisición de kits tecnológicos rurales.", "Prioridad": "Media"})
-            if row['calificacion_mepi'] < 60:
-                recoms.append({"Déficit": "DCI-1: Ambigüedad Normativa", "Acción": "Revisión de manuales de funciones.", "Prioridad": "Muy Alta"})
-            return recoms
-
-        recomendaciones = generar_recomendaciones(data_entidad)
-        if recomendaciones:
-            for rec in recomendaciones:
-                with st.expander(f"⚠️ {rec['Déficit']} - {rec['Prioridad']}"):
-                    st.write(f"**Recomendación:** {rec['Acción']}") # Corregido de 'Action' a 'Acción'
-                    st.info("Basado en el Formulario E de la metodología SADCI[cite: 1].")
-        else:
-            st.success("✅ No se detectan déficit críticos.")
 
 
 # --- TAB 3: ACTORES ---
