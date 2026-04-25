@@ -278,6 +278,56 @@ with tab_sadci:
     except Exception as e: 
         st.error(f"Error en el Sistema SADCI: {e}")
 
+# --- LÓGICA DE RECOMENDACIONES (BASADA EN GRAVEDAD DEL DCI) ---
+st.divider()
+st.subheader("🚀 Plan de Acción y Fortalecimiento")
+
+# Simulamos la detección de los DCI más críticos para la entidad seleccionada
+# En SADCI, un puntaje bajo en capacidad implica un DCI alto (Gravedad 1-5)
+entidad_sel = st.selectbox("Seleccione Entidad para Ver Plan de Acción", df_sadci['nombre_entidad'].unique())
+data_entidad = df_sadci[df_sadci['nombre_entidad'] == entidad_sel].iloc[0]
+
+def generar_recomendaciones(row):
+    recoms = []
+    
+    # Evaluación DCI-5: Políticas de Personal
+    if row['capacidad_personal'] < 40:
+        recoms.append({
+            "Déficit": "DCI-5: Inestabilidad del Personal",
+            "Acción": "Diseñar un plan de formalización laboral o incentivos no monetarios para reducir la rotación de contratistas.",
+            "Prioridad": "Alta"
+        })
+    
+    # Evaluación DCI-4: Recursos Físicos/Tecnológicos
+    if row['puntos_digital'] < 50:
+        recoms.append({
+            "Déficit": "DCI-4: Obsolescencia Tecnológica",
+            "Acción": "Adquisición de kits tecnológicos rurales y capacitación en herramientas de recolección de datos en campo.",
+            "Prioridad": "Media"
+        })
+        
+    # Evaluación DCI-1: Reglas de Juego (MEPI)
+    if row['calificacion_mepi'] < 60:
+        recoms.append({
+            "Déficit": "DCI-1: Ambigüedad Normativa",
+            "Acción": "Revisión de manuales de funciones y protocolos internos para eliminar cuellos de botella legales.",
+            "Prioridad": "Muy Alta"
+        })
+
+    return recoms
+
+recomendaciones = generar_recomendaciones(data_entidad)
+
+if recomendaciones:
+    for rec in recomendaciones:
+        with st.expander(f"⚠️ {rec['Déficit']} - Prioridad {rec['Prioridad']}"):
+            st.write(f"**Recomendación:** {rec['Action']}")
+            st.info("Basado en el Formulario E (Consolidación de Déficit) de la metodología SADCI.")
+else:
+    st.success("✅ No se detectan déficit críticos. Mantener monitoreo preventivo.")
+
+
+
 # --- TAB 3: ACTORES ---
 with tab_actores:
     st.subheader("👥 Caracterización de Actores")
