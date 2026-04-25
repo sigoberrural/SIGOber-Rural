@@ -8,3 +8,4 @@ google-auth
 streamlit-js-eval
 shapely
 topojson
+plotly
