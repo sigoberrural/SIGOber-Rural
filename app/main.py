@@ -12,7 +12,6 @@ from shapely.geometry import shape, Point
 import topojson as tp
 from streamlit_js_eval import get_geolocation
 import plotly.express as px
-import pandas as pd
 
 # 1. CONFIGURACIÓN E INTERFAZ (Optimizado para móvil)
 st.set_page_config(
@@ -34,7 +33,6 @@ st.markdown("""
         padding-top: 1rem;
         padding-bottom: 1rem;
     }
-    /* Estilo para los créditos finales */
     .footer-container {
         display: flex;
         align-items: center;
@@ -55,8 +53,16 @@ st.title("🛰️ SIGOber-Rural: Puerto Rico (Caquetá)")
 st.markdown("### Gestión Territorial, Actores y Capacidad Institucional (SADCI)")
 st.divider()
 
-# 2. CONEXIÓN A DATOS
+# 2. CONEXIÓN A DATOS Y INICIALIZACIÓN COLA OFFLINE
 conn = st.connection("gsheets", type=GSheetsConnection)
+
+# Inicialización de Colas Locales para evitar errores de persistencia
+if "cola_conflictos" not in st.session_state:
+    st.session_state.cola_conflictos = []
+if "cola_sadci" not in st.session_state:
+    st.session_state.cola_sadci = []
+if "cola_actores" not in st.session_state:
+    st.session_state.cola_actores = []
 
 def conectar_gspread():
     scope = ["https://www.googleapis.com/auth/spreadsheets"]
@@ -80,11 +86,51 @@ def cargar_datos_con_cache(nombre_hoja):
         sh = conectar_gspread()
         ws = sh.worksheet(nombre_hoja)
         return pd.DataFrame(ws.get_all_records())
-    except Exception as e:
-        st.error(f"Error al cargar la hoja {nombre_hoja}: {e}")
+    except Exception:
+        # Modo silente para que la App no se caiga sin conexión
         return pd.DataFrame()
 
 veredas_topo = cargar_json_local('veredas_puerto_rico.json')
+
+# --- BOTÓN INDEPENDIENTE DE RE-SINCRONIZACIÓN GLOBAL ---
+registros_pendientes = len(st.session_state.cola_conflictos) + len(st.session_state.cola_sadci) + len(st.session_state.cola_actores)
+if registros_pendientes > 0:
+    st.warning(f"⏳ Datos en cola local pendientes por sincronización externa: {registros_pendientes} registros.")
+    if st.button("🔄 Sincronizar todos los datos con la Nube"):
+        try:
+            sh = conectar_gspread()
+            exito = False
+            
+            # Sincronizar Conflictos
+            if st.session_state.cola_conflictos:
+                ws_c = sh.worksheet("Conflictos")
+                for fila in list(st.session_state.cola_conflictos):
+                    ws_c.append_row(fila)
+                    st.session_state.cola_conflictos.remove(fila)
+                exito = True
+                
+            # Sincronizar SADCI
+            if st.session_state.cola_sadci:
+                ws_s = sh.worksheet("SADCI")
+                for fila in list(st.session_state.cola_sadci):
+                    ws_s.append_row(fila)
+                    st.session_state.cola_sadci.remove(fila)
+                exito = True
+                
+            # Sincronizar Actores
+            if st.session_state.cola_actores:
+                ws_a = sh.worksheet("Actores")
+                for fila in list(st.session_state.cola_actores):
+                    ws_a.append_row(fila)
+                    st.session_state.cola_actores.remove(fila)
+                exito = True
+                
+            if exito:
+                st.success("🎉 Datos locales cargados exitosamente a Google Sheets.")
+                st.cache_data.clear()
+                st.rerun()
+        except Exception as e:
+            st.error("⚠️ Error de conexión. Los datos siguen protegidos localmente en el dispositivo.")
 
 # 3. PANELES DE CONTROL
 tab_mapa, tab_sadci, tab_actores = st.tabs([
@@ -109,11 +155,14 @@ with tab_mapa:
         df_plot = df_plot.dropna(subset=['lat', 'lon'])
 
     if "gps_capturado" not in st.session_state:
-        loc = get_geolocation()
-        if loc:
-            st.session_state.lat_click = loc['coords']['latitude']
-            st.session_state.lon_click = loc['coords']['longitude']
-            st.session_state.gps_capturado = True
+        try:
+            loc = get_geolocation()
+            if loc:
+                st.session_state.lat_click = loc['coords']['latitude']
+                st.session_state.lon_click = loc['coords']['longitude']
+                st.session_state.gps_capturado = True
+        except:
+            pass
 
     if "lat_click" not in st.session_state:
         st.session_state.lat_click = 1.9123
@@ -150,15 +199,19 @@ with tab_mapa:
             if st.form_submit_button("📍 Guardar Registro"):
                 es_valido, vereda_detectada = validar_punto_preciso(lat_i, lon_i, veredas_topo)
                 if es_valido and quien:
+                    v_final = vereda_detectada if vereda_detectada else vereda_manual
+                    datos_fila = [str(uuid.uuid4())[:5], tipo, v_final, str(lat_i), str(lon_i), desc, quien]
                     try:
                         sh = conectar_gspread()
                         ws = sh.worksheet("Conflictos")
-                        v_final = vereda_detectada if vereda_detectada else vereda_manual
-                        ws.append_row([str(uuid.uuid4())[:5], tipo, v_final, str(lat_i), str(lon_i), desc, quien])
-                        st.success(f"✅ Registrado en {v_final}")
+                        ws.append_row(datos_fila)
+                        st.success(f"✅ Registrado en la nube: {v_final}")
                         st.cache_data.clear()
                         st.rerun()
-                    except Exception as e: st.error(f"Error: {e}")
+                    except Exception:
+                        st.session_state.cola_conflictos.append(datos_fila)
+                        st.info(f"💾 Guardado local (Offline) en {v_final}. Sincroniza al volver a tener cobertura.")
+                        st.rerun()
                 elif not es_valido:
                     st.error("📍 Ubicación fuera de los límites de Puerto Rico.")
                 else: st.warning("Completa el nombre del encuestador.")
@@ -182,14 +235,22 @@ with tab_mapa:
                 ).add_to(m)
             except: pass
 
-        fg = folium.FeatureGroup(name="Historial")
+        # Capa del Historial Remoto
+        fg = folium.FeatureGroup(name="Historial Remoto")
         if not df_plot.empty:
             for _, row in df_plot.iterrows():
                 folium.CircleMarker(location=[row['lat'], row['lon']], radius=6, 
                                     color="red", fill=True, popup=row.get('tipo')).add_to(fg)
         fg.add_to(m)
-        folium.LayerControl(collapsed=False).add_to(m)
         
+        # Nueva Capa Dinámica Temporal para Capturas Locales Offline
+        fg_local = folium.FeatureGroup(name="Capturas Locales (Offline)")
+        for c_off in st.session_state.cola_conflictos:
+            folium.CircleMarker(location=[float(c_off[3]), float(c_off[4])], radius=6,
+                                color="orange", fill=True, popup=f"Offline: {c_off[1]}").add_to(fg_local)
+        fg_local.add_to(m)
+        
+        folium.LayerControl(collapsed=False).add_to(m)
         output = st_folium(m, width="100%", height=450, key="mapa_final")
 
         if output and output.get("last_clicked"):
@@ -204,35 +265,45 @@ with tab_mapa:
 with tab_sadci:
     st.subheader("📊 Diagnóstico de Capacidad Institucional (SADCI)")
     
-    try:
-        df_sadci = cargar_datos_con_cache("SADCI")
-        if not df_sadci.empty:
+    df_sadci = cargar_datos_con_cache("SADCI")
+    
+    # Si hay registros en cola offline local, los incorporamos provisionalmente para visualización
+    if st.session_state.cola_sadci:
+        columnas_sadci = ["id", "nombre_entidad", "presupuesto", "num_personal_planta", "num_personal_contratista",
+                          "protocolo", "estructura", "rendicion", "nivel_digitalizacion", "ejecucion_presupuestal_pct",
+                          "cumplimiento_pdt_pct", "estado", "calificacion_mepi", "capacitacion"]
+        df_off = pd.DataFrame(st.session_state.cola_sadci, columns=columnas_sadci)
+        df_sadci = pd.concat([df_sadci, df_off], ignore_index=True) if not df_sadci.empty else df_off
+
+    if not df_sadci.empty:
+        try:
+            # Forzar tipificación numérica limpia por si entra texto plano desde la cola
+            df_sadci['calificacion_mepi'] = pd.to_numeric(df_sadci['calificacion_mepi']).fillna(0)
+            df_sadci['ejecucion_presupuestal_pct'] = pd.to_numeric(df_sadci['ejecucion_presupuestal_pct']).fillna(0)
+            df_sadci['cumplimiento_pdt_pct'] = pd.to_numeric(df_sadci['cumplimiento_pdt_pct']).fillna(0)
+            df_sadci['num_personal_planta'] = pd.to_numeric(df_sadci['num_personal_planta']).fillna(0)
+            df_sadci['num_personal_contratista'] = pd.to_numeric(df_sadci['num_personal_contratista']).fillna(0)
+
             # --- 1. PROCESAMIENTO DE LOS 6 DCI ---
-            # DCI-1: Reglas de Juego
             df_sadci['dci_1_reglas'] = (df_sadci['calificacion_mepi'] * 0.7 + 
-                                       (df_sadci['protocolo'].map({"Sí": 100, "En proceso": 50, "No": 0}) * 0.3))
+                                       (df_sadci['protocolo'].map({"Sí": 100, "En proceso": 50, "No": 0}).fillna(0) * 0.3))
             
-            # DCI-2: Relaciones Interinstitucionales
-            df_sadci['dci_2_interinst'] = df_sadci['rendicion'].map({"Anual": 100, "Semestral": 80, "Nunca": 20})
+            df_sadci['dci_2_interinst'] = df_sadci['rendicion'].map({"Anual": 100, "Semestral": 80, "Nunca": 20}).fillna(50)
             
-            # DCI-3: Estructura Organizativa (Mapeo Cualitativo)
             map_est = {"Ágil/Coherente": 100, "Funciones Duplicadas": 60, "Rígida/Burocrática": 30, "Inexistente": 0}
             df_sadci['dci_3_estructura'] = df_sadci['estructura'].map(map_est).fillna(50)
             
-            # DCI-4: Disponibilidad de Recursos
             dict_dig = {"Bajo": 25, "Medio": 50, "Alto": 75, "Excelente": 100}
-            df_sadci['puntos_digital'] = df_sadci['nivel_digitalizacion'].map(dict_dig)
+            df_sadci['puntos_digital'] = df_sadci['nivel_digitalizacion'].map(dict_dig).fillna(50)
             df_sadci['dci_4_recursos'] = (df_sadci['ejecucion_presupuestal_pct'] + df_sadci['puntos_digital']) / 2
             
-            # DCI-5: Políticas de Personal
-            df_sadci['dci_5_personal'] = (df_sadci['num_personal_planta'] / 
-                                         (df_sadci['num_personal_planta'] + df_sadci['num_personal_contratista']) * 100).fillna(0)
+            divisor_personal = (df_sadci['num_personal_planta'] + df_sadci['num_personal_contratista'])
+            df_sadci['dci_5_personal'] = (df_sadci['num_personal_planta'] / divisor_personal * 100).fillna(0)
             
-            # DCI-6: Capacidad Individual (Know-how)
             map_cap = {"Especializado": 100, "Técnico Suficiente": 75, "Requiere Capacitación": 40, "Crítico/No Idóneo": 10}
             df_sadci['dci_6_individual'] = df_sadci['capacitacion'].map(map_cap).fillna(50)
 
-            # --- 2. VISUALIZACIÓN DE INDICADORES SADCI (6 Columnas) ---
+            # --- 2. VISUALIZACIÓN DE INDICADORES SADCI ---
             st.markdown("### Pilares de Capacidad Real")
             cols = st.columns(6)
             
@@ -250,85 +321,104 @@ with tab_sadci:
             st.divider()
             st.write("**Análisis de Brecha: Aspiración vs. Realidad**")
             st.line_chart(df_sadci.set_index('nombre_entidad')[['cumplimiento_pdt_pct', 'ejecucion_presupuestal_pct']])
+        except Exception as e:
+            st.error(f"Error al renderizar análisis de datos: {e}")
+    else:
+        st.info("No se registran datos históricos ni locales para desplegar los análisis del SADCI.")
 
-        # --- 4. FORMULARIO DE CAPTURA ACTUALIZADO ---
-        with st.expander("📝 Realizar Nueva Auditoría de Capacidad"):
-            with st.form("registro_sadci_full", clear_on_submit=True):
-                st.info("Esta encuesta identifica los obstáculos (DCI)")
-                c1, c2, c3 = st.columns(3)
-                with c1:
-                    nombre = st.text_input("Nombre Entidad")
-                    presupuesto = st.number_input("Presupuesto Rural ($)", min_value=0)
-                    planta = st.number_input("Personal de Planta (DCI-5)", min_value=0)
-                    contratos = st.number_input("Contratistas (DCI-5)", min_value=0)
-                with c2:
-                    ejecucion = st.slider("% Eficacia Gasto (DCI-4)", 0, 100, 70)
-                    pdt = st.slider("% Cumplimiento Metas", 0, 100, 50)
-                    mepi = st.number_input("Calificación MEPI (DCI-1)", 0, 100, 60)
-                with c3:
-                    digital = st.select_slider("Tecnología (DCI-4)", ["Bajo", "Medio", "Alto", "Excelente"])
-                    estructura = st.selectbox("Estructura (DCI-3)", ["Ágil/Coherente", "Funciones Duplicadas", "Rígida/Burocrática", "Inexistente"])
-                    capacitacion = st.selectbox("Personal (DCI-6)", ["Especializado", "Técnico Suficiente", "Requiere Capacitación", "Crítico/No Idóneo"])
-                    protocolo = st.selectbox("¿Protocolos? (DCI-1)", ["Sí", "No", "En proceso"])
-                    rendicion = st.selectbox("Rendición (DCI-2)", ["Anual", "Semestral", "Nunca"])
+    # --- 4. FORMULARIO DE CAPTURA ACTUALIZADO ---
+    with st.expander("📝 Realizar Nueva Auditoría de Capacidad"):
+        with st.form("registro_sadci_full", clear_on_submit=True):
+            st.info("Esta encuesta identifica los obstáculos (DCI)")
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                nombre = st.text_input("Nombre Entidad")
+                presupuesto = st.number_input("Presupuesto Rural ($)", min_value=0)
+                planta = st.number_input("Personal de Planta (DCI-5)", min_value=0)
+                contratos = st.number_input("Contratistas (DCI-5)", min_value=0)
+            with c2:
+                ejecucion = st.slider("% Eficacia Gasto (DCI-4)", 0, 100, 70)
+                pdt = st.slider("% Cumplimiento Metas", 0, 100, 50)
+                mepi = st.number_input("Calificación MEPI (DCI-1)", 0, 100, 60)
+            with c3:
+                digital = st.select_slider("Tecnología (DCI-4)", ["Bajo", "Medio", "Alto", "Excelente"])
+                estructura = st.selectbox("Estructura (DCI-3)", ["Ágil/Coherente", "Funciones Duplicadas", "Rígida/Burocrática", "Inexistente"])
+                capacitacion = st.selectbox("Personal (DCI-6)", ["Especializado", "Técnico Suficiente", "Requiere Capacitación", "Crítico/No Idóneo"])
+                protocolo = st.selectbox("¿Protocolos? (DCI-1)", ["Sí", "No", "En proceso"])
+                rendicion = st.selectbox("Rendición (DCI-2)", ["Anual", "Semestral", "Nunca"])
 
-                if st.form_submit_button("🚀 Guardar Auditoría"):
-                    if nombre:
+            if st.form_submit_button("🚀 Guardar Auditoría"):
+                if nombre:
+                    datos_sadci_fila = [
+                        str(uuid.uuid4())[:8], nombre, presupuesto, planta, contratos,
+                        protocolo, estructura, rendicion, digital, execution, 
+                        pdt, "Activas", mepi, capacitacion
+                    ]
+                    try:
                         sh_d = conectar_gspread()
                         ws_d = sh_d.worksheet("SADCI")
-                        # Mapeo de 14 columnas
-                        ws_d.append_row([
-                            str(uuid.uuid4())[:8], nombre, presupuesto, planta, contratos,
-                            protocolo, estructura, rendicion, digital, ejecucion, 
-                            pdt, "Activas", mepi, capacitacion
-                        ])
-                        st.success("✅ Diagnóstico completo registrado.")
+                        ws_d.append_row(datos_sadci_fila)
+                        st.success("✅ Diagnóstico guardado directamente en la nube.")
                         st.cache_data.clear()
                         st.rerun()
-
-    except Exception as e: 
-        st.error(f"Error en el Sistema SADCI: {e}")
+                    except Exception:
+                        st.session_state.cola_sadci.append(datos_sadci_fila)
+                        st.info("💾 Guardado en búfer local (Modo Offline). El tablero se actualizará con estos datos transitorios.")
+                        st.rerun()
 
 
 # --- TAB 3: ACTORES ---
 with tab_actores:
     st.subheader("👥 Caracterización de Actores")
-    try:
-        df_social = cargar_datos_con_cache("Actores")
-        if not df_social.empty:
+    
+    df_social = cargar_datos_con_cache("Actores")
+    if st.session_state.cola_actores:
+        df_act_off = pd.DataFrame(st.session_state.cola_actores, columns=["id", "Nombre", "Perfil", "Vereda", "Tenencia", "Observaciones"])
+        df_social = pd.concat([df_social, df_act_off], ignore_index=True) if not df_social.empty else df_act_off
+
+    if not df_social.empty:
+        try:
             m1, m2, m3 = st.columns(3)
             m1.metric("Total Actores", len(df_social))
             m2.metric("Veredas", df_social['Vereda'].nunique())
             propiedad_total = len(df_social[df_social['Tenencia'] == 'Propiedad'])
             m3.metric("Formalidad", f"{(propiedad_total/len(df_social))*100:.1f}%")
+        except Exception:
+            pass
+    else:
+        st.info("Sin registros de actores disponibles.")
 
-        with st.expander("📝 Registrar Nuevo Actor"):
-            with st.form("registro_social", clear_on_submit=True):
-                c1, c2 = st.columns(2)
-                with c1:
-                    nombre_a = st.text_input("Nombre Actor/Líder")
-                    perfil_a = st.selectbox("Perfil", ["Pequeño Productor", "Poseedor", "JAC", "Mujer Rural", "Reclamante"])
-                with c2:
-                    vereda_a = st.text_input("Vereda")
-                    tenencia_a = st.selectbox("Tenencia", ["Propiedad", "Posesión", "Ocupación", "Baldío"])
-                
-                obs_a = st.text_area("Observaciones")
-                if st.form_submit_button("📤 Registrar"):
-                    if nombre_a and vereda_a:
+    with st.expander("📝 Registrar Nuevo Actor"):
+        with st.form("registro_social", clear_on_submit=True):
+            c1, c2 = st.columns(2)
+            with c1:
+                nombre_a = st.text_input("Nombre Actor/Líder")
+                perfil_a = st.selectbox("Perfil", ["Pequeño Productor", "Poseedor", "JAC", "Mujer Rural", "Reclamante"])
+            with c2:
+                vereda_a = st.text_input("Vereda")
+                tenencia_a = st.selectbox("Tenencia", ["Propiedad", "Posesión", "Ocupación", "Baldío"])
+            
+            obs_a = st.text_area("Observaciones")
+            if st.form_submit_button("📤 Registrar"):
+                if nombre_a and vereda_a:
+                    datos_actor_fila = [str(uuid.uuid4())[:8], nombre_a, perfil_a, vereda_a, tenencia_a, obs_a]
+                    try:
                         sh_act = conectar_gspread()
                         ws_act = sh_act.worksheet("Actores")
-                        ws_act.append_row([str(uuid.uuid4())[:8], nombre_a, perfil_a, vereda_a, tenencia_a, obs_a])
-                        st.success(f"✅ {nombre_a} registrado.")
+                        ws_act.append_row(datos_actor_fila)
+                        st.success(f"✅ {nombre_a} registrado en la nube.")
                         st.cache_data.clear()
                         st.rerun()
-    except Exception as e: st.error(f"Error actores: {e}")
+                    except Exception:
+                        st.session_state.cola_actores.append(datos_actor_fila)
+                        st.info(f"💾 Guardado localmente sin señal. {nombre_a} se mantendrá en memoria transitoria.")
+                        st.rerun()
 
 # --- CRÉDITOS FINALES ---
 st.divider()
 col_f1, col_f2 = st.columns([1, 4])
 
 with col_f1:
-    # Intenta cargar el logo de la ESAP si existe en la carpeta assets o data
     logo_path = os.path.join('data', 'logo_esap.png')
     if os.path.exists(logo_path):
         st.image(logo_path, width=120)
