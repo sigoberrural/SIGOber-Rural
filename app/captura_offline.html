@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SADCI - Captura con Mapa (Offline)</title>
+    <title>SADCI - Captura Rural Unificada</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     
@@ -19,7 +19,7 @@
 
     <div class="container-fluid m-0 p-0">
         <h3 class="text-center my-2">🛰️ SIGOber-Rural</h3>
-        <p class="text-muted text-center mb-3" style="font-size:0.85rem;">Puerto Rico (Caquetá) - Mapeo de Conflictos</p>
+        <p class="text-muted text-center mb-3" style="font-size:0.85rem;">Puerto Rico (Caquetá) - Formulario Único Offline</p>
 
         <div class="card p-3 mb-2">
             <div class="row text-center align-items-center">
@@ -54,12 +54,12 @@
                             </select>
                         </div>
                         <div class="mb-2">
-                            <label class="form-label small fw-bold">Vereda</label>
-                            <input type="text" id="vereda" class="form-control form-control-sm" id="vereda" placeholder="Vereda detectada automáticamente" readonly>
+                            <label class="form-label small fw-bold">Vereda Identificada</label>
+                            <input type="text" id="vereda" class="form-control form-control-sm fw-bold text-danger" value="Vereda Localizada" readonly>
                         </div>
                         <div class="mb-2">
                             <label class="form-label small fw-bold">Descripción</label>
-                            <textarea id="desc" class="form-control form-control-sm" rows="2" required placeholder="Detalles del conflicto..."></textarea>
+                            <textarea id="desc" class="form-control form-control-sm" rows="2" required placeholder="Detalles observados en campo..."></textarea>
                         </div>
 
                         <div class="row g-2 mb-3 bg-light p-2 rounded border">
@@ -73,7 +73,7 @@
                             </div>
                         </div>
 
-                        <button type="submit" class="btn btn-danger w-100 btn-grande mb-2">💾 Guardar Registro en Celular</button>
+                        <button type="submit" class="btn btn-danger w-100 btn-grande mb-2">💾 Guardar en Celular</button>
                     </form>
                 </div>
             </div>
@@ -81,8 +81,8 @@
             <div class="col-12 col-md-8">
                 <div class="card p-2">
                     <div class="d-flex justify-content-between align-items-center mb-1 px-1">
-                        <span class="small fw-bold text-muted">📍 Toca el mapa para fijar el conflicto</span>
-                        <button type="button" class="btn btn-secondary btn-sm" onclick="recapturarGPSNativo()">🎯 Usar Mi GPS</button>
+                        <span class="small fw-bold text-muted">📍 Arrastra el pin o toca el mapa en la vereda</span>
+                        <button type="button" class="btn btn-secondary btn-sm" onclick="recapturarGPSNativo()">🎯 Forzar GPS</button>
                     </div>
                     <div id="mapa"></div>
                 </div>
@@ -91,113 +91,102 @@
     </div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/topojson-client@3"></script>
 
     <script>
-        // CONFIGURACIÓN: Coloca aquí tu URL de Google Apps Script
+        // CONFIGURACIÓN: Reemplaza con tu URL de Google Apps Script
         const WEB_APP_URL = "https://script.google.com/macros/s/AKfycby5pV-pRbMH_5AQATCPEyXSfMFHxzgqWchIfxx4UlYQo-SrKzb4ppV5qeyZmjPnn9oz5w/exec";
 
-        let mapa, marcador;
-        
-        // Coordenadas iniciales de Puerto Rico (Caquetá)
+        let mapa, marcador, capaVeredas;
         const LAT_DEFECTO = 1.9123;
         const LON_DEFECTO = -75.1842;
 
-        // --- MAPA DE CONTINGENCIA OFFLINE (Límites vectoriales simulados de muestra) ---
-        // NOTA: Para producción puedes convertir tu archivo 'veredas_puerto_rico.json' a formato GeoJSON estándar 
-        // e incrustar los polígonos directamente aquí para que se dibujen sin necesidad de internet.
-        const limitesVeredasPuertoRico = {
-            "type": "FeatureCollection",
-            "features": [
-                {
-                    "type": "Feature",
-                    "properties": {"NOMBRE_VER": "Centro Urbano / Cabecera"},
-                    "geometry": {
-                        "type": "Polygon",
-                        "coordinates": [[
-                            [-75.2000, 1.9250], [-75.1700, 1.9250], 
-                            [-75.1700, 1.9000], [-75.2000, 1.9000], 
-                            [-75.2000, 1.9250]
-                        ]]
-                    }
-                }
-            ]
-        };
+        // 🛰️ CAPA GEOGRÁFICA INYECTADA (Cero archivos externos)
+        const datosVeredasTopoJSON = /* PEGA AQUÍ TODO EL CONTENIDO EN BRUTO DE TU ARCHIVO veredas_puerto_rico.json */;
 
         if(!localStorage.getItem("conflictos_offline")) {
             localStorage.setItem("conflictos_offline", JSON.stringify([]));
         }
 
-        // 1. INICIALIZAR EL MAPA INTERACTIVO
         function inicializarMapa() {
             mapa = L.map('mapa', {
                 center: [LAT_DEFECTO, LON_DEFECTO],
-                zoom: 13,
+                zoom: 12,
                 zoomControl: false
             });
 
             L.control.zoom({ position: 'bottomright' }).addTo(mapa);
 
-            // Capa de Internet: Solo cargará si el teléfono tiene datos. Si está offline se saltará limpiamente.
-            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                maxZoom: 19,
-                attribution: '© OpenStreetMap'
-            }).addTo(mapa);
+            // Capa satelital/vías (Intenta cargar si hay cobertura urbana, si no, se omite)
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(mapa);
 
-            // Capa Offline Vectorial: Al estar guardada en texto dentro de este archivo, CARGARÁ SIEMPRE sin señal.
-            L.geoJSON(limitesVeredasPuertoRico, {
-                style: function (feature) {
-                    return { color: "#ff7800", weight: 2, fillOpacity: 0.1, fillColor: "#ff7800" };
-                },
-                onEachFeature: function (feature, layer) {
-                    layer.bindTooltip(feature.properties.NOMBRE_VER, { permanent: true, direction: "center", className: "badge bg-dark" });
-                }
-            }).addTo(mapa);
+            // Procesar y dibujar la capa inyectada directamente desde la variable de texto
+            if(datosVeredasTopoJSON) {
+                try {
+                    const nombreObjeto = Object.keys(datosVeredasTopoJSON.objects)[0];
+                    const geojsonData = topojson.feature(datosVeredasTopoJSON, datosVeredasTopoJSON.objects[nombreObjeto]);
 
-            // Crear el marcador movible principal
+                    capaVeredas = L.geoJSON(geojsonData, {
+                        style: function () {
+                            return { color: "#FFFF00", weight: 2, fillColor: "transparent", fillOpacity: 0.1 };
+                        },
+                        onEachFeature: function (feature, layer) {
+                            if (feature.properties && feature.properties.NOMBRE_VER) {
+                                layer.bindTooltip(feature.properties.NOMBRE_VER, { sticky: true });
+                            }
+                        }
+                    }).addTo(mapa);
+                } catch(e) { console.error("Error leyendo geometría integrada:", e); }
+            }
+
+            // Marcador movible rojo
             marcador = L.marker([LAT_DEFECTO, LON_DEFECTO], { draggable: true }).addTo(mapa);
 
-            // Eventos de interacción táctil
-            marcador.on('dragend', function (e) {
+            marcador.on('dragend', function () {
                 var coords = marcador.getLatLng();
-                actualizarInputsCoordenadas(coords.lat, coords.lng);
+                actualizarInputsYVereda(coords.lat, coords.lng);
             });
 
             mapa.on('click', function (e) {
                 marcador.setLatLng(e.latlng);
-                actualizarInputsCoordenadas(e.latlng.lat, e.latlng.lng);
+                actualizarInputsYVereda(e.latlng.lat, e.latlng.lng);
             });
         }
 
-        function actualizarInputsCoordenadas(lat, lon) {
+        // Búsqueda de coincidencia espacial en el teléfono sin internet
+        function actualizarInputsYVereda(lat, lon) {
             document.getElementById("lat").value = Number(lat).toFixed(6);
             document.getElementById("lon").value = Number(lon).toFixed(6);
-            
-            // Simulación básica de detección de vereda offline basada en coordenadas
-            if(lat > 1.90 && lat < 1.93 && lon > -75.20 && lon < -75.17) {
-                document.getElementById("vereda").value = "Centro Urbano";
-            } else {
-                document.getElementById("vereda").value = "Zona Rural Focalizada";
+            document.getElementById("vereda").value = "Vereda Localizada";
+
+            if (capaVeredas) {
+                capaVeredas.eachLayer(function (layer) {
+                    // Verificación de contenedor por caja de límites
+                    if (layer.getBounds().contains([lat, lon])) {
+                        if(layer.feature.properties && layer.feature.properties.NOMBRE_VER) {
+                            document.getElementById("vereda").value = layer.feature.properties.NOMBRE_VER;
+                        }
+                    }
+                });
             }
         }
 
-        // 2. OBTENER GEOLOCALIZACIÓN USANDO EL CHIP GPS INTERNO (Sin internet)
         function recapturarGPSNativo() {
             if (navigator.geolocation) {
                 navigator.geolocation.getCurrentPosition(
                     (pos) => {
                         const lat = pos.coords.latitude;
                         const lon = pos.coords.longitude;
-                        actualizarInputsCoordenadas(lat, lon);
+                        actualizarInputsYVereda(lat, lon);
                         marcador.setLatLng([lat, lon]);
-                        mapa.setView([lat, lon], 15);
+                        mapa.setView([lat, lon], 14);
                     },
-                    (err) => { alert("🛰️ El GPS del celular tarda en responder. Puedes tocar la pantalla para fijar el punto manualmente."); },
+                    (err) => { alert("🛰️ Conexión satelital lenta. Puedes marcar tu posición exacta tocando la vereda en la pantalla."); },
                     { enableHighAccuracy: true, timeout: 8000 }
                 );
             }
         }
 
-        // Verificar si hay señal de internet para activar el botón de sincronización
         function actualizarEstadoRed() {
             const bad = document.getElementById("estado-red");
             const btnSincro = document.getElementById("btn-sincronizar");
@@ -225,7 +214,6 @@
             cargarPuntosGuardadosEnMapa();
         }
 
-        // Guardar registro en la base de datos interna del celular
         document.getElementById("form-conflictos").addEventListener("submit", function(e) {
             e.preventDefault();
             
@@ -244,32 +232,26 @@
             cola.push(nuevoRegistro);
             localStorage.setItem("conflictos_offline", JSON.stringify(cola));
 
-            alert("💾 ¡Conflicto guardado en el teléfono! Aparecerá un punto naranja en tu mapa.");
+            alert("💾 Guardado localmente en el teléfono. Verás un indicador de control.");
             document.getElementById("desc").value = "";
             actualizarEstadoRed();
             cargarPuntosGuardadosEnMapa();
         });
 
-        // Dibujar los puntos que se han capturado durante el día en el mapa offline
         function cargarPuntosGuardadosEnMapa() {
             let cola = JSON.parse(localStorage.getItem("conflictos_offline"));
             cola.forEach(item => {
                 L.circleMarker([item.lat, item.lon], {
-                    radius: 7,
-                    fillColor: "#ff9800",
-                    color: "#e65100",
-                    weight: 2,
-                    fillOpacity: 0.9
+                    radius: 7, fillColor: "#ff9800", color: "#e65100", weight: 2, fillOpacity: 0.9
                 }).addTo(mapa).bindPopup(`<b>${item.tipo}</b><br>${item.vereda}`);
             });
         }
 
-        // Subir los datos acumulados a Google Sheets al recuperar señal
         function sincronizarDatos() {
             let cola = JSON.parse(localStorage.getItem("conflictos_offline"));
             if(cola.length === 0) return;
 
-            document.getElementById("btn-sincronizar").innerText = "⏳ Subiendo datos a Google Sheets...";
+            document.getElementById("btn-sincronizar").innerText = "⏳ Transmitiendo paquetes...";
             document.getElementById("btn-sincronizar").disabled = true;
 
             fetch(WEB_APP_URL, {
@@ -279,12 +261,12 @@
                 body: JSON.stringify(cola)
             })
             .then(() => {
-                alert("🎉 ¡Sincronización Completada! Los conflictos ya están en la base de datos central.");
+                alert("🎉 ¡Transmisión exitosa! Los registros ya están consolidados.");
                 localStorage.setItem("conflictos_offline", JSON.stringify([]));
                 location.reload(); 
             })
-            .catch(err => {
-                alert("❌ Falló la conexión. Espera a tener mejor señal urbana.");
+            .catch(() => {
+                alert("❌ Error de transmisión de paquetes. Intenta nuevamente al recuperar cobertura.");
                 document.getElementById("btn-sincronizar").innerText = "🔄 Enviar Datos Guardados a la Nube";
                 document.getElementById("btn-sincronizar").disabled = false;
             });
