@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SADCI - Captura Rural (Offline)</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body { background-color: #f8f9fa; padding: 15px; font-size: 16px; }
+        .card { border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); margin-bottom: 15px; }
+        .btn-grande { height: 50px; font-weight: bold; font-size: 1.1rem; border-radius: 8px; }
+        .status-badge { font-size: 0.9rem; padding: 8px; display: inline-block; width: 100%; text-align: center; border-radius: 6px; }
+    </style>
+</head>
+<body>
+
+    <div class="container m-0 p-0">
+        <h3 class="text-center my-3">🛰️ SIGOber-Rural</h3>
+        <p class="text-muted text-center" style="font-size:0.9rem;">Puerto Rico (Caquetá) - Captura de Campo</p>
+
+        <div class="card p-3 mb-3">
+            <div class="row text-center">
+                <div class="col-6">
+                    <span id="contador-locales" class="badge bg-warning text-dark p-2 w-100 fs-6">0 Pendientes</span>
+                </div>
+                <div class="col-6">
+                    <span id="estado-red" class="status-badge bg-success text-white">🟢 Con Internet</span>
+                </div>
+            </div>
+            <button id="btn-sincronizar" class="btn btn-outline-primary btn-sm mt-2 d-none" onclick="sincronizarDatos()">🔄 Enviar Datos Guardados</button>
+        </div>
+
+        <div class="card p-3">
+            <h5 class="card-title text-danger mb-3">⚠️ Registrar Conflicto</h5>
+            <form id="form-conflictos">
+                <div class="mb-3">
+                    <label class="form-label">Encuestador / Líder</label>
+                    <input type="text" id="quien" class="form-control" required placeholder="Tu nombre">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Tipo de Conflicto</label>
+                    <select id="tipo" class="form-select">
+                        <option value="Linderos">Linderos</option>
+                        <option value="Uso de Suelo">Uso de Suelo</option>
+                        <option value="Ambiental">Ambiental</option>
+                        <option value="Tenencia">Tenencia</option>
+                    </select>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Vereda (Si la conoce)</label>
+                    <input type="text" id="vereda" class="form-control" placeholder="Nombre de la vereda">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Descripción del Conflicto</label>
+                    <textarea id="desc" class="form-control" rows="3" required placeholder="Detalles observados..."></textarea>
+                </div>
+
+                <div class="row mb-3 bg-light p-2 m-1 rounded border">
+                    <div class="col-6">
+                        <small class="text-muted">Latitud</small>
+                        <input type="text" id="lat" class="form-control form-control-sm text-center" readonly value="Buscando...">
+                    </div>
+                    <div class="col-6">
+                        <small class="text-muted">Longitud</small>
+                        <input type="text" id="lon" class="form-control form-control-sm text-center" readonly value="Buscando...">
+                    </div>
+                    <div class="col-12 mt-2">
+                        <button type="button" class="btn btn-secondary btn-sm w-100" onclick="capturarGPS()">📍 Forzar Captura GPS</button>
+                    </div>
+                </div>
+
+                <button type="submit" class="btn btn-danger w-100 btn-grande">💾 Guardar Registro en Celular</button>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        // CONFIGURACIÓN: Reemplaza con la URL que te da Google Apps Script
+        const WEB_APP_URL = "https://script.google.com/macros/s/AKfycby5pV-pRbMH_5AQATCPEyXSfMFHxzgqWchIfxx4UlYQo-SrKzb4ppV5qeyZmjPnn9oz5w/exec";
+
+        // Inicializar almacenamiento local si está vacío
+        if(!localStorage.getItem("conflictos_offline")) {
+            localStorage.setItem("conflictos_offline", JSON.stringify([]));
+        }
+
+        // Monitorear Conexión de Red
+        function actualizarEstadoRed() {
+            const bad = document.getElementById("estado-red");
+            const btnSincro = document.getElementById("btn-sincronizar");
+            const enCola = JSON.parse(localStorage.getItem("conflictos_offline")).length;
+
+            if (navigator.onLine) {
+                bad.className = "status-badge bg-success text-white";
+                bad.innerText = "🟢 Con Internet";
+                if(enCola > 0) btnSincro.classList.remove("d-none");
+            } else {
+                bad.className = "status-badge bg-secondary text-white";
+                bad.innerText = "⚫ Sin Internet (Modo Rural)";
+                btnSincro.classList.add("d-none");
+            }
+            document.getElementById("contador-locales").innerText = `${enCola} Pendientes`;
+        }
+        window.addEventListener('online', actualizarEstadoRed);
+        window.addEventListener('offline', actualizarEstadoRed);
+
+        // Capturar GPS nativo (No requiere internet, usa el chip del teléfono)
+        function capturarGPS() {
+            if (navigator.geolocation) {
+                navigator.geolocation.getCurrentPosition(
+                    (pos) => {
+                        document.getElementById("lat").value = pos.coords.latitude.toFixed(6);
+                        document.getElementById("lon").value = pos.coords.longitude.toFixed(6);
+                    },
+                    (err) => { alert("⚠️ Enciende el GPS/Ubicación de tu teléfono."); },
+                    { enableHighAccuracy: true, timeout: 10000 }
+                );
+            }
+        }
+
+        // Al cargar la página, intentar capturar ubicación automáticamente
+        window.onload = () => {
+            capturarGPS();
+            actualizarEstadoRed();
+        }
+
+        // Guardar Datos Localmente al enviar Formulario
+        document.getElementById("form-conflictos").addEventListener("submit", function(e) {
+            e.preventDefault();
+            
+            const nuevoRegistro = {
+                id: Math.random().toString(36).substr(2, 5),
+                tipo: document.getElementById("tipo").value,
+                vereda: document.getElementById("vereda").value || "Vereda Localizada",
+                lat: document.getElementById("lat").value,
+                lon: document.getElementById("lon").value,
+                desc: document.getElementById("desc").value,
+                quien: document.getElementById("quien").value,
+                fecha: new Date().toISOString()
+            };
+
+            if(nuevoRegistro.lat === "Buscando..." || nuevoRegistro.lat === "") {
+                alert("❌ Espera a que el GPS capture tu ubicación antes de guardar.");
+                return;
+            }
+
+            // Guardar en la cola local del navegador del teléfono
+            let cola = JSON.parse(localStorage.getItem("conflictos_offline"));
+            cola.push(nuevoRegistro);
+            localStorage.setItem("conflictos_offline", JSON.stringify(cola));
+
+            alert("💾 ¡Registro guardado localmente en el teléfono de forma segura!");
+            document.getElementById("desc").value = "";
+            actualizarEstadoRed();
+        });
+
+        // Sincronizar hacia Google Sheets al retornar al pueblo
+        function sincronizarDatos() {
+            let cola = JSON.parse(localStorage.getItem("conflictos_offline"));
+            if(cola.length === 0) return;
+
+            document.getElementById("btn-sincronizar").innerText = "⏳ Enviando datos...";
+            document.getElementById("btn-sincronizar").disabled = true;
+
+            // Enviar todo el paquete JSON a Google Sheets
+            fetch(WEB_APP_URL, {
+                method: "POST",
+                mode: "no-cors",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(cola)
+            })
+            .then(() => {
+                alert("🎉 ¡Sincronización Exitosa! Los datos están en el SIGOber-Rural.");
+                localStorage.setItem("conflictos_offline", JSON.stringify([])); // Vaciar cola
+                actualizarEstadoRed();
+                document.getElementById("btn-sincronizar").innerText = "🔄 Enviar Datos Guardados";
+                document.getElementById("btn-sincronizar").disabled = false;
+            })
+            .catch(err => {
+                alert("❌ Error al subir datos. Intenta de nuevo.");
+                document.getElementById("btn-sincronizar").innerText = "🔄 Enviar Datos Guardados";
+                document.getElementById("btn-sincronizar").disabled = false;
+            });
+        }
+    </script>
+</body>
+</html>
