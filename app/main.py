@@ -49,38 +49,232 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-st.title("🛰️ SIGOber-Rural: Puerto Rico (Caquetá)")
-st.markdown("### Gestión Territorial, Actores y Capacidad Institucional (SADCI)")
-st.divider()
+# -----------------------------------------------------------------------------
+# 🛰️ CÓDIGO DEL FORMULARIO OFFLINE INYECTADO DIRECTAMENTE EN PYTHON
+# -----------------------------------------------------------------------------
+# NOTA: Asegúrate de cambiar "TU_URL_DE_GOOGLE_APPS_SCRIPT" por tu enlace real de la Web App de Google
+AUTOGENERADO_HTML = """<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SADCI - Captura Rural Unificada</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        body { background-color: #f8f9fa; padding: 10px; font-size: 16px; }
+        .card { border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); margin-bottom: 12px; }
+        .btn-grande { height: 50px; font-weight: bold; font-size: 1.1rem; border-radius: 8px; }
+        .status-badge { font-size: 0.85rem; padding: 8px; display: inline-block; width: 100%; text-align: center; border-radius: 6px; }
+        #mapa { height: 350px; width: 100%; border-radius: 8px; border: 2px solid #ddd; background-color: #e5e3df; }
+        .leaflet-tooltip-own { background: #333; color: #fff; border: none; font-weight: bold; padding: 4px 8px; border-radius: 4px; }
+    </style>
+</head>
+<body>
+    <div class="container-fluid m-0 p-0">
+        <h3 class="text-center my-2">🛰️ SIGOber-Rural</h3>
+        <p class="text-muted text-center mb-3" style="font-size:0.85rem;">Puerto Rico (Caquetá) - Formulario Único Offline</p>
 
-# --- BOTÓN DE DESCARGA PARA EL FORMULARIO OFFLINE ---
-try:
-    ruta_html = "captura_offline.html"
-    
-    if os.path.exists(ruta_html):
-        with open(ruta_html, "r", encoding="utf-8") as f:
-            html_contenido = f.read()
-        
-        # Puedes colocarlo en la barra lateral para que no estorbe el diseño principal
-        with st.sidebar:
-            st.markdown("### 🛰️ Herramientas de Campo")
-            st.info(
-                "¿Vas a salir a zona rural sin señal? Descarga este formulario "
-                "en tu teléfono antes de irte. Funciona 100% offline."
-            )
-            st.download_button(
-                label="📲 Descargar Formulario Offline",
-                data=html_contenido,
-                file_name="captura_offline.html",
-                mime="text/html",
-                use_container_width=True
-            )
-            st.divider()
-    else:
-        with st.sidebar:
-            st.warning("⚠️ Archivo 'captura_offline.html' no encontrado en el servidor.")
-except Exception as e:
-    st.sidebar.error(f"Error al cargar herramienta offline: {e}")
+        <div class="card p-3 mb-2">
+            <div class="row text-center align-items-center">
+                <div class="col-6"><span id="contador-locales" class="badge bg-warning text-dark p-2 w-100 fs-6">0 Pendientes</span></div>
+                <div class="col-6"><span id="estado-red" class="status-badge bg-success text-white">🟢 Con Internet</span></div>
+                <div class="col-12 mt-2">
+                    <button id="btn-sincronizar" class="btn btn-primary btn-sm w-100 d-none" onclick="sincronizarDatos()">🔄 Enviar Datos Guardados a la Nube</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="row">
+            <div class="col-12 col-md-4">
+                <div class="card p-3">
+                    <h5 class="card-title text-danger mb-3">⚠️ Registrar Conflicto</h5>
+                    <form id="form-conflictos">
+                        <div class="mb-2">
+                            <label class="form-label small fw-bold">Encuestador / Líder</label>
+                            <input type="text" id="quien" class="form-control form-control-sm" required placeholder="Tu nombre">
+                        </div>
+                        <div class="mb-2">
+                            <label class="form-label small fw-bold">Tipo de Conflicto</label>
+                            <select id="tipo" class="form-select form-select-sm">
+                                <option value="Linderos">Linderos</option>
+                                <option value="Uso de Suelo">Uso de Suelo</option>
+                                <option value="Ambiental">Ambiental</option>
+                                <option value="Tenencia">Tenencia</option>
+                            </select>
+                        </div>
+                        <div class="mb-2">
+                            <label class="form-label small fw-bold">Vereda Identificada</label>
+                            <input type="text" id="vereda" class="form-control form-control-sm fw-bold text-danger" value="Vereda Localizada" readonly>
+                        </div>
+                        <div class="mb-2">
+                            <label class="form-label small fw-bold">Descripción</label>
+                            <textarea id="desc" class="form-control form-control-sm" rows="2" required placeholder="Detalles observados..."></textarea>
+                        </div>
+                        <div class="row g-2 mb-3 bg-light p-2 rounded border">
+                            <div class="col-6">
+                                <small class="text-muted d-block" style="font-size:0.75rem;">Latitud</small>
+                                <input type="text" id="lat" class="form-control form-control-sm text-center fw-bold" readonly value="1.912300">
+                            </div>
+                            <div class="col-6">
+                                <small class="text-muted d-block" style="font-size:0.75rem;">Longitud</small>
+                                <input type="text" id="lon" class="form-control form-control-sm text-center fw-bold" readonly value="-75.184200">
+                            </div>
+                        </div>
+                        <button type="submit" class="btn btn-danger w-100 btn-grande mb-2">💾 Guardar en Celular</button>
+                    </form>
+                </div>
+            </div>
+            <div class="col-12 col-md-8">
+                <div class="card p-2">
+                    <div class="d-flex justify-content-between align-items-center mb-1 px-1">
+                        <span class="small fw-bold text-muted">📍 Arrastra el pin o toca el mapa</span>
+                        <button type="button" class="btn btn-secondary btn-sm" onclick="recapturarGPSNativo()">🎯 Forzar GPS</button>
+                    </div>
+                    <div id="mapa"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://layerjs.org/libs/turf.min.js"></script>
+    <script>
+        const WEB_APP_URL = "https://script.google.com/macros/s/AKfycby5pV-pRbMH_5AQATCPEyXSfMFHxzgqWchIfxx4UlYQo-SrKzb4ppV5qeyZmjPnn9oz5w/exec";
+        let mapa, marcador, capaVeredas;
+        const LAT_DEFECTO = 1.9123;
+        const LON_DEFECTO = -75.1842;
+
+        const datosVeredasGeoJSON = {
+            "type": "FeatureCollection",
+            "features": [{
+                "type": "Feature",
+                "properties": {"NOMBRE_VER": "Zona Rural General - Puerto Rico"},
+                "geometry": {"type": "Polygon", "coordinates": [[[-75.30, 2.05], [-75.00, 2.05], [-75.00, 1.80], [-75.30, 1.80], [-75.30, 2.05]]]}
+            }]
+        };
+
+        if(!localStorage.getItem("conflictos_offline")) { localStorage.setItem("conflictos_offline", JSON.stringify([])); }
+
+        function inicializarMapa() {
+            mapa = L.map('mapa', { center: [LAT_DEFECTO, LON_DEFECTO], zoom: 12, zoomControl: false });
+            L.control.zoom({ position: 'bottomright' }).addTo(mapa);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(mapa);
+
+            try {
+                capaVeredas = L.geoJSON(datosVeredasGeoJSON, {
+                    style: function () { return { color: "#FFFF00", weight: 2, fillColor: "#FFFF00", fillOpacity: 0.05 }; },
+                    onEachFeature: function (feature, layer) {
+                        if (feature.properties && feature.properties.NOMBRE_VER) {
+                            layer.bindTooltip(feature.properties.NOMBRE_VER, { permanent: true, direction: "center", className: "leaflet-tooltip-own" });
+                        }
+                    }
+                }).addTo(mapa);
+            } catch(e) {}
+
+            marcador = L.circleMarker([LAT_DEFECTO, LON_DEFECTO], { radius: 10, fillColor: "#ff2a2a", color: "#fff", weight: 3, opacity: 1, fillOpacity: 0.9 }).addTo(mapa);
+
+            mapa.on('click', function (e) {
+                marcador.setLatLng(e.latlng);
+                actualizarInputsYVereda(e.latlng.lat, e.latlng.lng);
+            });
+        }
+
+        function actualizarInputsYVereda(lat, lon) {
+            document.getElementById("lat").value = Number(lat).toFixed(6);
+            document.getElementById("lon").value = Number(lon).toFixed(6);
+            document.getElementById("vereda").value = "Vereda Localizada";
+            if (capaVeredas) {
+                const puntoEval = turf.point([lon, lat]);
+                capaVeredas.eachLayer(function (layer) {
+                    try {
+                        if (turf.booleanPointInPolygon(puntoEval, layer.feature)) {
+                            document.getElementById("vereda").value = layer.feature.properties.NOMBRE_VER;
+                        }
+                    } catch(err) {}
+                });
+            }
+        }
+
+        function recapturarGPSNativo() {
+            if (navigator.geolocation) {
+                navigator.geolocation.getCurrentPosition((pos) => {
+                    const lat = pos.coords.latitude; const lon = pos.coords.longitude;
+                    actualizarInputsYVereda(lat, lon); marcador.setLatLng([lat, lon]); mapa.setView([lat, lon], 14);
+                }, null, { enableHighAccuracy: true, timeout: 8000 });
+            }
+        }
+
+        function actualizarEstadoRed() {
+            const bad = document.getElementById("estado-red"); const btnSincro = document.getElementById("btn-sincronizar");
+            const enCola = JSON.parse(localStorage.getItem("conflictos_offline")).length;
+            if (navigator.onLine) {
+                bad.className = "status-badge bg-success text-white"; bad.innerText = "🟢 Con Internet";
+                if(enCola > 0) btnSincro.classList.remove("d-none");
+            } else {
+                bad.className = "status-badge bg-secondary text-white"; bad.innerText = "⚫ Sin Internet (Modo Rural)";
+                btnSincro.classList.add("d-none");
+            }
+            document.getElementById("contador-locales").innerText = `${enCola} Pendientes`;
+        }
+        window.addEventListener('online', actualizarEstadoRed); window.addEventListener('offline', actualizarEstadoRed);
+
+        window.onload = () => { inicializarMapa(); recapturarGPSNativo(); actualizarEstadoRed(); cargarPuntosGuardadosEnMapa(); }
+
+        document.getElementById("form-conflictos").addEventListener("submit", function(e) {
+            e.preventDefault();
+            const nuevoRegistro = {
+                id: Math.random().toString(36).substr(2, 5), tipo: document.getElementById("tipo").value,
+                vereda: document.getElementById("vereda").value, lat: document.getElementById("lat").value,
+                lon: document.getElementById("lon").value, desc: document.getElementById("desc").value,
+                quien: document.getElementById("quien").value, fecha: new Date().toISOString()
+            };
+            let cola = JSON.parse(localStorage.getItem("conflictos_offline")); cola.push(nuevoRegistro);
+            localStorage.setItem("conflictos_offline", JSON.stringify(cola));
+            alert("💾 Guardado localmente en el teléfono."); document.getElementById("desc").value = "";
+            actualizarEstadoRed(); cargarPuntosGuardadosEnMapa();
+        });
+
+        function cargarPuntosGuardadosEnMapa() {
+            let cola = JSON.parse(localStorage.getItem("conflictos_offline"));
+            cola.forEach(item => {
+                L.circleMarker([item.lat, item.lon], { radius: 7, fillColor: "#ff9800", color: "#e65100", weight: 2, fillOpacity: 0.9 }).addTo(mapa);
+            });
+        }
+
+        function sincronizarDatos() {
+            let cola = JSON.parse(localStorage.getItem("conflictos_offline")); if(cola.length === 0) return;
+            document.getElementById("btn-sincronizar").innerText = "⏳ Transmitiendo...";
+            fetch(WEB_APP_URL, { method: "POST", mode: "no-cors", headers: { "Content-Type": "application/json" }, body: JSON.stringify(cola) })
+            .then(() => {
+                alert("🎉 ¡Transmisión exitosa!"); localStorage.setItem("conflictos_offline", JSON.stringify([])); location.reload();
+            });
+        }
+    </script>
+</body>
+</html>"""
+
+
+# --- AGREGAR EL BOTÓN EN LA BARRA LATERAL (SIDEBAR) ---
+with st.sidebar:
+    st.markdown("### 🛰️ Herramientas de Campo")
+    st.info(
+        "¿Vas a salir a zona rural sin señal? Descarga este formulario "
+        "en tu teléfono antes de irte. Funciona 100% offline."
+    )
+    st.download_button(
+        label="📲 Descargar Formulario Offline",
+        data=AUTOGENERADO_HTML,
+        file_name="captura_offline.html",
+        mime="text/html",
+        use_container_width=True
+    )
+    st.divider()
+
+
+# -----------------------------------------------------------------------------
+# EL RESTO
+# -----------------------------------------------------------------------------
 
 # 2. CONEXIÓN A DATOS Y INICIALIZACIÓN COLA OFFLINE
 conn = st.connection("gsheets", type=GSheetsConnection)
