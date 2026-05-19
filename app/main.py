@@ -53,6 +53,35 @@ st.title("🛰️ SIGOber-Rural: Puerto Rico (Caquetá)")
 st.markdown("### Gestión Territorial, Actores y Capacidad Institucional (SADCI)")
 st.divider()
 
+# --- BOTÓN DE DESCARGA PARA EL FORMULARIO OFFLINE ---
+try:
+    ruta_html = "captura_offline.html"
+    
+    if os.path.exists(ruta_html):
+        with open(ruta_html, "r", encoding="utf-8") as f:
+            html_contenido = f.read()
+        
+        # Puedes colocarlo en la barra lateral para que no estorbe el diseño principal
+        with st.sidebar:
+            st.markdown("### 🛰️ Herramientas de Campo")
+            st.info(
+                "¿Vas a salir a zona rural sin señal? Descarga este formulario "
+                "en tu teléfono antes de irte. Funciona 100% offline."
+            )
+            st.download_button(
+                label="📲 Descargar Formulario Offline",
+                data=html_contenido,
+                file_name="captura_offline.html",
+                mime="text/html",
+                use_container_width=True
+            )
+            st.divider()
+    else:
+        with st.sidebar:
+            st.warning("⚠️ Archivo 'captura_offline.html' no encontrado en el servidor.")
+except Exception as e:
+    st.sidebar.error(f"Error al cargar herramienta offline: {e}")
+
 # 2. CONEXIÓN A DATOS Y INICIALIZACIÓN COLA OFFLINE
 conn = st.connection("gsheets", type=GSheetsConnection)
 
