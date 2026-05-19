@@ -3,84 +3,165 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SADCI - Captura Rural (Offline)</title>
+    <title>SADCI - Captura con Mapa (Offline)</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    
     <style>
-        body { background-color: #f8f9fa; padding: 15px; font-size: 16px; }
-        .card { border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); margin-bottom: 15px; }
+        body { background-color: #f8f9fa; padding: 10px; font-size: 16px; }
+        .card { border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); margin-bottom: 12px; }
         .btn-grande { height: 50px; font-weight: bold; font-size: 1.1rem; border-radius: 8px; }
-        .status-badge { font-size: 0.9rem; padding: 8px; display: inline-block; width: 100%; text-align: center; border-radius: 6px; }
+        .status-badge { font-size: 0.85rem; padding: 8px; display: inline-block; width: 100%; text-align: center; border-radius: 6px; }
+        /* Ajuste crucial para que el mapa se vea perfecto en pantallas de celular */
+        #mapa { height: 300px; width: 100%; border-radius: 8px; border: 2px solid #ddd; }
     </style>
 </head>
 <body>
 
-    <div class="container m-0 p-0">
-        <h3 class="text-center my-3">🛰️ SIGOber-Rural</h3>
-        <p class="text-muted text-center" style="font-size:0.9rem;">Puerto Rico (Caquetá) - Captura de Campo</p>
+    <div class="container-fluid m-0 p-0">
+        <h3 class="text-center my-2">🛰️ SIGOber-Rural</h3>
+        <p class="text-muted text-center mb-3" style="font-size:0.85rem;">Puerto Rico (Caquetá) - Mapeo de Conflictos</p>
 
-        <div class="card p-3 mb-3">
-            <div class="row text-center">
+        <div class="card p-3 mb-2">
+            <div class="row text-center align-items-center">
                 <div class="col-6">
                     <span id="contador-locales" class="badge bg-warning text-dark p-2 w-100 fs-6">0 Pendientes</span>
                 </div>
                 <div class="col-6">
                     <span id="estado-red" class="status-badge bg-success text-white">🟢 Con Internet</span>
                 </div>
+                <div class="col-12 mt-2">
+                    <button id="btn-sincronizar" class="btn btn-primary btn-sm w-100 d-none" onclick="sincronizarDatos()">🔄 Enviar Datos Guardados a la Nube</button>
+                </div>
             </div>
-            <button id="btn-sincronizar" class="btn btn-outline-primary btn-sm mt-2 d-none" onclick="sincronizarDatos()">🔄 Enviar Datos Guardados</button>
         </div>
 
-        <div class="card p-3">
-            <h5 class="card-title text-danger mb-3">⚠️ Registrar Conflicto</h5>
-            <form id="form-conflictos">
-                <div class="mb-3">
-                    <label class="form-label">Encuestador / Líder</label>
-                    <input type="text" id="quien" class="form-control" required placeholder="Tu nombre">
-                </div>
-                <div class="mb-3">
-                    <label class="form-label">Tipo de Conflicto</label>
-                    <select id="tipo" class="form-select">
-                        <option value="Linderos">Linderos</option>
-                        <option value="Uso de Suelo">Uso de Suelo</option>
-                        <option value="Ambiental">Ambiental</option>
-                        <option value="Tenencia">Tenencia</option>
-                    </select>
-                </div>
-                <div class="mb-3">
-                    <label class="form-label">Vereda (Si la conoce)</label>
-                    <input type="text" id="vereda" class="form-control" placeholder="Nombre de la vereda">
-                </div>
-                <div class="mb-3">
-                    <label class="form-label">Descripción del Conflicto</label>
-                    <textarea id="desc" class="form-control" rows="3" required placeholder="Detalles observados..."></textarea>
-                </div>
+        <div class="row">
+            <div class="col-12 col-md-4">
+                <div class="card p-3">
+                    <h5 class="card-title text-danger mb-3">⚠️ Registrar Conflicto</h5>
+                    <form id="form-conflictos">
+                        <div class="mb-2">
+                            <label class="form-label small fw-bold">Encuestador / Líder</label>
+                            <input type="text" id="quien" class="form-control form-control-sm" required placeholder="Tu nombre">
+                        </div>
+                        <div class="mb-2">
+                            <label class="form-label small fw-bold">Tipo de Conflicto</label>
+                            <select id="tipo" class="form-select form-select-sm">
+                                <option value="Linderos">Linderos</option>
+                                <option value="Uso de Suelo">Uso de Suelo</option>
+                                <option value="Ambiental">Ambiental</option>
+                                <option value="Tenencia">Tenencia</option>
+                            </select>
+                        </div>
+                        <div class="mb-2">
+                            <label class="form-label small fw-bold">Vereda</label>
+                            <input type="text" id="vereda" class="form-control form-control-sm" placeholder="Nombre de la vereda">
+                        </div>
+                        <div class="mb-2">
+                            <label class="form-label small fw-bold">Descripción</label>
+                            <textarea id="desc" class="form-control form-control-sm" rows="2" required placeholder="Detalles del conflicto..."></textarea>
+                        </div>
 
-                <div class="row mb-3 bg-light p-2 m-1 rounded border">
-                    <div class="col-6">
-                        <small class="text-muted">Latitud</small>
-                        <input type="text" id="lat" class="form-control form-control-sm text-center" readonly value="Buscando...">
-                    </div>
-                    <div class="col-6">
-                        <small class="text-muted">Longitud</small>
-                        <input type="text" id="lon" class="form-control form-control-sm text-center" readonly value="Buscando...">
-                    </div>
-                    <div class="col-12 mt-2">
-                        <button type="button" class="btn btn-secondary btn-sm w-100" onclick="capturarGPS()">📍 Forzar Captura GPS</button>
-                    </div>
-                </div>
+                        <div class="row g-2 mb-3 bg-light p-2 rounded border">
+                            <div class="col-6">
+                                <small class="text-muted d-block" style="font-size:0.75rem;">Latitud</small>
+                                <input type="text" id="lat" class="form-control form-control-sm text-center fw-bold" readonly value="1.9123">
+                            </div>
+                            <div class="col-6">
+                                <small class="text-muted d-block" style="font-size:0.75rem;">Longitud</small>
+                                <input type="text" id="lon" class="form-control form-control-sm text-center fw-bold" readonly value="-75.1842">
+                            </div>
+                        </div>
 
-                <button type="submit" class="btn btn-danger w-100 btn-grande">💾 Guardar Registro en Celular</button>
-            </form>
+                        <button type="submit" class="btn btn-danger w-100 btn-grande mb-2">💾 Guardar Registro en Celular</button>
+                    </form>
+                </div>
+            </div>
+
+            <div class="col-12 col-md-8">
+                <div class="card p-2">
+                    <div class="d-flex justify-content-between align-items-center mb-1 px-1">
+                        <span class="small fw-bold text-muted">📍 Toca el mapa para ajustar la ubicación</span>
+                        <button type="button" class="btn btn-secondary btn-sm" onclick="recapturarGPSNativo()">🎯 Usar Mi GPS</button>
+                    </div>
+                    <div id="mapa"></div>
+                </div>
+            </div>
         </div>
     </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
     <script>
         // CONFIGURACIÓN: Reemplaza con la URL que te da Google Apps Script
         const WEB_APP_URL = "https://script.google.com/macros/s/AKfycby5pV-pRbMH_5AQATCPEyXSfMFHxzgqWchIfxx4UlYQo-SrKzb4ppV5qeyZmjPnn9oz5w/exec";
 
-        // Inicializar almacenamiento local si está vacío
+        let mapa, marcador;
+        
+        // Coordenadas por defecto (Centro urbano de Puerto Rico, Caquetá)
+        const LAT_DEFECTO = 1.9123;
+        const LON_DEFECTO = -75.1842;
+
         if(!localStorage.getItem("conflictos_offline")) {
             localStorage.setItem("conflictos_offline", JSON.stringify([]));
+        }
+
+        // 1. INICIALIZAR EL MAPA TÁCTIL OFFLINE
+        function inicializarMapa() {
+            // Configurar el mapa centrado en Puerto Rico
+            mapa = L.map('mapa', {
+                center: [LAT_DEFECTO, LON_DEFECTO],
+                zoom: 13,
+                zoomControl: false // Ocultar botones para maximizar espacio táctil en celular
+            });
+
+            // Añadir control de zoom en una esquina más cómoda para móviles
+            L.control.zoom({ position: 'bottomright' }).add_to(mapa);
+
+            // Capa de Mapa Estándar de OpenStreetMap
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                maxZoom: 19,
+                attribution: '© OpenStreetMap'
+            }).add_to(mapa);
+
+            // Crear el marcador movible rojo
+            marcador = L.marker([LAT_DEFECTO, LON_DEFECTO], { draggable: true }).add_to(mapa);
+
+            // Evento 1: Cuando el investigador arrastra el pin con el dedo
+            marcador.on('dragend', function (e) {
+                var coords = marcador.getLatLng();
+                actualizarInputsCoordenadas(coords.lat, coords.lng);
+            });
+
+            // Evento 2: Cuando el investigador toca cualquier otra parte del mapa
+            mapa.on('click', function (e) {
+                marcador.setLatLng(e.latlng);
+                actualizarInputsCoordenadas(e.latlng.lat, e.latlng.lng);
+            });
+        }
+
+        function actualizarInputsCoordenadas(lat, lon) {
+            document.getElementById("lat").value = Number(lat).toFixed(6);
+            document.getElementById("lon").value = Number(lon).toFixed(6);
+        }
+
+        // 2. CAPTURAR UBICACIÓN MEDIANTE EL CHIP GPS DEL TELÉFONO (Sin Datos/Internet)
+        function recapturarGPSNativo() {
+            if (navigator.geolocation) {
+                navigator.geolocation.getCurrentPosition(
+                    (pos) => {
+                        const lat = pos.coords.latitude;
+                        const lon = pos.coords.longitude;
+                        actualizarInputsCoordenadas(lat, lon);
+                        // Mover el mapa y el marcador a donde el satélite diga que está el celular
+                        marcador.setLatLng([lat, lon]);
+                        mapa.setView([lat, lon], 15);
+                    },
+                    (err) => { alert("⚠️ Por favor activa la ubicación/GPS de tu teléfono."); },
+                    { enableHighAccuracy: true, timeout: 8000 }
+                );
+            }
         }
 
         // Monitorear Conexión de Red
@@ -100,30 +181,19 @@
             }
             document.getElementById("contador-locales").innerText = `${enCola} Pendientes`;
         }
+        
         window.addEventListener('online', actualizarEstadoRed);
         window.addEventListener('offline', actualizarEstadoRed);
 
-        // Capturar GPS nativo (No requiere internet, usa el chip del teléfono)
-        function capturarGPS() {
-            if (navigator.geolocation) {
-                navigator.geolocation.getCurrentPosition(
-                    (pos) => {
-                        document.getElementById("lat").value = pos.coords.latitude.toFixed(6);
-                        document.getElementById("lon").value = pos.coords.longitude.toFixed(6);
-                    },
-                    (err) => { alert("⚠️ Enciende el GPS/Ubicación de tu teléfono."); },
-                    { enableHighAccuracy: true, timeout: 10000 }
-                );
-            }
-        }
-
-        // Al cargar la página, intentar capturar ubicación automáticamente
+        // Cargar todo al iniciar la página
         window.onload = () => {
-            capturarGPS();
+            inicializarMapa();
+            recapturarGPSNativo(); // Intento inicial de capturar coordenadas satelitales
             actualizarEstadoRed();
+            cargarPuntosGuardadosEnMapa(); // Pintar el historial si existe en la memoria
         }
 
-        // Guardar Datos Localmente al enviar Formulario
+        // Guardar en la memoria local del teléfono
         document.getElementById("form-conflictos").addEventListener("submit", function(e) {
             e.preventDefault();
             
@@ -138,30 +208,39 @@
                 fecha: new Date().toISOString()
             };
 
-            if(nuevoRegistro.lat === "Buscando..." || nuevoRegistro.lat === "") {
-                alert("❌ Espera a que el GPS capture tu ubicación antes de guardar.");
-                return;
-            }
-
-            // Guardar en la cola local del navegador del teléfono
             let cola = JSON.parse(localStorage.getItem("conflictos_offline"));
             cola.push(nuevoRegistro);
             localStorage.setItem("conflictos_offline", JSON.stringify(cola));
 
-            alert("💾 ¡Registro guardado localmente en el teléfono de forma segura!");
+            alert("💾 Registro guardado con éxito en el teléfono.");
             document.getElementById("desc").value = "";
             actualizarEstadoRed();
+            cargarPuntosGuardadosEnMapa();
         });
 
-        // Sincronizar hacia Google Sheets al retornar al pueblo
+        // Pintar círculos naranjas en el mapa por cada conflicto guardado localmente
+        function cargarPuntosGuardadosEnMapa() {
+            let cola = JSON.parse(localStorage.getItem("conflictos_offline"));
+            cola.forEach(item => {
+                L.circleMarker([item.lat, item.lon], {
+                    radius: 6,
+                    fillColor: "#ff9800", // Color Naranja para diferenciar lo que está offline
+                    color: "#e65100",
+                    weight: 1,
+                    opacity: 1,
+                    fillOpacity: 0.8
+                }).addTo(mapa).bindPopup(`<b>${item.tipo}</b><br>${item.vereda}`);
+            });
+        }
+
+        // Sincronizar hacia Google Sheets al volver al pueblo
         function sincronizarDatos() {
             let cola = JSON.parse(localStorage.getItem("conflictos_offline"));
             if(cola.length === 0) return;
 
-            document.getElementById("btn-sincronizar").innerText = "⏳ Enviando datos...";
+            document.getElementById("btn-sincronizar").innerText = "⏳ Sincronizando Paquetes...";
             document.getElementById("btn-sincronizar").disabled = true;
 
-            // Enviar todo el paquete JSON a Google Sheets
             fetch(WEB_APP_URL, {
                 method: "POST",
                 mode: "no-cors",
@@ -169,15 +248,13 @@
                 body: JSON.stringify(cola)
             })
             .then(() => {
-                alert("🎉 ¡Sincronización Exitosa! Los datos están en el SIGOber-Rural.");
-                localStorage.setItem("conflictos_offline", JSON.stringify([])); // Vaciar cola
-                actualizarEstadoRed();
-                document.getElementById("btn-sincronizar").innerText = "🔄 Enviar Datos Guardados";
-                document.getElementById("btn-sincronizar").disabled = false;
+                alert("🎉 ¡Sincronización Exitosa! Los conflictos ya están consolidados en el SIGOber-Rural.");
+                localStorage.setItem("conflictos_offline", JSON.stringify([]));
+                location.reload(); // Recargar el mapa limpio
             })
             .catch(err => {
-                alert("❌ Error al subir datos. Intenta de nuevo.");
-                document.getElementById("btn-sincronizar").innerText = "🔄 Enviar Datos Guardados";
+                alert("❌ Falló la transmisión de datos. Asegúrate de tener cobertura urbana.");
+                document.getElementById("btn-sincronizar").innerText = "🔄 Enviar Datos Guardados a la Nube";
                 document.getElementById("btn-sincronizar").disabled = false;
             });
         }
