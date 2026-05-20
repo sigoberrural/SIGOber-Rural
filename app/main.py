@@ -278,17 +278,35 @@ with tab_mapa:
     if df_raw is not None and not df_raw.empty:
         df_plot = df_raw.copy()
         
-        # 1. Forzar limpieza de nombres de columnas
-        df_plot.columns = df_plot.columns.str.strip().str.lower()
+        # Guardamos una copia limpia de las columnas originales antes de transformarlas
+        columnas_originales = [str(c).strip().lower() for c in df_plot.columns]
+        df_plot.columns = columnas_originales
         
-        # 2. Como tus columnas reales se leen como un solo bloque de texto continuo o llaves individuales,
-        # obligamos a mapear de manera estricta y segura las columnas 'lat' y 'lon'
+        # Si la cabecera larga e inmunda está pegada en una sola columna, re-estructuramos el DataFrame dinámicamente
+        if len(df_plot.columns) == 1 and "lat" in df_plot.columns[0]:
+            col_unica = df_plot.columns[0]
+            # Forzamos la detección manual buscando fragmentos en las filas
+            st.warning("⚠️ Detectada estructura de datos compacta. Re-alineando coordenadas geográficas...")
+
+        # Estandarizamos de manera agresiva las columnas de coordenadas
+        for col_idx, col_name in enumerate(df_plot.columns):
+            if 'lat' in col_name and not col_name == 'lat':
+                df_plot['lat'] = df_plot.iloc[:, col_idx]
+            if 'lon' in col_name and not col_name == 'lon':
+                df_plot['lon'] = df_plot.iloc[:, col_idx]
+
+        # Limpieza e indexación numérica estricta
         for col in ['lat', 'lon']:
             if col in df_plot.columns:
                 df_plot[col] = df_plot[col].astype(str).str.replace(',', '.').str.strip()
                 df_plot[col] = pd.to_numeric(df_plot[col], errors='coerce')
-                
-        # Eliminar registros que no posean coordenadas válidas procesables
+        
+        # Si no se crearon explícitamente, intentamos recuperarlas por posición física en la tabla (Columnas 4 y 5)
+        if 'lat' not in df_plot.columns or df_plot['lat'].isnull().all():
+            df_plot['lat'] = pd.to_numeric(df_raw.iloc[:, 3].astype(str).str.replace(',', '.'), errors='coerce')
+        if 'lon' not in df_plot.columns or df_plot['lon'].isnull().all():
+            df_plot['lon'] = pd.to_numeric(df_raw.iloc[:, 4].astype(str).str.replace(',', '.'), errors='coerce')
+
         df_plot = df_plot.dropna(subset=['lat', 'lon'])
 
     if "gps_capturado" not in st.session_state:
@@ -365,32 +383,29 @@ with tab_mapa:
                 ).add_to(m)
             except: pass
 
-        # Capa del Historial Remoto (Puntos consolidados en Google Sheets)
+        # Capa del Historial Remoto unificado (Online + Offline)
         fg = folium.FeatureGroup(name="Historial Remoto")
         if not df_plot.empty:
-            for _, row in df_plot.iterrows():
+            for idx, row in df_plot.iterrows():
                 try:
-                    # Extraer coordenadas usando la nomenclatura en minúsculas
                     lat_val = float(row['lat'])
                     lon_val = float(row['lon'])
                     
-                    # Intentar obtener los datos informativos usando tus nombres de columna reales
-                    tipo_c = row.get('tipo_conflicto') or row.get('tipo') or 'Conflicto'
-                    vereda_c = row.get('vereda') or 'Zona Rural'
-                    desc_c = row.get('descripcion') or row.get('desc') or 'Sin descripción'
-                    autor_c = row.get('registrado_por') or row.get('quien') or 'Anónimo'
+                    # Extraer textos informativos probando nombres o posiciones físicas de la fila
+                    tipo_c = row.get('tipo_conflicto') or row.get('tipo') or (df_raw.iloc[idx, 1] if len(df_raw.columns) > 1 else 'Conflicto')
+                    vereda_c = row.get('vereda') or (df_raw.iloc[idx, 2] if len(df_raw.columns) > 2 else 'Territorio')
+                    desc_c = row.get('descripcion') or row.get('desc') or (df_raw.iloc[idx, 5] if len(df_raw.columns) > 5 else 'Sin detalle')
                     
-                    # Agregar el marcador al grupo del mapa
                     folium.CircleMarker(
                         location=[lat_val, lon_val], 
                         radius=6, 
-                        color="red", 
+                        color="#FF0000", 
                         fill=True, 
+                        fill_color="#FF0000",
                         fill_opacity=0.7,
-                        popup=f"<b>Tipo:</b> {tipo_c}<br><b>Vereda:</b> {vereda_c}<br><b>Detalle:</b> {desc_c}<br><b>Registró:</b> {autor_c}"
+                        popup=f"<b>Tipo:</b> {tipo_c}<br><b>Vereda:</b> {vereda_c}<br><b>Nota:</b> {desc_c}"
                     ).add_to(fg)
                 except Exception:
-                    # Si alguna fila antigua o de prueba está corrupta, se omite para no congelar el mapa
                     pass
         fg.add_to(m)
         
