@@ -9,7 +9,6 @@ import uuid
 import gspread
 from google.oauth2.service_account import Credentials
 from shapely.geometry import shape, Point
-import topojson as tp
 from streamlit_js_eval import get_geolocation
 import plotly.express as px
 
@@ -32,14 +31,6 @@ st.markdown("""
     .block-container {
         padding-top: 1rem;
         padding-bottom: 1rem;
-    }
-    .footer-container {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        gap: 20px;
-        padding: 10px;
-        margin-top: 20px;
     }
     .footer-text {
         font-size: 0.9rem;
@@ -241,7 +232,7 @@ except Exception as e:
     st.error(f"Error en st.connection: {e}")
 
 # -----------------------------------------------------------------------------
-# 3. CARGA DE CAPAS GEOGRÁFICAS (SISTEMA ULTRA VELOZ ANTIBLOQUEOS)
+# 3. CARGA ULTRA-VELOZ DIRECTA (ELIMINADO TOPOJSON PARA EVITAR BUCLES)
 # -----------------------------------------------------------------------------
 @st.cache_data
 def cargar_veredas():
@@ -252,20 +243,15 @@ def cargar_veredas():
         with open(ruta, 'r', encoding='utf-8') as f:
             data = json.load(f)
         
-        # Intentar conversión rápida por Topojson de Python
-        topo = tp.Topology(data)
-        return topo.to_geojson()
-    except Exception:
-        # SISTEMA DE ESCAPE DE EMERGENCIA: Si topojson causa un bucle infinito, 
-        # devolvemos el archivo crudo o una estructura GeoJSON mínima para evitar que colapse la app
-        if data and 'type' in data and data['type'] == 'Topology':
-            try:
-                # Intento alternativo usando extracción por llave de objeto
-                nombre_obj = list(data['objects'].keys())[0]
-                return tp.feature(data, data['objects'][nombre_obj])
-            except:
-                return data
+        # Si el archivo tiene la clave 'objects' (es un topojson crudo),
+        # extraemos la data geométrica directamente de forma segura
+        if isinstance(data, dict) and 'objects' in data:
+            nombre_obj = list(data['objects'].keys())[0]
+            # Si contiene geometrías embebidas directas, las usamos como colección base
+            return data['objects'][nombre_obj]
         return data
+    except Exception:
+        return None
 
 veredas_geojson = cargar_veredas()
 
@@ -277,7 +263,7 @@ st.markdown("### Sistema de Información Geográfica para la Gobernanza Rural")
 
 t1, t2, t3 = st.tabs(["📥 Captura de Campo", "🗺️ Mapeo SADCI", "👥 Registro Actores"])
 
-# --- TAB 1: CAPTURA DE CAMPO (CONTINGENCIA LOCAL STREAMLIT) ---
+# --- TAB 1: CAPTURA DE CAMPO ---
 with t1:
     st.subheader("🛰️ Registro Georreferenciado en Línea (Streamlit)")
     st.markdown("Utiliza esta pestaña si cuentas con datos móviles en la vereda. Si no tienes señal, usa el botón de descarga de la barra lateral.")
@@ -292,7 +278,7 @@ with t1:
             st.session_state.lon_cap = loc['coords']['longitude']
             st.success(f"📍 Ubicación fijada: {st.session_state.lat_cap}, {st.session_state.lon_cap}")
         else:
-            st.warning("No se pudo obtener el GPS automático. Revisa los permisos de ubicación o marca el punto en el mapa de SADCI.")
+            st.warning("No se pudo obtener el GPS automático. Marca tu posición aproximada en los casilleros manuales.")
 
     with st.form("form_rural_directo"):
         c1, c2 = st.columns(2)
@@ -307,15 +293,14 @@ with t1:
         
         if st.form_submit_button("💾 Guardar Registro"):
             vereda_detectada = "Vereda Localizada"
-            if veredas_geojson and isinstance(veredas_geojson, dict) and 'features' in veredas_geojson:
+            if veredas_geojson and isinstance(veredas_geojson, dict) and 'geometries' in veredas_geojson:
                 try:
                     p = Point(lon_f, lat_f)
-                    for feat in veredas_geojson['features']:
-                        if 'geometry' in feat:
-                            geom = shape(feat['geometry'])
-                            if geom.contains(p):
-                                vereda_detectada = feat['properties'].get('NOMBRE_VER', "Vereda Localizada")
-                                break
+                    for feat in veredas_geojson['geometries']:
+                        geom = shape(feat)
+                        if geom.contains(p):
+                            vereda_detectada = feat.get('properties', {}).get('NOMBRE_VER', "Vereda Localizada")
+                            break
                 except:
                     pass
             
@@ -329,21 +314,7 @@ with t1:
                 st.cache_data.clear()
             except Exception:
                 st.session_state.cola_conflictos.append(nueva_fila)
-                st.warning("⚠️ Sin señal de base de datos. Guardado en la memoria temporal de Streamlit.")
-
-    if st.session_state.cola_conflictos:
-        st.subheader("📦 Registros en cola local (Esperando sincronización)")
-        st.dataframe(pd.DataFrame(st.session_state.cola_conflictos))
-        if st.button("🔄 Sincronizar cola de Streamlit ahora"):
-            try:
-                sh = conectar_gspread()
-                ws = sh.worksheet("Conflictos")
-                for r in st.session_state.cola_conflictos: ws.append_row(r)
-                st.session_state.cola_conflictos = []
-                st.success("¡Sincronización de cola completada con éxito!")
-                st.cache_data.clear()
-                st.rerun()
-            except Exception: st.error("Aún no hay conexión directa con la base de datos.")
+                st.warning("⚠️ Guardado local en memoria transitoria (Streamlit sin conexión a base de datos).")
 
 # --- TAB 2: MAPEO DE PROBLEMÁTICAS EN LA NUBE (SADCI) ---
 with t2:
@@ -356,16 +327,6 @@ with t2:
         
         with col_m1:
             m = folium.Map(location=[1.9123, -75.1842], zoom_start=11, tiles="OpenStreetMap")
-            
-            if veredas_geojson and isinstance(veredas_geojson, dict) and 'type' in veredas_geojson:
-                try:
-                    folium.GeoJson(
-                        veredas_geojson,
-                        name="Límites Veredales Puerto Rico",
-                        style_function=lambda x: {'color': '#FFFF00', 'weight': 2, 'fillColor': 'transparent'}
-                    ).add_to(m)
-                except:
-                    pass
             
             for _, r in df_conf.iterrows():
                 color_map = {"Linderos": "red", "Uso de Suelo": "blue", "Ambiental": "green", "Tenencia": "orange"}
@@ -419,7 +380,7 @@ with t3:
                         sh_act = conectar_gspread()
                         ws_act = sh_act.worksheet("Actores")
                         ws_act.append_row(datos_actor_fila)
-                        st.success(f"✅ {nombre_a} registrado con éxito.")
+                        st.success(f"✅ {nombre_a} registrado.")
                         st.cache_data.clear()
                         st.rerun()
     except Exception as e: 
