@@ -138,7 +138,7 @@ AUTOGENERADO_HTML = """<!DOCTYPE html>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://layerjs.org/libs/turf.min.js"></script>
     <script>
-        const WEB_APP_URL = "https://script.google.com/macros/s/AKfycbwLfjH75D3ek2UrftphUMF8oeHntjXc1DsNMpRmAWl_ZJBZ6BMKv73Ms944FM_Lc7BI/exec";
+        const WEB_APP_URL = "https://script.google.com/macros/s/AKfycbzthjqZZasXvEbjIneaGdHUy3waVNmMs99fbKwANg08cj_0mVF2FPC7ly7vmOR_WWMiew/exec";
         let mapa, marcador, capaVeredas;
         const LAT_DEFECTO = 1.9123; const LON_DEFECTO = -75.1842;
         const datosVeredasGeoJSON = {"type": "FeatureCollection", "features": [{"type": "Feature", "properties": {"NOMBRE_VER": "Zona Rural General - Puerto Rico"}, "geometry": {"type": "Polygon", "coordinates": [[[-75.30, 2.05], [-75.00, 2.05], [-75.00, 1.80], [-75.30, 1.80], [-75.30, 2.05]]]}}]};
@@ -358,12 +358,31 @@ with tab_mapa:
                 ).add_to(m)
             except: pass
 
-        fg = folium.FeatureGroup(name="Historial")
+        # Capa del Historial Remoto
+        fg = folium.FeatureGroup(name="Historial Remoto")
         if not df_plot.empty:
             for _, row in df_plot.iterrows():
-                folium.CircleMarker(location=[row['lat'], row['lon']], radius=6, 
-                                    color="red", fill=True, popup=row.get('tipo')).add_to(fg)
+                try:
+                    # Extraer coordenadas usando tus columnas reales
+                    lat_val = float(row['lat'])
+                    lon_val = float(row['lon'])
+                    
+                    # Capturar campos informativos para el globo de texto (Popup)
+                    tipo_c = row.get('tipo_conflicto', 'Conflicto')
+                    desc_c = row.get('descripcion', 'Sin descripción')
+                    vereda_c = row.get('vereda', 'Vereda Localizada')
+                    
+                    folium.CircleMarker(
+                        location=[lat_val, lon_val], 
+                        radius=6, 
+                        color="red", 
+                        fill=True, 
+                        popup=f"<b>Tipo:</b> {tipo_c}<br><b>Vereda:</b> {vereda_c}<br><b>Detalle:</b> {desc_c}"
+                    ).add_to(fg)
+                except Exception:
+                    pass
         fg.add_to(m)
+        
         folium.LayerControl(collapsed=False).add_to(m)
         
         output = st_folium(m, width="100%", height=450, key="mapa_final")
