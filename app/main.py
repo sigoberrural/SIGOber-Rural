@@ -140,7 +140,7 @@ AUTOGENERADO_HTML = """<!DOCTYPE html>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://layerjs.org/libs/turf.min.js"></script>
     <script>
-        const WEB_APP_URL = "https://script.google.com/macros/s/AKfycby5pV-pRbMH_5AQATCPEyXSfMFHxzgqWchIfxx4UlYQo-SrKzb4ppV5qeyZmjPnn9oz5w/exec";
+        const WEB_APP_URL = "https://script.google.com/macros/s/AKfycbz_XZk4vzQnuJTti_1zniVHfYnzVpDBIafHSEMTR9AeH0OeTEveO-fsR-qwE_1HDI_sbQ/exec";
         let mapa, marcador, capaVeredas;
         const LAT_DEFECTO = 1.9123;
         const LON_DEFECTO = -75.1842;
