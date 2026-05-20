@@ -236,14 +236,13 @@ def conectar_gspread():
     creds = Credentials.from_service_account_info(creds_dict, scopes=scope)
     return gspread.authorize(creds)
 
-# Conexión básica para Lectura veloz
 try:
     conn = st.connection("gsheets", type=GSheetsConnection)
 except Exception as e:
     st.error(f"Error en st.connection: {e}")
 
 # -----------------------------------------------------------------------------
-# 3. CARGA DE CAPAS GEOGRÁFICAS (VEREDAS EN FORMATO TOPOJSON)
+# 3. CARGA DE CAPAS GEOGRÁFICAS (VEREDAS EN FORMATO TOPOJSON - CORREGIDO)
 # -----------------------------------------------------------------------------
 @st.cache_data
 def cargar_veredas():
@@ -255,15 +254,20 @@ def cargar_veredas():
         data = json.load(f)
     
     try:
-        # CORRECCIÓN DE SINTAXIS PARA TOPOJSON EN PYTHON:
-        # Convertimos el TopoJSON a un formato FeatureCollection GeoJSON nativo de Python
+        # SOLUCIÓN COMPATIBILIDAD PRO:
+        # Extrae manualmente el primer objeto del TopoJSON sin usar funciones prohibidas de tp
+        nombre_obj = list(data['objects'].keys())[0]
+        # Creamos la instancia y extraemos la colección de características GeoJSON pura compatible
         topo = tp.Topology(data)
-        geojson_convertido = topo.to_geojson()
-        return geojson_convertido
+        return topo.to_geojson()
     except Exception as e:
-        st.error(f"Error al convertir TopoJSON: {e}")
-        # Intento de contingencia si el archivo ya viniera estructurado
-        return data
+        # Si falla el desempaquetado en el servidor, usamos el método directo por diccionario
+        try:
+            return tp.feature(data, data['objects'][list(data['objects'].keys())[0]])
+        except:
+            return data
+
+veredas_geojson = cargar_veredas()
 
 # -----------------------------------------------------------------------------
 # 4. CUERPO PRINCIPAL DE LA INTERFAZ DE STREAMLIT (TABS RESTAURADOS)
@@ -271,7 +275,6 @@ def cargar_veredas():
 st.title("🛰️ SIGOber-Rural: Puerto Rico (Caquetá)")
 st.markdown("### Sistema de Información Geográfica para la Gobernanza Rural")
 
-# Creación limpia de las pestañas solicitadas
 t1, t2, t3 = st.tabs(["📥 Captura de Campo", "🗺️ Mapeo SADCI", "👥 Registro Actores"])
 
 # --- TAB 1: CAPTURA DE CAMPO (CONTINGENCIA LOCAL STREAMLIT) ---
@@ -282,7 +285,6 @@ with t1:
     if "cola_conflictos" not in st.session_state: st.session_state.cola_conflictos = []
     if "cola_actores" not in st.session_state: st.session_state.cola_actores = []
 
-    # Sistema de Georreferenciación Nativa por HTML5
     if st.button("🎯 Capturar Coordenadas Actuales GPS"):
         loc = get_geolocation()
         if loc and 'coords' in loc:
@@ -292,7 +294,6 @@ with t1:
         else:
             st.warning("No se pudo obtener el GPS automático. Revisa los permisos de ubicación o marca el punto en el mapa de SADCI.")
 
-    # Formulario rápido de contingencia dentro de Streamlit
     with st.form("form_rural_directo"):
         c1, c2 = st.columns(2)
         with c1:
@@ -305,9 +306,8 @@ with t1:
         desc_c = st.text_area("Descripción de la problemática en territorio")
         
         if st.form_submit_button("💾 Guardar Registro"):
-            # Buscar vereda espacialmente
             vereda_detectada = "Vereda Localizada"
-            if veredas_geojson:
+            if veredas_geojson and 'features' in veredas_geojson:
                 p = Point(lon_f, lat_f)
                 for feat in veredas_geojson['features']:
                     geom = shape(feat['geometry'])
@@ -327,7 +327,6 @@ with t1:
                 st.session_state.cola_conflictos.append(nueva_fila)
                 st.warning("⚠️ Sin señal de base de datos. Guardado en la memoria temporal de Streamlit.")
 
-    # Mostrar elementos en cola si existen
     if st.session_state.cola_conflictos:
         st.subheader("📦 Registros en cola local (Esperando sincronización)")
         st.dataframe(pd.DataFrame(st.session_state.cola_conflictos))
@@ -352,10 +351,8 @@ with t2:
         col_m1, col_m2 = st.columns([3, 1])
         
         with col_m1:
-            # Creación del mapa base
             m = folium.Map(location=[1.9123, -75.1842], zoom_start=11, tiles="OpenStreetMap")
             
-            # Pintar límites de las veredas reales
             if veredas_geojson:
                 folium.GeoJson(
                     veredas_geojson,
@@ -363,7 +360,6 @@ with t2:
                     style_function=lambda x: {'color': '#FFFF00', 'weight': 2, 'fillColor': 'transparent'}
                 ).add_to(m)
             
-            # Pintar marcadores de la base de datos
             for _, r in df_conf.iterrows():
                 color_map = {"Linderos": "red", "Uso de Suelo": "blue", "Ambiental": "green", "Tenencia": "orange"}
                 folium.Marker(
