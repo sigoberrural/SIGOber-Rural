@@ -277,11 +277,18 @@ with tab_mapa:
     df_plot = pd.DataFrame()
     if df_raw is not None and not df_raw.empty:
         df_plot = df_raw.copy()
+        
+        # 1. Forzar limpieza de nombres de columnas
         df_plot.columns = df_plot.columns.str.strip().str.lower()
+        
+        # 2. Como tus columnas reales se leen como un solo bloque de texto continuo o llaves individuales,
+        # obligamos a mapear de manera estricta y segura las columnas 'lat' y 'lon'
         for col in ['lat', 'lon']:
             if col in df_plot.columns:
                 df_plot[col] = df_plot[col].astype(str).str.replace(',', '.').str.strip()
                 df_plot[col] = pd.to_numeric(df_plot[col], errors='coerce')
+                
+        # Eliminar registros que no posean coordenadas válidas procesables
         df_plot = df_plot.dropna(subset=['lat', 'lon'])
 
     if "gps_capturado" not in st.session_state:
@@ -358,28 +365,32 @@ with tab_mapa:
                 ).add_to(m)
             except: pass
 
-        # Capa del Historial Remoto
+        # Capa del Historial Remoto (Puntos consolidados en Google Sheets)
         fg = folium.FeatureGroup(name="Historial Remoto")
         if not df_plot.empty:
             for _, row in df_plot.iterrows():
                 try:
-                    # Extraer coordenadas usando tus columnas reales
+                    # Extraer coordenadas usando la nomenclatura en minúsculas
                     lat_val = float(row['lat'])
                     lon_val = float(row['lon'])
                     
-                    # Capturar campos informativos para el globo de texto (Popup)
-                    tipo_c = row.get('tipo_conflicto', 'Conflicto')
-                    desc_c = row.get('descripcion', 'Sin descripción')
-                    vereda_c = row.get('vereda', 'Vereda Localizada')
+                    # Intentar obtener los datos informativos usando tus nombres de columna reales
+                    tipo_c = row.get('tipo_conflicto') or row.get('tipo') or 'Conflicto'
+                    vereda_c = row.get('vereda') or 'Zona Rural'
+                    desc_c = row.get('descripcion') or row.get('desc') or 'Sin descripción'
+                    autor_c = row.get('registrado_por') or row.get('quien') or 'Anónimo'
                     
+                    # Agregar el marcador al grupo del mapa
                     folium.CircleMarker(
                         location=[lat_val, lon_val], 
                         radius=6, 
                         color="red", 
                         fill=True, 
-                        popup=f"<b>Tipo:</b> {tipo_c}<br><b>Vereda:</b> {vereda_c}<br><b>Detalle:</b> {desc_c}"
+                        fill_opacity=0.7,
+                        popup=f"<b>Tipo:</b> {tipo_c}<br><b>Vereda:</b> {vereda_c}<br><b>Detalle:</b> {desc_c}<br><b>Registró:</b> {autor_c}"
                     ).add_to(fg)
                 except Exception:
+                    # Si alguna fila antigua o de prueba está corrupta, se omite para no congelar el mapa
                     pass
         fg.add_to(m)
         
