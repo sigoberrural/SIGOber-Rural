@@ -50,9 +50,9 @@ st.markdown("""
     """, unsafe_allow_html=True)
 
 # -----------------------------------------------------------------------------
-# 🛰️ CÓDIGO DEL FORMULARIO OFFLINE INYECTADO DIRECTAMENTE EN PYTHON
+# 🛰️ CÓDIGO DEL FORMULARIO OFFLINE EN LA MEMORIA DE PYTHON
 # -----------------------------------------------------------------------------
-# NOTA: Asegúrate de cambiar "TU_URL_DE_GOOGLE_APPS_SCRIPT" por tu enlace real de la Web App de Google
+# NOTA: Reemplaza "TU_URL_DE_GOOGLE_APPS_SCRIPT" por tu enlace real cuando lo tengas listo
 AUTOGENERADO_HTML = """<!DOCTYPE html>
 <html lang="es">
 <head>
@@ -74,7 +74,6 @@ AUTOGENERADO_HTML = """<!DOCTYPE html>
     <div class="container-fluid m-0 p-0">
         <h3 class="text-center my-2">🛰️ SIGOber-Rural</h3>
         <p class="text-muted text-center mb-3" style="font-size:0.85rem;">Puerto Rico (Caquetá) - Formulario Único Offline</p>
-
         <div class="card p-3 mb-2">
             <div class="row text-center align-items-center">
                 <div class="col-6"><span id="contador-locales" class="badge bg-warning text-dark p-2 w-100 fs-6">0 Pendientes</span></div>
@@ -84,7 +83,6 @@ AUTOGENERADO_HTML = """<!DOCTYPE html>
                 </div>
             </div>
         </div>
-
         <div class="row">
             <div class="col-12 col-md-4">
                 <div class="card p-3">
@@ -136,31 +134,18 @@ AUTOGENERADO_HTML = """<!DOCTYPE html>
             </div>
         </div>
     </div>
-
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://layerjs.org/libs/turf.min.js"></script>
     <script>
-        const WEB_APP_URL = "https://script.google.com/macros/s/AKfycbz_XZk4vzQnuJTti_1zniVHfYnzVpDBIafHSEMTR9AeH0OeTEveO-fsR-qwE_1HDI_sbQ/exec";
+        const WEB_APP_URL = "TU_URL_DE_GOOGLE_APPS_SCRIPT";
         let mapa, marcador, capaVeredas;
-        const LAT_DEFECTO = 1.9123;
-        const LON_DEFECTO = -75.1842;
-
-        const datosVeredasGeoJSON = {
-            "type": "FeatureCollection",
-            "features": [{
-                "type": "Feature",
-                "properties": {"NOMBRE_VER": "Zona Rural General - Puerto Rico"},
-                "geometry": {"type": "Polygon", "coordinates": [[[-75.30, 2.05], [-75.00, 2.05], [-75.00, 1.80], [-75.30, 1.80], [-75.30, 2.05]]]}
-            }]
-        };
-
+        const LAT_DEFECTO = 1.9123; const LON_DEFECTO = -75.1842;
+        const datosVeredasGeoJSON = {"type": "FeatureCollection", "features": [{"type": "Feature", "properties": {"NOMBRE_VER": "Zona Rural General - Puerto Rico"}, "geometry": {"type": "Polygon", "coordinates": [[[-75.30, 2.05], [-75.00, 2.05], [-75.00, 1.80], [-75.30, 1.80], [-75.30, 2.05]]]}}]};
         if(!localStorage.getItem("conflictos_offline")) { localStorage.setItem("conflictos_offline", JSON.stringify([])); }
-
         function inicializarMapa() {
             mapa = L.map('mapa', { center: [LAT_DEFECTO, LON_DEFECTO], zoom: 12, zoomControl: false });
             L.control.zoom({ position: 'bottomright' }).addTo(mapa);
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(mapa);
-
             try {
                 capaVeredas = L.geoJSON(datosVeredasGeoJSON, {
                     style: function () { return { color: "#FFFF00", weight: 2, fillColor: "#FFFF00", fillOpacity: 0.05 }; },
@@ -171,31 +156,19 @@ AUTOGENERADO_HTML = """<!DOCTYPE html>
                     }
                 }).addTo(mapa);
             } catch(e) {}
-
             marcador = L.circleMarker([LAT_DEFECTO, LON_DEFECTO], { radius: 10, fillColor: "#ff2a2a", color: "#fff", weight: 3, opacity: 1, fillOpacity: 0.9 }).addTo(mapa);
-
-            mapa.on('click', function (e) {
-                marcador.setLatLng(e.latlng);
-                actualizarInputsYVereda(e.latlng.lat, e.latlng.lng);
-            });
+            mapa.on('click', function (e) { marcador.setLatLng(e.latlng); actualizarInputsYVereda(e.latlng.lat, e.latlng.lng); });
         }
-
         function actualizarInputsYVereda(lat, lon) {
-            document.getElementById("lat").value = Number(lat).toFixed(6);
-            document.getElementById("lon").value = Number(lon).toFixed(6);
+            document.getElementById("lat").value = Number(lat).toFixed(6); document.getElementById("lon").value = Number(lon).toFixed(6);
             document.getElementById("vereda").value = "Vereda Localizada";
             if (capaVeredas) {
                 const puntoEval = turf.point([lon, lat]);
                 capaVeredas.eachLayer(function (layer) {
-                    try {
-                        if (turf.booleanPointInPolygon(puntoEval, layer.feature)) {
-                            document.getElementById("vereda").value = layer.feature.properties.NOMBRE_VER;
-                        }
-                    } catch(err) {}
+                    try { if (turf.booleanPointInPolygon(puntoEval, layer.feature)) { document.getElementById("vereda").value = layer.feature.properties.NOMBRE_VER; } } catch(err) {}
                 });
             }
         }
-
         function recapturarGPSNativo() {
             if (navigator.geolocation) {
                 navigator.geolocation.getCurrentPosition((pos) => {
@@ -204,23 +177,15 @@ AUTOGENERADO_HTML = """<!DOCTYPE html>
                 }, null, { enableHighAccuracy: true, timeout: 8000 });
             }
         }
-
         function actualizarEstadoRed() {
             const bad = document.getElementById("estado-red"); const btnSincro = document.getElementById("btn-sincronizar");
             const enCola = JSON.parse(localStorage.getItem("conflictos_offline")).length;
-            if (navigator.onLine) {
-                bad.className = "status-badge bg-success text-white"; bad.innerText = "🟢 Con Internet";
-                if(enCola > 0) btnSincro.classList.remove("d-none");
-            } else {
-                bad.className = "status-badge bg-secondary text-white"; bad.innerText = "⚫ Sin Internet (Modo Rural)";
-                btnSincro.classList.add("d-none");
-            }
+            if (navigator.onLine) { bad.className = "status-badge bg-success text-white"; bad.innerText = "🟢 Con Internet"; if(enCola > 0) btnSincro.classList.remove("d-none"); }
+            else { bad.className = "status-badge bg-secondary text-white"; bad.innerText = "⚫ Sin Internet (Modo Rural)"; btnSincro.classList.add("d-none"); }
             document.getElementById("contador-locales").innerText = `${enCola} Pendientes`;
         }
         window.addEventListener('online', actualizarEstadoRed); window.addEventListener('offline', actualizarEstadoRed);
-
         window.onload = () => { inicializarMapa(); recapturarGPSNativo(); actualizarEstadoRed(); cargarPuntosGuardadosEnMapa(); }
-
         document.getElementById("form-conflictos").addEventListener("submit", function(e) {
             e.preventDefault();
             const nuevoRegistro = {
@@ -234,34 +199,24 @@ AUTOGENERADO_HTML = """<!DOCTYPE html>
             alert("💾 Guardado localmente en el teléfono."); document.getElementById("desc").value = "";
             actualizarEstadoRed(); cargarPuntosGuardadosEnMapa();
         });
-
         function cargarPuntosGuardadosEnMapa() {
             let cola = JSON.parse(localStorage.getItem("conflictos_offline"));
-            cola.forEach(item => {
-                L.circleMarker([item.lat, item.lon], { radius: 7, fillColor: "#ff9800", color: "#e65100", weight: 2, fillOpacity: 0.9 }).addTo(mapa);
-            });
+            cola.forEach(item => { L.circleMarker([item.lat, item.lon], { radius: 7, fillColor: "#ff9800", color: "#e65100", weight: 2, fillOpacity: 0.9 }).addTo(mapa); });
         }
-
         function sincronizarDatos() {
             let cola = JSON.parse(localStorage.getItem("conflictos_offline")); if(cola.length === 0) return;
             document.getElementById("btn-sincronizar").innerText = "⏳ Transmitiendo...";
             fetch(WEB_APP_URL, { method: "POST", mode: "no-cors", headers: { "Content-Type": "application/json" }, body: JSON.stringify(cola) })
-            .then(() => {
-                alert("🎉 ¡Transmisión exitosa!"); localStorage.setItem("conflictos_offline", JSON.stringify([])); location.reload();
-            });
+            .then(() => { alert("🎉 ¡Transmisión exitosa!"); localStorage.setItem("conflictos_offline", JSON.stringify([])); location.reload(); });
         }
     </script>
 </body>
 </html>"""
 
-
-# --- AGREGAR EL BOTÓN EN LA BARRA LATERAL (SIDEBAR) ---
+# --- BOTÓN DE ENLACE EN LA BARRA LATERAL (SIDEBAR) ---
 with st.sidebar:
     st.markdown("### 🛰️ Herramientas de Campo")
-    st.info(
-        "¿Vas a salir a zona rural sin señal? Descarga este formulario "
-        "en tu teléfono antes de irte. Funciona 100% offline."
-    )
+    st.info("¿Vas a salir a zona rural sin señal? Descarga este formulario en tu teléfono antes de irte. Funciona 100% offline.")
     st.download_button(
         label="📲 Descargar Formulario Offline",
         data=AUTOGENERADO_HTML,
@@ -271,371 +226,194 @@ with st.sidebar:
     )
     st.divider()
 
-
 # -----------------------------------------------------------------------------
-# EL RESTO
+# 2. CONEXIONES A BASES DE DATOS (GSHEETS & GSPREAD)
 # -----------------------------------------------------------------------------
-
-# 2. CONEXIÓN A DATOS Y INICIALIZACIÓN COLA OFFLINE
-conn = st.connection("gsheets", type=GSheetsConnection)
-
-# Inicialización de Colas Locales para evitar errores de persistencia
-if "cola_conflictos" not in st.session_state:
-    st.session_state.cola_conflictos = []
-if "cola_sadci" not in st.session_state:
-    st.session_state.cola_sadci = []
-if "cola_actores" not in st.session_state:
-    st.session_state.cola_actores = []
-
+@st.cache_resource
 def conectar_gspread():
-    scope = ["https://www.googleapis.com/auth/spreadsheets"]
-    creds_info = dict(st.secrets["connections"]["gsheets"])
-    if "private_key" in creds_info:
-        creds_info["private_key"] = creds_info["private_key"].replace("\\n", "\n")
-    creds = Credentials.from_service_account_info(creds_info, scopes=scope)
-    client = gspread.authorize(creds)
-    return client.open_by_key(creds_info["spreadsheet"])
+    scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+    creds_dict = json.loads(st.secrets["textkey"])
+    creds = Credentials.from_service_account_info(creds_dict, scopes=scope)
+    return gspread.authorize(creds)
 
-def cargar_json_local(nombre):
-    ruta = os.path.join('data', nombre)
-    if os.path.exists(ruta):
-        with open(ruta, encoding='utf-8') as f:
-            return json.load(f)
-    return None
+# Conexión básica para Lectura veloz
+try:
+    conn = st.connection("gsheets", type=GSheetsConnection)
+except Exception as e:
+    st.error(f"Error en st.connection: {e}")
 
-@st.cache_data(ttl=600)
-def cargar_datos_con_cache(nombre_hoja):
-    try:
-        sh = conectar_gspread()
-        ws = sh.worksheet(nombre_hoja)
-        return pd.DataFrame(ws.get_all_records())
-    except Exception:
-        # Modo silente para que la App no se caiga sin conexión
-        return pd.DataFrame()
+# -----------------------------------------------------------------------------
+# 3. CARGA DE CAPAS GEOGRÁFICAS (VEREDAS EN FORMATO TOPOJSON)
+# -----------------------------------------------------------------------------
+@st.cache_data
+def cargar_veredas():
+    ruta = os.path.join('data', 'veredas_puerto_rico.json')
+    if not os.path.exists(ruta):
+        st.error(f"Falta archivo: {ruta}")
+        return None
+    with open(ruta, 'r', encoding='utf-8') as f:
+        data = json.load(f)
+    nombre_obj = list(data['objects'].keys())[0]
+    return tp.feature(data, data['objects'][nombre_obj])
 
-veredas_topo = cargar_json_local('veredas_puerto_rico.json')
+veredas_geojson = cargar_veredas()
 
-# --- BOTÓN INDEPENDIENTE DE RE-SINCRONIZACIÓN GLOBAL ---
-registros_pendientes = len(st.session_state.cola_conflictos) + len(st.session_state.cola_sadci) + len(st.session_state.cola_actores)
-if registros_pendientes > 0:
-    st.warning(f"⏳ Datos en cola local pendientes por sincronización externa: {registros_pendientes} registros.")
-    if st.button("🔄 Sincronizar todos los datos con la Nube"):
-        try:
-            sh = conectar_gspread()
-            exito = False
+# -----------------------------------------------------------------------------
+# 4. CUERPO PRINCIPAL DE LA INTERFAZ DE STREAMLIT (TABS RESTAURADOS)
+# -----------------------------------------------------------------------------
+st.title("🛰️ SIGOber-Rural: Puerto Rico (Caquetá)")
+st.markdown("### Sistema de Información Geográfica para la Gobernanza Rural")
+
+# Creación limpia de las pestañas solicitadas
+t1, t2, t3 = st.tabs(["📥 Captura de Campo", "🗺️ Mapeo SADCI", "👥 Registro Actores"])
+
+# --- TAB 1: CAPTURA DE CAMPO (CONTINGENCIA LOCAL STREAMLIT) ---
+with t1:
+    st.subheader("🛰️ Registro Georreferenciado en Línea (Streamlit)")
+    st.markdown("Utiliza esta pestaña si cuentas con datos móviles en la vereda. Si no tienes señal, usa el botón de descarga de la barra lateral.")
+    
+    if "cola_conflictos" not in st.session_state: st.session_state.cola_conflictos = []
+    if "cola_actores" not in st.session_state: st.session_state.cola_actores = []
+
+    # Sistema de Georreferenciación Nativa por HTML5
+    if st.button("🎯 Capturar Coordenadas Actuales GPS"):
+        loc = get_geolocation()
+        if loc and 'coords' in loc:
+            st.session_state.lat_cap = loc['coords']['latitude']
+            st.session_state.lon_cap = loc['coords']['longitude']
+            st.success(f"📍 Ubicación fijada: {st.session_state.lat_cap}, {st.session_state.lon_cap}")
+        else:
+            st.warning("No se pudo obtener el GPS automático. Revisa los permisos de ubicación o marca el punto en el mapa de SADCI.")
+
+    # Formulario rápido de contingencia dentro de Streamlit
+    with st.form("form_rural_directo"):
+        c1, c2 = st.columns(2)
+        with c1:
+            tipo_c = st.selectbox("Tipo de Conflicto", ["Linderos", "Uso de Suelo", "Ambiental", "Tenencia"])
+            quien_c = st.text_input("Investigador / Líder")
+        with c2:
+            lat_f = st.number_input("Latitud", value=st.session_state.get("lat_cap", 1.9123), format="%.6f")
+            lon_f = st.number_input("Longitud", value=st.session_state.get("lon_cap", -75.1842), format="%.6f")
+        
+        desc_c = st.text_area("Descripción de la problemática en territorio")
+        
+        if st.form_submit_button("💾 Guardar Registro"):
+            # Buscar vereda espacialmente
+            vereda_detectada = "Vereda Localizada"
+            if veredas_geojson:
+                p = Point(lon_f, lat_f)
+                for feat in veredas_geojson['features']:
+                    geom = shape(feat['geometry'])
+                    if geom.contains(p):
+                        vereda_detectada = feat['properties'].get('NOMBRE_VER', "Vereda Localizada")
+                        break
             
-            # Sincronizar Conflictos
-            if st.session_state.cola_conflictos:
-                ws_c = sh.worksheet("Conflictos")
-                for fila in list(st.session_state.cola_conflictos):
-                    ws_c.append_row(fila)
-                    st.session_state.cola_conflictos.remove(fila)
-                exito = True
-                
-            # Sincronizar SADCI
-            if st.session_state.cola_sadci:
-                ws_s = sh.worksheet("SADCI")
-                for fila in list(st.session_state.cola_sadci):
-                    ws_s.append_row(fila)
-                    st.session_state.cola_sadci.remove(fila)
-                exito = True
-                
-            # Sincronizar Actores
-            if st.session_state.cola_actores:
-                ws_a = sh.worksheet("Actores")
-                for fila in list(st.session_state.cola_actores):
-                    ws_a.append_row(fila)
-                    st.session_state.cola_actores.remove(fila)
-                exito = True
-                
-            if exito:
-                st.success("🎉 Datos locales cargados exitosamente a Google Sheets.")
+            nueva_fila = [str(uuid.uuid4())[:5], tipo_c, vereda_detectada, lat_f, lon_f, desc_c, quien_c, pd.Timestamp.now().strftime('%Y-%m-%d')]
+            
+            try:
+                sh = conectar_gspread()
+                ws = sh.worksheet("Conflictos")
+                ws.append_row(nueva_fila)
+                st.success(f"🎉 Guardado directamente en la nube en la vereda: {vereda_detectada}")
+                st.cache_data.clear()
+            except Exception:
+                st.session_state.cola_conflictos.append(nueva_fila)
+                st.warning("⚠️ Sin señal de base de datos. Guardado en la memoria temporal de Streamlit.")
+
+    # Mostrar elementos en cola si existen
+    if st.session_state.cola_conflictos:
+        st.subheader("📦 Registros en cola local (Esperando sincronización)")
+        st.dataframe(pd.DataFrame(st.session_state.cola_conflictos))
+        if st.button("🔄 Sincronizar cola de Streamlit ahora"):
+            try:
+                sh = conectar_gspread()
+                ws = sh.worksheet("Conflictos")
+                for r in st.session_state.cola_conflictos: ws.append_row(r)
+                st.session_state.cola_conflictos = []
+                st.success("¡Sincronización de cola completada con éxito!")
                 st.cache_data.clear()
                 st.rerun()
-        except Exception as e:
-            st.error("⚠️ Error de conexión. Los datos siguen protegidos localmente en el dispositivo.")
+            except Exception: st.error("Aún no hay conexión directa con la base de datos.")
 
-# 3. PANELES DE CONTROL
-tab_mapa, tab_sadci, tab_actores = st.tabs([
-    "🗺️ Mapa de Conflictos", 
-    "📊 Auditoría SADCI", 
-    "👥 Registro de Actores"
-])
-
-# --- TAB 1: MAPA ---
-with tab_mapa:
-    st.subheader("Visualizador de Tenencia y Conflictos")
-    
-    df_raw = cargar_datos_con_cache("Conflictos")
-    df_plot = pd.DataFrame()
-    if df_raw is not None and not df_raw.empty:
-        df_plot = df_raw.copy()
-        df_plot.columns = df_plot.columns.str.strip().str.lower()
-        for col in ['lat', 'lon']:
-            if col in df_plot.columns:
-                df_plot[col] = df_plot[col].astype(str).str.replace(',', '.').str.strip()
-                df_plot[col] = pd.to_numeric(df_plot[col], errors='coerce')
-        df_plot = df_plot.dropna(subset=['lat', 'lon'])
-
-    if "gps_capturado" not in st.session_state:
-        try:
-            loc = get_geolocation()
-            if loc:
-                st.session_state.lat_click = loc['coords']['latitude']
-                st.session_state.lon_click = loc['coords']['longitude']
-                st.session_state.gps_capturado = True
-        except:
-            pass
-
-    if "lat_click" not in st.session_state:
-        st.session_state.lat_click = 1.9123
-    if "lon_click" not in st.session_state:
-        st.session_state.lon_click = -75.1842
-
-    def validar_punto_preciso(lat, lon, topo_data):
-        if topo_data is None: return True, "Capa no cargada"
-        try:
-            punto_eval = Point(float(lon), float(lat))
-            from topojson import to_geojson
-            geojson_data = to_geojson(topo_data)
-            for feature in geojson_data['features']:
-                if shape(feature['geometry']).contains(punto_eval):
-                    return True, feature['properties'].get('NOMBRE_VER', 'Vereda Localizada')
-            return False, None
-        except: return True, "Error técnico de validación"
-
-    col_menu, col_mapa = st.columns([1, 3])
-
-    with col_menu:
-        st.markdown("### ⚠️ Registrar Conflicto")
-        with st.form("form_conflictos", clear_on_submit=True):
-            quien = st.text_input("Encuestador / Líder")
-            tipo = st.selectbox("Tipo", ["Linderos", "Uso de Suelo", "Ambiental", "Tenencia"])
-            vereda_manual = st.text_input("Vereda")
+# --- TAB 2: MAPEO DE PROBLEMÁTICAS EN LA NUBE (SADCI) ---
+with t2:
+    st.subheader("🗺️ Diagnóstico Social Alternativo de Conflictos e Injusticias (SADCI)")
+    try:
+        df_conf = conn.read(worksheet="Conflictos", ttl="10s")
+        df_conf = df_conf.dropna(subset=['Latitud', 'Longitud'])
+        
+        col_m1, col_m2 = st.columns([3, 1])
+        
+        with col_m1:
+            # Creación del mapa base
+            m = folium.Map(location=[1.9123, -75.1842], zoom_start=11, tiles="OpenStreetMap")
             
-            c1, c2 = st.columns(2)
-            lat_i = c1.number_input("Latitud", value=float(st.session_state.lat_click), format="%.6f")
-            lon_i = c2.number_input("Longitud", value=float(st.session_state.lon_click), format="%.6f")
-            
-            desc = st.text_area("Descripción")
-            
-            if st.form_submit_button("📍 Guardar Registro"):
-                es_valido, vereda_detectada = validar_punto_preciso(lat_i, lon_i, veredas_topo)
-                if es_valido and quien:
-                    v_final = vereda_detectada if vereda_detectada else vereda_manual
-                    datos_fila = [str(uuid.uuid4())[:5], tipo, v_final, str(lat_i), str(lon_i), desc, quien]
-                    try:
-                        sh = conectar_gspread()
-                        ws = sh.worksheet("Conflictos")
-                        ws.append_row(datos_fila)
-                        st.success(f"✅ Registrado en la nube: {v_final}")
-                        st.cache_data.clear()
-                        st.rerun()
-                    except Exception:
-                        st.session_state.cola_conflictos.append(datos_fila)
-                        st.info(f"💾 Guardado local (Offline) en {v_final}. Sincroniza al volver a tener cobertura.")
-                        st.rerun()
-                elif not es_valido:
-                    st.error("📍 Ubicación fuera de los límites de Puerto Rico.")
-                else: st.warning("Completa el nombre del encuestador.")
-
-    with col_mapa:
-        m = folium.Map(
-            location=[st.session_state.lat_click, st.session_state.lon_click], 
-            zoom_start=14, tiles=None
-        )
-        folium.TileLayer('https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', 
-                         attr='Google', name='Satélite', overlay=False).add_to(m)
-        folium.TileLayer('openstreetmap', name='Vías', overlay=False).add_to(m)
-
-        if veredas_topo:
-            try:
-                obj_name = list(veredas_topo['objects'].keys())[0]
-                folium.TopoJson(
-                    veredas_topo, f"objects.{obj_name}", name="Veredas",
-                    style_function=lambda x: {'fillColor': 'transparent', 'color': '#FFFF00', 'weight': 2, 'fillOpacity': 0.1},
-                    tooltip=folium.GeoJsonTooltip(fields=['NOMBRE_VER'], aliases=['Vereda:'], sticky=True)
+            # Pintar límites de las veredas reales
+            if veredas_geojson:
+                folium.GeoJson(
+                    veredas_geojson,
+                    name="Límites Veredales Puerto Rico",
+                    style_function=lambda x: {'color': '#FFFF00', 'weight': 2, 'fillColor': 'transparent'}
                 ).add_to(m)
-            except: pass
+            
+            # Pintar marcadores de la base de datos
+            for _, r in df_conf.iterrows():
+                color_map = {"Linderos": "red", "Uso de Suelo": "blue", "Ambiental": "green", "Tenencia": "orange"}
+                folium.Marker(
+                    location=[float(r['Latitud']), float(r['Longitud'])],
+                    popup=f"<b>Tipo:</b> {r['Tipo']}<br><b>Vereda:</b> {r['Vereda']}<br><b>Desc:</b> {r['Descripción']}",
+                    icon=folium.Icon(color=color_map.get(r['Tipo'], "purple"), icon="info-sign")
+                ).add_to(m)
+            
+            st_folium(m, width="100%", height=500, returned_objects=[])
+            
+        with col_m2:
+            st.markdown("#### Resumen del Territorio")
+            st.metric("Total Conflictos", len(df_conf))
+            fig_pie = px.pie(df_conf, names='Tipo', title="Tipologías", hole=0.3)
+            fig_pie.update_layout(margin=dict(l=10, r=10, t=30, b=10))
+            st.plotly_chart(fig_pie, use_container_width=True)
+            
+            st.markdown("#### Registros Consolidados")
+            st.dataframe(df_conf[['Tipo', 'Vereda', 'Encuestador']], height=200)
+    except Exception as e:
+        st.error(f"Error cargando Tab SADCI: {e}")
 
-        # Capa del Historial Remoto
-        fg = folium.FeatureGroup(name="Historial Remoto")
-        if not df_plot.empty:
-            for _, row in df_plot.iterrows():
-                folium.CircleMarker(location=[row['lat'], row['lon']], radius=6, 
-                                    color="red", fill=True, popup=row.get('tipo')).add_to(fg)
-        fg.add_to(m)
+# --- TAB 3: REGISTRO DE ACTORES Y TENENCIA ---
+with t3:
+    st.subheader("👥 Caracterización de Actores Sociales Rurales")
+    try:
+        df_act = conn.read(worksheet="Actores", ttl="10s")
         
-        # Nueva Capa Dinámica Temporal para Capturas Locales Offline
-        fg_local = folium.FeatureGroup(name="Capturas Locales (Offline)")
-        for c_off in st.session_state.cola_conflictos:
-            folium.CircleMarker(location=[float(c_off[3]), float(c_off[4])], radius=6,
-                                color="orange", fill=True, popup=f"Offline: {c_off[1]}").add_to(fg_local)
-        fg_local.add_to(m)
+        col_a1, col_a2 = st.columns([2, 1])
         
-        folium.LayerControl(collapsed=False).add_to(m)
-        output = st_folium(m, width="100%", height=450, key="mapa_final")
-
-        if output and output.get("last_clicked"):
-            clic = output["last_clicked"]
-            if abs(st.session_state.lat_click - clic["lat"]) > 0.0001:
-                st.session_state.lat_click = clic["lat"]
-                st.session_state.lon_click = clic["lng"]
-                st.rerun()
-
-
-# --- TAB 2: AUDITORÍA SADCI (Basado en Oszlak y Orellana) ---
-with tab_sadci:
-    st.subheader("📊 Diagnóstico de Capacidad Institucional (SADCI)")
-    
-    df_sadci = cargar_datos_con_cache("SADCI")
-    
-    # Si hay registros en cola offline local, los incorporamos provisionalmente para visualización
-    if st.session_state.cola_sadci:
-        columnas_sadci = ["id", "nombre_entidad", "presupuesto", "num_personal_planta", "num_personal_contratista",
-                          "protocolo", "estructura", "rendicion", "nivel_digitalizacion", "ejecucion_presupuestal_pct",
-                          "cumplimiento_pdt_pct", "estado", "calificacion_mepi", "capacitacion"]
-        df_off = pd.DataFrame(st.session_state.cola_sadci, columns=columnas_sadci)
-        df_sadci = pd.concat([df_sadci, df_off], ignore_index=True) if not df_sadci.empty else df_off
-
-    if not df_sadci.empty:
-        try:
-            # Forzar tipificación numérica limpia por si entra texto plano desde la cola
-            df_sadci['calificacion_mepi'] = pd.to_numeric(df_sadci['calificacion_mepi']).fillna(0)
-            df_sadci['ejecucion_presupuestal_pct'] = pd.to_numeric(df_sadci['ejecucion_presupuestal_pct']).fillna(0)
-            df_sadci['cumplimiento_pdt_pct'] = pd.to_numeric(df_sadci['cumplimiento_pdt_pct']).fillna(0)
-            df_sadci['num_personal_planta'] = pd.to_numeric(df_sadci['num_personal_planta']).fillna(0)
-            df_sadci['num_personal_contratista'] = pd.to_numeric(df_sadci['num_personal_contratista']).fillna(0)
-
-            # --- 1. PROCESAMIENTO DE LOS 6 DCI ---
-            df_sadci['dci_1_reglas'] = (df_sadci['calificacion_mepi'] * 0.7 + 
-                                       (df_sadci['protocolo'].map({"Sí": 100, "En proceso": 50, "No": 0}).fillna(0) * 0.3))
+        with col_a1:
+            st.markdown("#### Base de Datos de Líderes y Actores")
+            st.dataframe(df_act, use_container_width=True, height=400)
             
-            df_sadci['dci_2_interinst'] = df_sadci['rendicion'].map({"Anual": 100, "Semestral": 80, "Nunca": 20}).fillna(50)
-            
-            map_est = {"Ágil/Coherente": 100, "Funciones Duplicadas": 60, "Rígida/Burocrática": 30, "Inexistente": 0}
-            df_sadci['dci_3_estructura'] = df_sadci['estructura'].map(map_est).fillna(50)
-            
-            dict_dig = {"Bajo": 25, "Medio": 50, "Alto": 75, "Excelente": 100}
-            df_sadci['puntos_digital'] = df_sadci['nivel_digitalizacion'].map(dict_dig).fillna(50)
-            df_sadci['dci_4_recursos'] = (df_sadci['ejecucion_presupuestal_pct'] + df_sadci['puntos_digital']) / 2
-            
-            divisor_personal = (df_sadci['num_personal_planta'] + df_sadci['num_personal_contratista'])
-            df_sadci['dci_5_personal'] = (df_sadci['num_personal_planta'] / divisor_personal * 100).fillna(0)
-            
-            map_cap = {"Especializado": 100, "Técnico Suficiente": 75, "Requiere Capacitación": 40, "Crítico/No Idóneo": 10}
-            df_sadci['dci_6_individual'] = df_sadci['capacitacion'].map(map_cap).fillna(50)
-
-            # --- 2. VISUALIZACIÓN DE INDICADORES SADCI ---
-            st.markdown("### Pilares de Capacidad Real")
-            cols = st.columns(6)
-            
-            indicadores = [
-                ("DCI-1: Reglas", 'dci_1_reglas'), ("DCI-2: Interinst.", 'dci_2_interinst'),
-                ("DCI-3: Estructura", 'dci_3_estructura'), ("DCI-4: Recursos", 'dci_4_recursos'),
-                ("DCI-5: Personal", 'dci_5_personal'), ("DCI-6: Individual", 'dci_6_individual')
-            ]
-            
-            for i, (label, col_name) in enumerate(indicadores):
-                with cols[i]:
-                    val = df_sadci[col_name].mean()
-                    st.metric(label, f"{val:.0f}%")
-
-            st.divider()
-            st.write("**Análisis de Brecha: Aspiración vs. Realidad**")
-            st.line_chart(df_sadci.set_index('nombre_entidad')[['cumplimiento_pdt_pct', 'ejecucion_presupuestal_pct']])
-        except Exception as e:
-            st.error(f"Error al renderizar análisis de datos: {e}")
-    else:
-        st.info("No se registran datos históricos ni locales para desplegar los análisis del SADCI.")
-
-    # --- 4. FORMULARIO DE CAPTURA ACTUALIZADO ---
-    with st.expander("📝 Realizar Nueva Auditoría de Capacidad"):
-        with st.form("registro_sadci_full", clear_on_submit=True):
-            st.info("Esta encuesta identifica los obstáculos (DCI)")
-            c1, c2, c3 = st.columns(3)
-            with c1:
-                nombre = st.text_input("Nombre Entidad")
-                presupuesto = st.number_input("Presupuesto Rural ($)", min_value=0)
-                planta = st.number_input("Personal de Planta (DCI-5)", min_value=0)
-                contratos = st.number_input("Contratistas (DCI-5)", min_value=0)
-            with c2:
-                ejecucion = st.slider("% Eficacia Gasto (DCI-4)", 0, 100, 70)
-                pdt = st.slider("% Cumplimiento Metas", 0, 100, 50)
-                mepi = st.number_input("Calificación MEPI (DCI-1)", 0, 100, 60)
-            with c3:
-                digital = st.select_slider("Tecnología (DCI-4)", ["Bajo", "Medio", "Alto", "Excelente"])
-                estructura = st.selectbox("Estructura (DCI-3)", ["Ágil/Coherente", "Funciones Duplicadas", "Rígida/Burocrática", "Inexistente"])
-                capacitacion = st.selectbox("Personal (DCI-6)", ["Especializado", "Técnico Suficiente", "Requiere Capacitación", "Crítico/No Idóneo"])
-                protocolo = st.selectbox("¿Protocolos? (DCI-1)", ["Sí", "No", "En proceso"])
-                rendicion = st.selectbox("Rendición (DCI-2)", ["Anual", "Semestral", "Nunca"])
-
-            if st.form_submit_button("🚀 Guardar Auditoría"):
-                if nombre:
-                    datos_sadci_fila = [
-                        str(uuid.uuid4())[:8], nombre, presupuesto, planta, contratos,
-                        protocolo, estructura, rendicion, digital, execution, 
-                        pdt, "Activas", mepi, capacitacion
-                    ]
-                    try:
-                        sh_d = conectar_gspread()
-                        ws_d = sh_d.worksheet("SADCI")
-                        ws_d.append_row(datos_sadci_fila)
-                        st.success("✅ Diagnóstico guardado directamente en la nube.")
-                        st.cache_data.clear()
-                        st.rerun()
-                    except Exception:
-                        st.session_state.cola_sadci.append(datos_sadci_fila)
-                        st.info("💾 Guardado en búfer local (Modo Offline). El tablero se actualizará con estos datos transitorios.")
-                        st.rerun()
-
-
-# --- TAB 3: ACTORES ---
-with tab_actores:
-    st.subheader("👥 Caracterización de Actores")
-    
-    df_social = cargar_datos_con_cache("Actores")
-    if st.session_state.cola_actores:
-        df_act_off = pd.DataFrame(st.session_state.cola_actores, columns=["id", "Nombre", "Perfil", "Vereda", "Tenencia", "Observaciones"])
-        df_social = pd.concat([df_social, df_act_off], ignore_index=True) if not df_social.empty else df_act_off
-
-    if not df_social.empty:
-        try:
-            m1, m2, m3 = st.columns(3)
-            m1.metric("Total Actores", len(df_social))
-            m2.metric("Veredas", df_social['Vereda'].nunique())
-            propiedad_total = len(df_social[df_social['Tenencia'] == 'Propiedad'])
-            m3.metric("Formalidad", f"{(propiedad_total/len(df_social))*100:.1f}%")
-        except Exception:
-            pass
-    else:
-        st.info("Sin registros de actores disponibles.")
-
-    with st.expander("📝 Registrar Nuevo Actor"):
-        with st.form("registro_social", clear_on_submit=True):
-            c1, c2 = st.columns(2)
-            with c1:
-                nombre_a = st.text_input("Nombre Actor/Líder")
-                perfil_a = st.selectbox("Perfil", ["Pequeño Productor", "Poseedor", "JAC", "Mujer Rural", "Reclamante"])
-            with c2:
-                vereda_a = st.text_input("Vereda")
-                tenencia_a = st.selectbox("Tenencia", ["Propiedad", "Posesión", "Ocupación", "Baldío"])
-            
-            obs_a = st.text_area("Observaciones")
-            if st.form_submit_button("📤 Registrar"):
-                if nombre_a and vereda_a:
-                    datos_actor_fila = [str(uuid.uuid4())[:8], nombre_a, perfil_a, vereda_a, tenencia_a, obs_a]
-                    try:
+        with col_a2:
+            st.markdown("#### Vincular Nuevo Actor")
+            with st.form("form_actores"):
+                nombre_a = st.text_input("Nombre Completo")
+                perfil_a = st.selectbox("Perfil", ["Líder Comunitario", "Productor", "Presidente JAC", "Adjudicatario", "Asociación"])
+                c_a1, c_a2 = st.columns(2)
+                with c_a1:
+                    vereda_a = st.text_input("Vereda")
+                with c_a2:
+                    tenencia_a = st.selectbox("Tenencia", ["Propiedad", "Posesión", "Ocupación", "Baldío"])
+                
+                obs_a = st.text_area("Observaciones")
+                if st.form_submit_button("📤 Registrar Actor"):
+                    if nombre_a and vereda_a:
+                        datos_actor_fila = [str(uuid.uuid4())[:8], nombre_a, perfil_a, vereda_a, tenencia_a, obs_a]
                         sh_act = conectar_gspread()
                         ws_act = sh_act.worksheet("Actores")
                         ws_act.append_row(datos_actor_fila)
-                        st.success(f"✅ {nombre_a} registrado en la nube.")
+                        st.success(f"✅ {nombre_a} registrado con éxito.")
                         st.cache_data.clear()
                         st.rerun()
-                    except Exception:
-                        st.session_state.cola_actores.append(datos_actor_fila)
-                        st.info(f"💾 Guardado localmente sin señal. {nombre_a} se mantendrá en memoria transitoria.")
-                        st.rerun()
+    except Exception as e: 
+        st.error(f"Error actores: {e}")
 
 # --- CRÉDITOS FINALES ---
 st.divider()
@@ -653,8 +431,7 @@ with col_f2:
         """
         <div class="footer-text">
             <strong>Investigación ESAP 2026</strong><br>
-            Desarrollado por el <strong>Colectivo de Estudios Sociales Guadalupe Salcedo</strong><br>
-            <em>Propiedad Intelectual y Académica Reservada</em>
+            Desarrollado para el fortalecimiento institucional, ordenamiento social de la propiedad rural y resolución alternativa de conflictos en Puerto Rico, Caquetá.
         </div>
         """, 
         unsafe_allow_html=True
