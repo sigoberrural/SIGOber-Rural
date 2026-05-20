@@ -253,10 +253,17 @@ def cargar_veredas():
         return None
     with open(ruta, 'r', encoding='utf-8') as f:
         data = json.load(f)
-    nombre_obj = list(data['objects'].keys())[0]
-    return tp.feature(data, data['objects'][nombre_obj])
-
-veredas_geojson = cargar_veredas()
+    
+    try:
+        # CORRECCIÓN DE SINTAXIS PARA TOPOJSON EN PYTHON:
+        # Convertimos el TopoJSON a un formato FeatureCollection GeoJSON nativo de Python
+        topo = tp.Topology(data)
+        geojson_convertido = topo.to_geojson()
+        return geojson_convertido
+    except Exception as e:
+        st.error(f"Error al convertir TopoJSON: {e}")
+        # Intento de contingencia si el archivo ya viniera estructurado
+        return data
 
 # -----------------------------------------------------------------------------
 # 4. CUERPO PRINCIPAL DE LA INTERFAZ DE STREAMLIT (TABS RESTAURADOS)
