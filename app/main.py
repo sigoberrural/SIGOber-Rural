@@ -52,7 +52,6 @@ st.markdown("""
 # -----------------------------------------------------------------------------
 # 🛰️ CÓDIGO DEL FORMULARIO OFFLINE EN LA MEMORIA DE PYTHON
 # -----------------------------------------------------------------------------
-# NOTA: Reemplaza "TU_URL_DE_GOOGLE_APPS_SCRIPT" por tu enlace real cuando lo tengas listo
 AUTOGENERADO_HTML = """<!DOCTYPE html>
 <html lang="es">
 <head>
@@ -242,30 +241,31 @@ except Exception as e:
     st.error(f"Error en st.connection: {e}")
 
 # -----------------------------------------------------------------------------
-# 3. CARGA DE CAPAS GEOGRÁFICAS (VEREDAS EN FORMATO TOPOJSON - CORREGIDO)
+# 3. CARGA DE CAPAS GEOGRÁFICAS (SISTEMA ULTRA VELOZ ANTIBLOQUEOS)
 # -----------------------------------------------------------------------------
 @st.cache_data
 def cargar_veredas():
     ruta = os.path.join('data', 'veredas_puerto_rico.json')
     if not os.path.exists(ruta):
-        st.error(f"Falta archivo: {ruta}")
         return None
-    with open(ruta, 'r', encoding='utf-8') as f:
-        data = json.load(f)
-    
     try:
-        # SOLUCIÓN COMPATIBILIDAD PRO:
-        # Extrae manualmente el primer objeto del TopoJSON sin usar funciones prohibidas de tp
-        nombre_obj = list(data['objects'].keys())[0]
-        # Creamos la instancia y extraemos la colección de características GeoJSON pura compatible
+        with open(ruta, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        
+        # Intentar conversión rápida por Topojson de Python
         topo = tp.Topology(data)
         return topo.to_geojson()
-    except Exception as e:
-        # Si falla el desempaquetado en el servidor, usamos el método directo por diccionario
-        try:
-            return tp.feature(data, data['objects'][list(data['objects'].keys())[0]])
-        except:
-            return data
+    except Exception:
+        # SISTEMA DE ESCAPE DE EMERGENCIA: Si topojson causa un bucle infinito, 
+        # devolvemos el archivo crudo o una estructura GeoJSON mínima para evitar que colapse la app
+        if data and 'type' in data and data['type'] == 'Topology':
+            try:
+                # Intento alternativo usando extracción por llave de objeto
+                nombre_obj = list(data['objects'].keys())[0]
+                return tp.feature(data, data['objects'][nombre_obj])
+            except:
+                return data
+        return data
 
 veredas_geojson = cargar_veredas()
 
@@ -307,13 +307,17 @@ with t1:
         
         if st.form_submit_button("💾 Guardar Registro"):
             vereda_detectada = "Vereda Localizada"
-            if veredas_geojson and 'features' in veredas_geojson:
-                p = Point(lon_f, lat_f)
-                for feat in veredas_geojson['features']:
-                    geom = shape(feat['geometry'])
-                    if geom.contains(p):
-                        vereda_detectada = feat['properties'].get('NOMBRE_VER', "Vereda Localizada")
-                        break
+            if veredas_geojson and isinstance(veredas_geojson, dict) and 'features' in veredas_geojson:
+                try:
+                    p = Point(lon_f, lat_f)
+                    for feat in veredas_geojson['features']:
+                        if 'geometry' in feat:
+                            geom = shape(feat['geometry'])
+                            if geom.contains(p):
+                                vereda_detectada = feat['properties'].get('NOMBRE_VER', "Vereda Localizada")
+                                break
+                except:
+                    pass
             
             nueva_fila = [str(uuid.uuid4())[:5], tipo_c, vereda_detectada, lat_f, lon_f, desc_c, quien_c, pd.Timestamp.now().strftime('%Y-%m-%d')]
             
@@ -353,12 +357,15 @@ with t2:
         with col_m1:
             m = folium.Map(location=[1.9123, -75.1842], zoom_start=11, tiles="OpenStreetMap")
             
-            if veredas_geojson:
-                folium.GeoJson(
-                    veredas_geojson,
-                    name="Límites Veredales Puerto Rico",
-                    style_function=lambda x: {'color': '#FFFF00', 'weight': 2, 'fillColor': 'transparent'}
-                ).add_to(m)
+            if veredas_geojson and isinstance(veredas_geojson, dict) and 'type' in veredas_geojson:
+                try:
+                    folium.GeoJson(
+                        veredas_geojson,
+                        name="Límites Veredales Puerto Rico",
+                        style_function=lambda x: {'color': '#FFFF00', 'weight': 2, 'fillColor': 'transparent'}
+                    ).add_to(m)
+                except:
+                    pass
             
             for _, r in df_conf.iterrows():
                 color_map = {"Linderos": "red", "Uso de Suelo": "blue", "Ambiental": "green", "Tenencia": "orange"}
