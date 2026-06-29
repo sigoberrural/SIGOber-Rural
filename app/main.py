@@ -299,36 +299,40 @@ with tab_mapa:
     if df_raw is not None and not df_raw.empty:
         df_plot = df_raw.copy()
         
-        # Guardamos una copia limpia de las columnas originales antes de transformarlas
+        # 1. Copia limpia en minúsculas para estandarizar
         columnas_originales = [str(c).strip().lower() for c in df_plot.columns]
         df_plot.columns = columnas_originales
         
-        # Si la cabecera larga está pegada en una sola columna, re-estructuramos el DataFrame dinámicamente
+        # 2. Si la base tiene la cabecera pegada larga en la primera columna, extraemos lat y lon de ahí
         if len(df_plot.columns) == 1 and "lat" in df_plot.columns[0]:
             col_unica = df_plot.columns[0]
             st.warning("⚠️ Detectada estructura de datos compacta. Re-alineando coordenadas geográficas...")
 
-        # Estandarizamos de manera agresiva las columnas de coordenadas (CORREGIDO: Soporta nombres exactos y parciales)
+        # 3. Mapeo inteligente de coordenadas (Soporta las columnas exactas 'lat'/'lon' de la población)
         for col_idx, col_name in enumerate(df_plot.columns):
             if 'lat' in col_name:
                 df_plot['lat'] = df_plot.iloc[:, col_idx]
             if 'lon' in col_name:
                 df_plot['lon'] = df_plot.iloc[:, col_idx]
 
-        # Limpieza e indexación numérica estricta
-        for col in ['lat', 'lon']:
-            if col in df_plot.columns:
-                df_plot[col] = df_plot[col].astype(str).str.replace(',', '.').str.strip()
-                df_plot[col] = pd.to_numeric(df_plot[col], errors='coerce')
+        # 4. LIMPIEZA TOTAL: Convertimos a String, quitamos espacios y aseguramos formato decimal con punto
+        if 'lat' in df_plot.columns:
+            df_plot['lat'] = df_plot['lat'].astype(str).str.replace(',', '.').str.strip()
+            df_plot['lat'] = pd.to_numeric(df_plot['lat'], errors='coerce')
+        if 'lon' in df_plot.columns:
+            df_plot['lon'] = df_plot['lon'].astype(str).str.replace(',', '.').str.strip()
+            df_plot['lon'] = pd.to_numeric(df_plot['lon'], errors='coerce')
         
-        # Si no se crearon o quedaron vacías, intentamos recuperarlas por posición física en la tabla (Columnas 4 y 5)
+        # 5. Sistema de Respaldo Absoluto por Posición Física (Columnas 4 y 5 de Google Sheets)
+        # Si después de lo anterior 'lat' o 'lon' siguen vacíos, los forzamos desde las celdas físicas del Sheets
         if 'lat' not in df_plot.columns or df_plot['lat'].isnull().all():
-            df_plot['lat'] = pd.to_numeric(df_raw.iloc[:, 3].astype(str).str.replace(',', '.'), errors='coerce')
+            df_plot['lat'] = pd.to_numeric(df_raw.iloc[:, 3].astype(str).str.replace(',', '.').str.strip(), errors='coerce')
         if 'lon' not in df_plot.columns or df_plot['lon'].isnull().all():
-            df_plot['lon'] = pd.to_numeric(df_raw.iloc[:, 4].astype(str).str.replace(',', '.'), errors='coerce')
+            df_plot['lon'] = pd.to_numeric(df_raw.iloc[:, 4].astype(str).str.replace(',', '.').str.strip(), errors='coerce')
 
+        # Eliminar únicamente las filas que definitivamente no tengan coordenadas numéricas
         df_plot = df_plot.dropna(subset=['lat', 'lon'])
-
+        
     if "gps_capturado" not in st.session_state:
         loc = get_geolocation()
         if loc:
