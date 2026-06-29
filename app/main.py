@@ -207,8 +207,23 @@ AUTOGENERADO_HTML = """<!DOCTYPE html>
         function sincronizarDatos() {
             let cola = JSON.parse(localStorage.getItem("conflictos_offline")); if(cola.length === 0) return;
             document.getElementById("btn-sincronizar").innerText = "⏳ Transmitiendo...";
-            fetch(WEB_APP_URL, { method: "POST", mode: "no-cors", headers: { "Content-Type": "application/json" }, body: JSON.stringify(cola) })
-            .then(() => { alert("🎉 ¡Transmisión exitosa!"); localStorage.setItem("conflictos_offline", JSON.stringify([])); location.reload(); });
+            
+            // Enviamos los datos usando la codificación clásica de formularios que Google Apps Script entiende sin restricciones CORS
+            fetch(WEB_APP_URL, { 
+                method: "POST", 
+                mode: "no-cors", 
+                headers: { "Content-Type": "application/x-www-form-urlencoded" }, 
+                body: JSON.stringify(cola)
+            })
+            .then(() => { 
+                alert("🎉 ¡Transmisión exitosa! Los puntos han sido enviados a la nube."); 
+                localStorage.setItem("conflictos_offline", JSON.stringify([])); 
+                location.reload(); 
+            })
+            .catch((err) => {
+                alert("❌ Error al transmitir: " + err);
+                document.getElementById("btn-sincronizar").innerText = "🔄 Enviar Datos Guardados a la Nube";
+            });
         }
     </script>
 </body>
