@@ -298,45 +298,48 @@ with tab_mapa:
     df_plot = pd.DataFrame()
     
     if df_raw is not None and not df_raw.empty:
-        # Hacemos una copia profunda
+        # Hacemos una copia profunda del DataFrame original
         df_plot = df_raw.copy()
         
-        # OBLIGATORIO: Si Pandas indexó mal las columnas por culpa de las cabeceras de Google Sheets,
-        # obligamos al DataFrame a usar índices numéricos temporales para la extracción segura.
-        valores_puros = df_plot.values
-        columnas_con_datos = df_plot.shape[1]
+        # 1. Limpieza estándar inicial de columnas en minúsculas
+        df_plot.columns = [str(c).strip().lower() for c in df_plot.columns]
         
-        # Creamos columnas limpias garantizadas de forma manual
-        df_estructurado = pd.DataFrame(valores_puros)
+        # 2. SISTEMA ANTIBLOQUEO OFFLINE (Extracción por posición física pura):
+        # Como los envíos offline de la población pueden alterar los nombres de las cabeceras en Google Sheets,
+        # obligamos a Python a leer los datos basándose estrictamente en el número físico de la columna.
+        # En tu Google Sheets: Columna 3 (índice 3) es LATITUD, Columna 4 (índice 4) es LONGITUD.
+        matriz_valores = df_plot.values
+        total_columnas = df_plot.shape[1]
         
-        # Buscamos la posición real de las coordenadas. 
-        # En tu Google Sheets original: Columna 0: ID, Columna 1: Tipo, Columna 2: Vereda, Columna 3: Lat, Columna 4: Lon
-        if columnas_con_datos >= 5:
-            df_plot['lat'] = df_estructurado.iloc[:, 3]
-            df_plot['lon'] = df_estructurado.iloc[:, 4]
+        if total_columnas >= 5:
+            # Forzamos la creación de lat y lon leyendo las columnas físicas directamente
+            df_plot['lat'] = matriz_valores[:, 3]
+            df_plot['lon'] = matriz_valores[:, 4]
             
-            # Intentamos también mapear las etiquetas de texto por posición física para los popups del mapa
-            df_plot['tipo_mapa'] = df_estructurado.iloc[:, 1]
-            df_plot['vereda_mapa'] = df_estructurado.iloc[:, 2]
-            df_plot['desc_mapa'] = df_estructurado.iloc[:, 5] if columnas_con_datos > 5 else "Sin descripción"
+            # Variables de respaldo para los globos informativos del mapa
+            df_plot['tipo_mapa'] = matriz_valores[:, 1]
+            df_plot['vereda_mapa'] = matriz_valores[:, 2]
+            df_plot['desc_mapa'] = matriz_valores[:, 5] if total_columnas > 5 else "Sin descripción"
         else:
-            # Si por alguna razón la fila offline se compactó en menos columnas, usamos el respaldo de texto existente
+            # Respaldo por si la tabla viene corrupta o compactada
             for col_idx, col_name in enumerate(df_plot.columns):
-                if 'lat' in str(col_name).lower():
+                if 'lat' in str(col_name):
                     df_plot['lat'] = df_plot.iloc[:, col_idx]
-                if 'lon' in str(col_name).lower():
+                if 'lon' in str(col_name):
                     df_plot['lon'] = df_plot.iloc[:, col_idx]
             df_plot['tipo_mapa'] = df_plot.get('tipo', 'Conflicto')
             df_plot['vereda_mapa'] = df_plot.get('vereda', 'Zona Rural')
             df_plot['desc_mapa'] = df_plot.get('descripcion', 'Detalle')
 
-        # Limpieza e indexación numérica estricta (Elimina espacios y cambia comas de celulares por puntos decimales)
+        # 3. LIMPIEZA NUMÉRICA AGRESIVA:
+        # Convierte todo a texto, elimina espacios invisibles y cambia comas de celulares por puntos decimales.
         for col in ['lat', 'lon']:
             if col in df_plot.columns:
                 df_plot[col] = df_plot[col].astype(str).str.replace(',', '.').str.strip()
                 df_plot[col] = pd.to_numeric(df_plot[col], errors='coerce')
         
-        # Filtro final: Quitamos del mapa SOLO los registros que tengan coordenadas completamente vacías o corruptas
+        # 4. FILTRO DE SEGURIDAD:
+        # Quitamos del mapa ÚNICAMENTE las filas que tengan coordenadas corruptas o vacías
         df_plot = df_plot.dropna(subset=['lat', 'lon'])
         
     if "gps_capturado" not in st.session_state:
@@ -421,7 +424,7 @@ with tab_mapa:
                     lat_val = float(row['lat'])
                     lon_val = float(row['lon'])
                     
-                    # Usamos las variables indexadas físicamente que nunca fallan
+                    # Usamos los textos extraídos por posición física que no fallan por nombres
                     tipo_c = row.get('tipo_mapa', 'Conflicto')
                     vereda_c = row.get('vereda_mapa', 'Territorio')
                     desc_c = row.get('desc_mapa', 'Sin detalle')
