@@ -208,46 +208,22 @@ AUTOGENERADO_HTML = """<!DOCTYPE html>
             let cola = JSON.parse(localStorage.getItem("conflictos_offline")); if(cola.length === 0) return;
             document.getElementById("btn-sincronizar").innerText = "⏳ Transmitiendo...";
             
-            try {
-                // Creamos un formulario físico invisible dinámicamente en el documento
-                const formOculto = document.createElement("form");
-                formOculto.method = "POST";
-                formOculto.action = WEB_APP_URL;
-                formOculto.target = "iframeOculto"; // Esto evita que la página se recargue o cambie de pestaña
-
-                // Añadimos un campo de texto con la información serializada
-                const inputDatos = document.createElement("input");
-                inputDatos.type = "hidden";
-                inputDatos.name = "datos";
-                inputDatos.value = JSON.stringify(cola);
-                formOculto.appendChild(inputDatos);
-
-                // Creamos el marco oculto donde Google responderá en segundo plano
-                let iframe = document.getElementById("iframeOculto");
-                if (!iframe) {
-                    iframe = document.createElement("iframe");
-                    iframe.id = "iframeOculto";
-                    iframe.name = "iframeOculto";
-                    iframe.style.display = "none";
-                    document.body.appendChild(iframe);
-                }
-
-                // Ejecutamos el envío simulando un clic humano
-                document.body.appendChild(formOculto);
-                formOculto.submit();
-                
-                // Limpiamos los elementos creados después del envío
-                setTimeout(() => {
-                    document.body.removeChild(formOculto);
-                    alert("🎉 ¡Transmisión completada! Los puntos han sido procesados por la base de datos."); 
-                    localStorage.setItem("conflictos_offline", JSON.stringify([])); 
-                    location.reload();
-                }, 2500); // Damos 2.5 segundos para asegurar que el canal de datos se complete
-
-            } catch (err) {
-                alert("❌ Error en el motor de transmisión: " + err);
+            // Enviamos como text/plain para obligar al navegador a saltarse la verificación estricta de CORS en producción
+            fetch(WEB_APP_URL, { 
+                method: "POST", 
+                mode: "no-cors", 
+                headers: { "Content-Type": "text/plain" }, 
+                body: JSON.stringify(cola) // Enviamos la lista JSON tal cual
+            })
+            .then(() => { 
+                alert("🎉 ¡Transmisión enviada! Verifica tu Google Sheets en unos segundos."); 
+                localStorage.setItem("conflictos_offline", JSON.stringify([])); 
+                location.reload(); 
+            })
+            .catch((err) => {
+                alert("❌ Error de transmisión: " + err);
                 document.getElementById("btn-sincronizar").innerText = "🔄 Enviar Datos Guardados a la Nube";
-            }
+            });
         }
     </script>
 </body>
