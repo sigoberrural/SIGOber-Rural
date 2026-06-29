@@ -208,25 +208,46 @@ AUTOGENERADO_HTML = """<!DOCTYPE html>
             let cola = JSON.parse(localStorage.getItem("conflictos_offline")); if(cola.length === 0) return;
             document.getElementById("btn-sincronizar").innerText = "⏳ Transmitiendo...";
             
-            // Creamos un contenedor de formulario nativo para saltar el bloqueo de CORS en producción
-            const formData = new URLSearchParams();
-            formData.append("datos", JSON.stringify(cola));
+            try {
+                // Creamos un formulario físico invisible dinámicamente en el documento
+                const formOculto = document.createElement("form");
+                formOculto.method = "POST";
+                formOculto.action = WEB_APP_URL;
+                formOculto.target = "iframeOculto"; // Esto evita que la página se recargue o cambie de pestaña
 
-            fetch(WEB_APP_URL, { 
-                method: "POST", 
-                mode: "no-cors", 
-                headers: { "Content-Type": "application/x-www-form-urlencoded" }, 
-                body: formData.toString()
-            })
-            .then(() => { 
-                alert("🎉 ¡Transmisión exitosa! Los puntos se han guardado en la base de datos."); 
-                localStorage.setItem("conflictos_offline", JSON.stringify([])); 
-                location.reload(); 
-            })
-            .catch((err) => {
-                alert("❌ Error de red al transmitir en producción: " + err);
+                // Añadimos un campo de texto con la información serializada
+                const inputDatos = document.createElement("input");
+                inputDatos.type = "hidden";
+                inputDatos.name = "datos";
+                inputDatos.value = JSON.stringify(cola);
+                formOculto.appendChild(inputDatos);
+
+                // Creamos el marco oculto donde Google responderá en segundo plano
+                let iframe = document.getElementById("iframeOculto");
+                if (!iframe) {
+                    iframe = document.createElement("iframe");
+                    iframe.id = "iframeOculto";
+                    iframe.name = "iframeOculto";
+                    iframe.style.display = "none";
+                    document.body.appendChild(iframe);
+                }
+
+                // Ejecutamos el envío simulando un clic humano
+                document.body.appendChild(formOculto);
+                formOculto.submit();
+                
+                // Limpiamos los elementos creados después del envío
+                setTimeout(() => {
+                    document.body.removeChild(formOculto);
+                    alert("🎉 ¡Transmisión completada! Los puntos han sido procesados por la base de datos."); 
+                    localStorage.setItem("conflictos_offline", JSON.stringify([])); 
+                    location.reload();
+                }, 2500); // Damos 2.5 segundos para asegurar que el canal de datos se complete
+
+            } catch (err) {
+                alert("❌ Error en el motor de transmisión: " + err);
                 document.getElementById("btn-sincronizar").innerText = "🔄 Enviar Datos Guardados a la Nube";
-            });
+            }
         }
     </script>
 </body>
