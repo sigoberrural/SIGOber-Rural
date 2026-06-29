@@ -294,7 +294,7 @@ tab_mapa, tab_sadci, tab_actores = st.tabs([
 with tab_mapa:
     st.subheader("Visualizador de Tenencia y Conflictos")
     
- df_raw = cargar_datos_con_cache("Conflictos")
+    df_raw = cargar_datos_con_cache("Conflictos")
     df_plot = pd.DataFrame()
     if df_raw is not None and not df_raw.empty:
         df_plot = df_raw.copy()
