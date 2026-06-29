@@ -208,20 +208,23 @@ AUTOGENERADO_HTML = """<!DOCTYPE html>
             let cola = JSON.parse(localStorage.getItem("conflictos_offline")); if(cola.length === 0) return;
             document.getElementById("btn-sincronizar").innerText = "⏳ Transmitiendo...";
             
-            // Enviamos los datos usando la codificación clásica de formularios que Google Apps Script entiende sin restricciones CORS
+            // Creamos un contenedor de formulario nativo para saltar el bloqueo de CORS en producción
+            const formData = new URLSearchParams();
+            formData.append("datos", JSON.stringify(cola));
+
             fetch(WEB_APP_URL, { 
                 method: "POST", 
                 mode: "no-cors", 
                 headers: { "Content-Type": "application/x-www-form-urlencoded" }, 
-                body: JSON.stringify(cola)
+                body: formData.toString()
             })
             .then(() => { 
-                alert("🎉 ¡Transmisión exitosa! Los puntos han sido enviados a la nube."); 
+                alert("🎉 ¡Transmisión exitosa! Los puntos se han guardado en la base de datos."); 
                 localStorage.setItem("conflictos_offline", JSON.stringify([])); 
                 location.reload(); 
             })
             .catch((err) => {
-                alert("❌ Error al transmitir: " + err);
+                alert("❌ Error de red al transmitir en producción: " + err);
                 document.getElementById("btn-sincronizar").innerText = "🔄 Enviar Datos Guardados a la Nube";
             });
         }
