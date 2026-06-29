@@ -298,48 +298,40 @@ with tab_mapa:
     df_plot = pd.DataFrame()
     
     if df_raw is not None and not df_raw.empty:
-        # Hacemos una copia profunda del DataFrame original
         df_plot = df_raw.copy()
         
-        # 1. Limpieza estándar inicial de columnas en minúsculas
+        # 1. Estandarizar nombres de columnas a minúsculas
         df_plot.columns = [str(c).strip().lower() for c in df_plot.columns]
         
-        # 2. SISTEMA ANTIBLOQUEO OFFLINE (Extracción por posición física pura):
-        # Como los envíos offline de la población pueden alterar los nombres de las cabeceras en Google Sheets,
-        # obligamos a Python a leer los datos basándose estrictamente en el número físico de la columna.
-        # En tu Google Sheets: Columna 3 (índice 3) es LATITUD, Columna 4 (índice 4) es LONGITUD.
+        # 2. Asignar las columnas por su posición física real (Columna 3 y 4)
         matriz_valores = df_plot.values
-        total_columnas = df_plot.shape[1]
-        
-        if total_columnas >= 5:
-            # Forzamos la creación de lat y lon leyendo las columnas físicas directamente
+        if df_plot.shape[1] >= 5:
             df_plot['lat'] = matriz_valores[:, 3]
             df_plot['lon'] = matriz_valores[:, 4]
-            
-            # Variables de respaldo para los globos informativos del mapa
             df_plot['tipo_mapa'] = matriz_valores[:, 1]
             df_plot['vereda_mapa'] = matriz_valores[:, 2]
-            df_plot['desc_mapa'] = matriz_valores[:, 5] if total_columnas > 5 else "Sin descripción"
-        else:
-            # Respaldo por si la tabla viene corrupta o compactada
-            for col_idx, col_name in enumerate(df_plot.columns):
-                if 'lat' in str(col_name):
-                    df_plot['lat'] = df_plot.iloc[:, col_idx]
-                if 'lon' in str(col_name):
-                    df_plot['lon'] = df_plot.iloc[:, col_idx]
-            df_plot['tipo_mapa'] = df_plot.get('tipo', 'Conflicto')
-            df_plot['vereda_mapa'] = df_plot.get('vereda', 'Zona Rural')
-            df_plot['desc_mapa'] = df_plot.get('descripcion', 'Detalle')
+            df_plot['desc_mapa'] = matriz_valores[:, 5] if df_plot.shape[1] > 5 else "Sin descripción"
 
-        # 3. LIMPIEZA NUMÉRICA AGRESIVA:
-        # Convierte todo a texto, elimina espacios invisibles y cambia comas de celulares por puntos decimales.
+        # 3. LIMPIEZA INTELIGENTE DE COORDENADAS (Corrige el error de múltiples puntos)
         for col in ['lat', 'lon']:
             if col in df_plot.columns:
-                df_plot[col] = df_plot[col].astype(str).str.replace(',', '.').str.strip()
+                # Convertimos a texto y quitamos espacios
+                val_str = df_plot[col].astype(str).str.strip().str.replace(',', '.')
+                
+                # REPARACIÓN: Si el texto tiene más de un punto (ej: 2.027.070), 
+                # dejamos solo el primer punto y eliminamos los siguientes.
+                def arreglar_puntos(texto):
+                    if texto.count('.') > 1:
+                        partes = texto.split('.')
+                        # Une la primera parte con el resto pegado (ej: "2" + "." + "027070")
+                        return partes[0] + '.' + ''.join(partes[1:])
+                    return texto
+                
+                df_plot[col] = val_str.apply(arreglar_puntos)
+                # Ahora que está limpio, lo convertimos a número real sin que falle
                 df_plot[col] = pd.to_numeric(df_plot[col], errors='coerce')
         
-        # 4. FILTRO DE SEGURIDAD:
-        # Quitamos del mapa ÚNICAMENTE las filas que tengan coordenadas corruptas o vacías
+        # 4. Quitar del mapa solo lo que no sea numérico
         df_plot = df_plot.dropna(subset=['lat', 'lon'])
         
     if "gps_capturado" not in st.session_state:
