@@ -138,7 +138,7 @@ AUTOGENERADO_HTML = """<!DOCTYPE html>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://layerjs.org/libs/turf.min.js"></script>
     <script>
-        const WEB_APP_URL = "https://script.google.com/macros/s/AKfycbzthjqZZasXvEbjIneaGdHUy3waVNmMs99fbKwANg08cj_0mVF2FPC7ly7vmOR_WWMiew/exec";
+        const WEB_APP_URL = "https://script.google.com/macros/s/AKfycbwNKhNoX_Tq6IvOKP26jLuyIsyrfYuRnQum-5FDVhi6mHECriPiN65zC5tdrIXK7-nRgQ/exec";
         let mapa, marcador, capaVeredas;
         const LAT_DEFECTO = 1.9123; const LON_DEFECTO = -75.1842;
         const datosVeredasGeoJSON = {"type": "FeatureCollection", "features": [{"type": "Feature", "properties": {"NOMBRE_VER": "Zona Rural General - Puerto Rico"}, "geometry": {"type": "Polygon", "coordinates": [[[-75.30, 2.05], [-75.00, 2.05], [-75.00, 1.80], [-75.30, 1.80], [-75.30, 2.05]]]}}]};
@@ -205,10 +205,31 @@ AUTOGENERADO_HTML = """<!DOCTYPE html>
             cola.forEach(item => { L.circleMarker([item.lat, item.lon], { radius: 7, fillColor: "#ff9800", color: "#e65100", weight: 2, fillOpacity: 0.9 }).addTo(mapa); });
         }
         function sincronizarDatos() {
-            let cola = JSON.parse(localStorage.getItem("conflictos_offline")); if(cola.length === 0) return;
-            document.getElementById("btn-sincronizar").innerText = "⏳ Transmitiendo...";
-            fetch(WEB_APP_URL, { method: "POST", mode: "no-cors", headers: { "Content-Type": "application/json" }, body: JSON.stringify(cola) })
-            .then(() => { alert("🎉 ¡Transmisión exitosa!"); localStorage.setItem("conflictos_offline", JSON.stringify([])); location.reload(); });
+            let cola = JSON.parse(localStorage.getItem("conflictos_offline")); 
+            if(cola.length === 0) return;
+            
+            document.getElementById("btn-sincronizar").innerText = "⏳ Conectando con la base de datos...";
+            
+            // Creamos un formulario real nativo en memoria
+            const form = document.createElement('form');
+            form.method = 'POST';
+            form.action = WEB_APP_URL; // Envía directamente al script de Google
+
+            // Añadimos el paquete de datos en el campo oculto "datos"
+            const hiddenField = document.createElement('input');
+            hiddenField.type = 'hidden';
+            hiddenField.name = 'datos';
+            hiddenField.value = JSON.stringify(cola);
+            form.appendChild(hiddenField);
+
+            // Adjuntamos al documento y enviamos
+            document.body.appendChild(form);
+            
+            // Borramos la cola local ANTES de salir para que no se dupliquen datos
+            localStorage.setItem("conflictos_offline", JSON.stringify([]));
+            
+            // Esto redirigirá al usuario a una pantalla blanca de Google que confirma el éxito
+            form.submit();
         }
     </script>
 </body>
@@ -275,40 +296,44 @@ with tab_mapa:
     
     df_raw = cargar_datos_con_cache("Conflictos")
     df_plot = pd.DataFrame()
+    
     if df_raw is not None and not df_raw.empty:
         df_plot = df_raw.copy()
         
-        # Guardamos una copia limpia de las columnas originales antes de transformarlas
-        columnas_originales = [str(c).strip().lower() for c in df_plot.columns]
-        df_plot.columns = columnas_originales
+        # 1. Estandarizar nombres de columnas a minúsculas
+        df_plot.columns = [str(c).strip().lower() for c in df_plot.columns]
         
-        # Si la cabecera larga e inmunda está pegada en una sola columna, re-estructuramos el DataFrame dinámicamente
-        if len(df_plot.columns) == 1 and "lat" in df_plot.columns[0]:
-            col_unica = df_plot.columns[0]
-            # Forzamos la detección manual buscando fragmentos en las filas
-            st.warning("⚠️ Detectada estructura de datos compacta. Re-alineando coordenadas geográficas...")
+        # 2. Asignar las columnas por su posición física real (Columna 3 y 4)
+        matriz_valores = df_plot.values
+        if df_plot.shape[1] >= 5:
+            df_plot['lat'] = matriz_valores[:, 3]
+            df_plot['lon'] = matriz_valores[:, 4]
+            df_plot['tipo_mapa'] = matriz_valores[:, 1]
+            df_plot['vereda_mapa'] = matriz_valores[:, 2]
+            df_plot['desc_mapa'] = matriz_valores[:, 5] if df_plot.shape[1] > 5 else "Sin descripción"
 
-        # Estandarizamos de manera agresiva las columnas de coordenadas
-        for col_idx, col_name in enumerate(df_plot.columns):
-            if 'lat' in col_name and not col_name == 'lat':
-                df_plot['lat'] = df_plot.iloc[:, col_idx]
-            if 'lon' in col_name and not col_name == 'lon':
-                df_plot['lon'] = df_plot.iloc[:, col_idx]
-
-        # Limpieza e indexación numérica estricta
+        # 3. LIMPIEZA INTELIGENTE DE COORDENADAS (Corrige el error de múltiples puntos)
         for col in ['lat', 'lon']:
             if col in df_plot.columns:
-                df_plot[col] = df_plot[col].astype(str).str.replace(',', '.').str.strip()
+                # Convertimos a texto y quitamos espacios
+                val_str = df_plot[col].astype(str).str.strip().str.replace(',', '.')
+                
+                # REPARACIÓN: Si el texto tiene más de un punto (ej: 2.027.070), 
+                # dejamos solo el primer punto y eliminamos los siguientes.
+                def arreglar_puntos(texto):
+                    if texto.count('.') > 1:
+                        partes = texto.split('.')
+                        # Une la primera parte con el resto pegado (ej: "2" + "." + "027070")
+                        return partes[0] + '.' + ''.join(partes[1:])
+                    return texto
+                
+                df_plot[col] = val_str.apply(arreglar_puntos)
+                # Ahora que está limpio, lo convertimos a número real sin que falle
                 df_plot[col] = pd.to_numeric(df_plot[col], errors='coerce')
         
-        # Si no se crearon explícitamente, intentamos recuperarlas por posición física en la tabla (Columnas 4 y 5)
-        if 'lat' not in df_plot.columns or df_plot['lat'].isnull().all():
-            df_plot['lat'] = pd.to_numeric(df_raw.iloc[:, 3].astype(str).str.replace(',', '.'), errors='coerce')
-        if 'lon' not in df_plot.columns or df_plot['lon'].isnull().all():
-            df_plot['lon'] = pd.to_numeric(df_raw.iloc[:, 4].astype(str).str.replace(',', '.'), errors='coerce')
-
+        # 4. Quitar del mapa solo lo que no sea numérico
         df_plot = df_plot.dropna(subset=['lat', 'lon'])
-
+        
     if "gps_capturado" not in st.session_state:
         loc = get_geolocation()
         if loc:
@@ -391,10 +416,10 @@ with tab_mapa:
                     lat_val = float(row['lat'])
                     lon_val = float(row['lon'])
                     
-                    # Extraer textos informativos probando nombres o posiciones físicas de la fila
-                    tipo_c = row.get('tipo_conflicto') or row.get('tipo') or (df_raw.iloc[idx, 1] if len(df_raw.columns) > 1 else 'Conflicto')
-                    vereda_c = row.get('vereda') or (df_raw.iloc[idx, 2] if len(df_raw.columns) > 2 else 'Territorio')
-                    desc_c = row.get('descripcion') or row.get('desc') or (df_raw.iloc[idx, 5] if len(df_raw.columns) > 5 else 'Sin detalle')
+                    # Usamos los textos extraídos por posición física que no fallan por nombres
+                    tipo_c = row.get('tipo_mapa', 'Conflicto')
+                    vereda_c = row.get('vereda_mapa', 'Territorio')
+                    desc_c = row.get('desc_mapa', 'Sin detalle')
                     
                     folium.CircleMarker(
                         location=[lat_val, lon_val], 
