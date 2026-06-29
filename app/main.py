@@ -294,7 +294,7 @@ tab_mapa, tab_sadci, tab_actores = st.tabs([
 with tab_mapa:
     st.subheader("Visualizador de Tenencia y Conflictos")
     
-    df_raw = cargar_datos_con_cache("Conflictos")
+ df_raw = cargar_datos_con_cache("Conflictos")
     df_plot = pd.DataFrame()
     if df_raw is not None and not df_raw.empty:
         df_plot = df_raw.copy()
@@ -303,17 +303,16 @@ with tab_mapa:
         columnas_originales = [str(c).strip().lower() for c in df_plot.columns]
         df_plot.columns = columnas_originales
         
-        # Si la cabecera larga e inmunda está pegada en una sola columna, re-estructuramos el DataFrame dinámicamente
+        # Si la cabecera larga está pegada en una sola columna, re-estructuramos el DataFrame dinámicamente
         if len(df_plot.columns) == 1 and "lat" in df_plot.columns[0]:
             col_unica = df_plot.columns[0]
-            # Forzamos la detección manual buscando fragmentos en las filas
             st.warning("⚠️ Detectada estructura de datos compacta. Re-alineando coordenadas geográficas...")
 
-        # Estandarizamos de manera agresiva las columnas de coordenadas
+        # Estandarizamos de manera agresiva las columnas de coordenadas (CORREGIDO: Soporta nombres exactos y parciales)
         for col_idx, col_name in enumerate(df_plot.columns):
-            if 'lat' in col_name and not col_name == 'lat':
+            if 'lat' in col_name:
                 df_plot['lat'] = df_plot.iloc[:, col_idx]
-            if 'lon' in col_name and not col_name == 'lon':
+            if 'lon' in col_name:
                 df_plot['lon'] = df_plot.iloc[:, col_idx]
 
         # Limpieza e indexación numérica estricta
@@ -322,7 +321,7 @@ with tab_mapa:
                 df_plot[col] = df_plot[col].astype(str).str.replace(',', '.').str.strip()
                 df_plot[col] = pd.to_numeric(df_plot[col], errors='coerce')
         
-        # Si no se crearon explícitamente, intentamos recuperarlas por posición física en la tabla (Columnas 4 y 5)
+        # Si no se crearon o quedaron vacías, intentamos recuperarlas por posición física en la tabla (Columnas 4 y 5)
         if 'lat' not in df_plot.columns or df_plot['lat'].isnull().all():
             df_plot['lat'] = pd.to_numeric(df_raw.iloc[:, 3].astype(str).str.replace(',', '.'), errors='coerce')
         if 'lon' not in df_plot.columns or df_plot['lon'].isnull().all():
