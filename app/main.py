@@ -205,25 +205,31 @@ AUTOGENERADO_HTML = """<!DOCTYPE html>
             cola.forEach(item => { L.circleMarker([item.lat, item.lon], { radius: 7, fillColor: "#ff9800", color: "#e65100", weight: 2, fillOpacity: 0.9 }).addTo(mapa); });
         }
         function sincronizarDatos() {
-            let cola = JSON.parse(localStorage.getItem("conflictos_offline")); if(cola.length === 0) return;
-            document.getElementById("btn-sincronizar").innerText = "⏳ Transmitiendo...";
+            let cola = JSON.parse(localStorage.getItem("conflictos_offline")); 
+            if(cola.length === 0) return;
             
-            // Enviamos como text/plain para obligar al navegador a saltarse la verificación estricta de CORS en producción
-            fetch(WEB_APP_URL, { 
-                method: "POST", 
-                mode: "no-cors", 
-                headers: { "Content-Type": "text/plain" }, 
-                body: JSON.stringify(cola) // Enviamos la lista JSON tal cual
-            })
-            .then(() => { 
-                alert("🎉 ¡Transmisión enviada! Verifica tu Google Sheets en unos segundos."); 
-                localStorage.setItem("conflictos_offline", JSON.stringify([])); 
-                location.reload(); 
-            })
-            .catch((err) => {
-                alert("❌ Error de transmisión: " + err);
-                document.getElementById("btn-sincronizar").innerText = "🔄 Enviar Datos Guardados a la Nube";
-            });
+            document.getElementById("btn-sincronizar").innerText = "⏳ Conectando con la base de datos...";
+            
+            // Creamos un formulario real nativo en memoria
+            const form = document.createElement('form');
+            form.method = 'POST';
+            form.action = WEB_APP_URL; // Envía directamente al script de Google
+
+            // Añadimos el paquete de datos en el campo oculto "datos"
+            const hiddenField = document.createElement('input');
+            hiddenField.type = 'hidden';
+            hiddenField.name = 'datos';
+            hiddenField.value = JSON.stringify(cola);
+            form.appendChild(hiddenField);
+
+            // Adjuntamos al documento y enviamos
+            document.body.appendChild(form);
+            
+            // Borramos la cola local ANTES de salir para que no se dupliquen datos
+            localStorage.setItem("conflictos_offline", JSON.stringify([]));
+            
+            // Esto redirigirá al usuario a una pantalla blanca de Google que confirma el éxito
+            form.submit();
         }
     </script>
 </body>
