@@ -94,6 +94,18 @@ def construir_mapa(topo,eventos_historicos,conflictos=None,codigo_seleccionado="
         grupo.add_to(m)
     folium.LayerControl(collapsed=False).add_to(m); return m
 
+def resumen_sadci(sadci):
+    if not isinstance(sadci,pd.DataFrame) or sadci.empty: return None
+    out={}
+    for c in ("presupuesto_anual_rural","num_personal_planta","num_personal_contratista","ejecucion_presupuestal_pct","cumplimiento_pdt_pct","calificacion_mepi"):
+        if c in sadci.columns:
+            vals=pd.to_numeric(sadci[c],errors="coerce").dropna()
+            if not vals.empty: out[c]=float(vals.mean())
+    return out
+
+def indicador_pct(valor):
+    return "—" if valor is None or pd.isna(valor) else f"{float(valor):.0f}%"
+
 st.title("SIGOber-Rural")
 st.caption("Sistema de Información para la Gobernabilidad Territorial Rural — Puerto Rico, Caquetá")
 if "veredas_topo" not in st.session_state: st.session_state["veredas_topo"]=None
@@ -136,5 +148,37 @@ else:
             p=fila.iloc[0]; ev=eventos_f[eventos_f["codigo_ver_resuelto"].astype(str).str.strip()==str(codigo_sel).strip()] if "codigo_ver_resuelto" in eventos_f.columns else pd.DataFrame(); st.subheader(f"Ficha territorial — {p.get('NOMBRE_VER','')}"); q=st.columns(4); q[0].metric("Situaciones históricas",len(ev)); q[1].metric("Primera referencia",ev["anio"].min() if not ev.empty and "anio" in ev.columns else "—"); q[2].metric("Última referencia",ev["anio"].max() if not ev.empty and "anio" in ev.columns else "—"); q[3].metric("Área (ha)",p.get("AREA_HA","—")); st.write({"Vereda":p.get("NOMBRE_VER",""),"Código":p.get("CODIGO_VER",""),"Fuente":p.get("FUENTE",""),"Vigencia":p.get("VIGENCIA","")})
             if not conflictos.empty and "vereda" in conflictos.columns:
                 cv=conflictos[conflictos["vereda"].astype(str).str.strip().str.upper()==str(p.get("NOMBRE_VER","")).strip().upper()]; st.markdown("**Conflictos operativos registrados en Google Sheets**"); st.dataframe(cv[[c for c in ["id_conflicto","tipo_conflicto","vereda","descripcion","precision_coordenada","registrado_por"] if c in cv.columns]],use_container_width=True,hide_index=True) if not cv.empty else st.caption("No hay registros operativos asociados por nombre de vereda.")
-st.divider(); st.subheader("Capacidad institucional"); gd=st.session_state.get("google_data") or {}; sadci=gd.get("SADCI"); st.dataframe(sadci,use_container_width=True,hide_index=True) if isinstance(sadci,pd.DataFrame) else st.caption("Cargue Google Sheets para consultar SADCI."); rel=gd.get("Relación Interinstitucional");
-if isinstance(rel,pd.DataFrame): st.subheader("Relación interinstitucional"); st.dataframe(rel,use_container_width=True,hide_index=True) if not rel.empty else st.caption("La hoja está disponible pero actualmente no contiene registros.")
+
+st.divider()
+st.subheader("Capacidad institucional — SADCI")
+st.caption("Lectura sintética de la capacidad institucional disponible para responder, coordinar y sostener la gobernabilidad territorial.")
+gd=st.session_state.get("google_data") or {}
+sadci=gd.get("SADCI")
+if isinstance(sadci,pd.DataFrame) and not sadci.empty:
+    s=resumen_sadci(sadci) or {}
+    k1,k2,k3,k4,k5=st.columns(5)
+    k1.metric("Entidades",len(sadci))
+    k2.metric("Ejecución presupuestal",indicador_pct(s.get("ejecucion_presupuestal_pct")))
+    k3.metric("Cumplimiento PDT",indicador_pct(s.get("cumplimiento_pdt_pct")))
+    k4.metric("MEPI promedio",indicador_pct(s.get("calificacion_mepi")))
+    k5.metric("Personal",int(s.get("num_personal_planta",0)+s.get("num_personal_contratista",0)) if "num_personal_planta" in s or "num_personal_contratista" in s else "—")
+    st.markdown("**Estado institucional por entidad**")
+    vista=sadci.copy()
+    cols_vista=[c for c in ["id_entidad","nombre_entidad","presupuesto_anual_rural","num_personal_planta","num_personal_contratista","tiene_protocolo_articulacion","tramites_simplificados","frecuencia_rendicion_cuentas","nivel_digitalizacion","ejecucion_presupuestal_pct","cumplimiento_pdt_pct","existencia_instancias_participacion","calificacion_mepi"] if c in vista.columns]
+    st.dataframe(vista[cols_vista],use_container_width=True,hide_index=True)
+    with st.expander("Ver detalle de capacidades y necesidades"):
+        detalle=[c for c in ["nombre_entidad","protocolo","rendicion","estructura","capacitacion"] if c in sadci.columns]
+        if detalle: st.dataframe(sadci[detalle],use_container_width=True,hide_index=True)
+else:
+    st.caption("Cargue Google Sheets para consultar SADCI.")
+
+st.subheader("Articulación interinstitucional")
+rel=gd.get("Relación Interinstitucional")
+if isinstance(rel,pd.DataFrame):
+    if rel.empty:
+        st.info("La hoja está disponible pero todavía no contiene registros. Este espacio queda preparado para documentar relaciones, coordinación y rutas de respuesta entre actores institucionales.")
+    else:
+        st.caption("Registros disponibles para analizar coordinación, complementariedad y rutas de respuesta institucional.")
+        st.dataframe(rel,use_container_width=True,hide_index=True)
+else:
+    st.caption("Cargue Google Sheets para consultar la relación interinstitucional.")
