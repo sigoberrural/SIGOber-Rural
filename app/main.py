@@ -1,313 +1,140 @@
+import html
 import json
 import re
 from pathlib import Path
 
+import folium
 import pandas as pd
 import streamlit as st
-import folium
 from streamlit_folium import st_folium
 
 st.set_page_config(page_title="SIGOber-Rural", page_icon="🗺️", layout="wide")
-
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"
 
-
 def cargar_json(nombre):
     ruta = DATA_DIR / nombre
-    if not ruta.exists():
-        return None
-    with open(ruta, "r", encoding="utf-8") as f:
-        return json.load(f)
-
+    if not ruta.exists(): return None
+    with open(ruta, "r", encoding="utf-8") as f: return json.load(f)
 
 @st.cache_data(show_spinner=False)
 def cargar_eventos_locales():
     for nombre in ("SITUACIONES_TERRITORIALES_eventos.csv", "SITUACIONES_TERRITORIALES_eventos_v0_1.csv"):
         ruta = DATA_DIR / nombre
-        if ruta.exists():
-            return pd.read_csv(ruta, dtype=str).fillna("")
+        if ruta.exists(): return pd.read_csv(ruta, dtype=str).fillna("")
     return pd.DataFrame()
-
 
 @st.cache_data(show_spinner=False)
 def cargar_veredas_topo():
     topo = cargar_json("veredas_puerto_rico.json")
-    if not topo:
-        raise RuntimeError("No se encontró data/veredas_puerto_rico.json.")
-    if topo.get("type") != "Topology":
-        raise RuntimeError(f"La capa de veredas no tiene formato TopoJSON: {topo.get('type')}")
-    if "Veredas" not in topo.get("objects", {}):
-        raise RuntimeError("El TopoJSON no contiene el objeto 'Veredas'.")
+    if not topo or topo.get("type") != "Topology" or "Veredas" not in topo.get("objects", {}):
+        raise RuntimeError("No se encontró un TopoJSON válido con el objeto Veredas.")
     return topo
 
-
 def propiedades_veredas(topo):
-    filas = []
-    for g in topo.get("objects", {}).get("Veredas", {}).get("geometries", []):
-        filas.append(g.get("properties", {}) or {})
-    return pd.DataFrame(filas).fillna("")
-
-
-def contar_eventos(eventos):
-    if eventos.empty or "codigo_ver_resuelto" not in eventos.columns:
-        return {}
-    return eventos["codigo_ver_resuelto"].astype(str).str.strip().value_counts().to_dict()
-
+    return pd.DataFrame([g.get("properties", {}) or {} for g in topo.get("objects", {}).get("Veredas", {}).get("geometries", [])]).fillna("")
 
 def resumen_vereda(codigo, eventos):
-    if eventos.empty or "codigo_ver_resuelto" not in eventos.columns:
-        return {"n": 0, "anios": "Sin registros", "tipos": "Sin registros", "conf": "Sin registros"}
-    ev = eventos[eventos["codigo_ver_resuelto"].astype(str).str.strip() == str(codigo).strip()].copy()
-    if ev.empty:
-        return {"n": 0, "anios": "Sin registros", "tipos": "Sin registros", "conf": "Sin registros"}
-    anios = sorted(ev["anio"].astype(str).loc[lambda s: s != ""].unique().tolist()) if "anio" in ev.columns else []
-    tipos = sorted(ev["tipo_conflicto"].astype(str).loc[lambda s: s != ""].unique().tolist()) if "tipo_conflicto" in ev.columns else []
-    conf = sorted(ev["confianza"].astype(str).loc[lambda s: s != ""].unique().tolist()) if "confianza" in ev.columns else []
-    return {
-        "n": len(ev),
-        "anios": ", ".join(anios) if anios else "Sin fecha",
-        "tipos": ", ".join(tipos) if tipos else "No especificado",
-        "conf": ", ".join(conf) if conf else "No especificada",
-    }
-
-
-def construir_mapa(topo=None, eventos=None, codigo_seleccionado=""):
-    m = folium.Map(location=[1.9123, -75.1842], zoom_start=10, tiles="CartoDB positron")
-    folium.Marker([1.9123, -75.1842], tooltip="Puerto Rico, Caquetá").add_to(m)
-
-    if topo:
-        eventos = eventos if eventos is not None else pd.DataFrame()
-        conteo = contar_eventos(eventos)
-
-        # Enriquecemos las propiedades del TopoJSON únicamente en memoria.
-        # No modificamos la fuente cartográfica original.
-        topo_mapa = json.loads(json.dumps(topo))
-        for g in topo_mapa.get("objects", {}).get("Veredas", {}).get("geometries", []):
-            p = g.setdefault("properties", {})
-            codigo = str(p.get("CODIGO_VER", "")).strip()
-            r = resumen_vereda(codigo, eventos)
-            p["SIGOber_situaciones"] = r["n"]
-            p["SIGOber_anios"] = r["anios"]
-            p["SIGOber_tipos"] = r["tipos"]
-            p["SIGOber_confianza"] = r["conf"]
-
-        def estilo(feature):
-            props = feature.get("properties", {})
-            codigo = str(props.get("CODIGO_VER", "")).strip()
-            n = int(conteo.get(codigo, 0))
-            seleccionado = codigo and codigo == str(codigo_seleccionado).strip()
-            return {
-                "fillColor": "#d73027" if n > 0 else "#eeeeee",
-                "color": "#111111" if seleccionado else "#555555",
-                "weight": 2.2 if seleccionado else 0.7,
-                "fillOpacity": 0.68 if seleccionado else (0.55 if n > 0 else 0.18),
-            }
-
-        tooltip = folium.GeoJsonTooltip(
-            fields=["NOMBRE_VER", "CODIGO_VER", "SIGOber_situaciones", "SIGOber_anios", "SIGOber_tipos", "SIGOber_confianza", "AREA_HA", "FUENTE"],
-            aliases=["Vereda", "Código", "Situaciones documentadas", "Años", "Tipos de situación", "Confianza", "Área (ha)", "Fuente cartográfica"],
-            localize=True,
-            sticky=True,
-            labels=True,
-            style=("background-color: white; color: #222; font-family: Arial; font-size: 12px; padding: 8px;")
-        )
-
-        folium.TopoJson(
-            data=topo_mapa,
-            object_path="objects.Veredas",
-            name="Veredas + situaciones territoriales",
-            style_function=estilo,
-            tooltip=tooltip,
-        ).add_to(m)
-
-    folium.LayerControl(collapsed=False).add_to(m)
-    return m
-
+    vacio={"n":0,"anios":"Sin registros","tipos":"Sin registros","conf":"Sin registros"}
+    if eventos.empty or "codigo_ver_resuelto" not in eventos.columns: return vacio
+    ev=eventos[eventos["codigo_ver_resuelto"].astype(str).str.strip()==str(codigo).strip()]
+    if ev.empty: return vacio
+    return {"n":len(ev),"anios":", ".join(sorted([x for x in ev.get("anio",pd.Series(dtype=str)).astype(str).unique() if x])) or "Sin fecha","tipos":", ".join(sorted([x for x in ev.get("tipo_conflicto",pd.Series(dtype=str)).astype(str).unique() if x])) or "No especificado","conf":", ".join(sorted([x for x in ev.get("confianza",pd.Series(dtype=str)).astype(str).unique() if x])) or "No especificada"}
 
 def normalizar_conflictos(df):
-    if df.empty:
-        return df
-    out = df.copy().fillna("")
-    for c in ["lat", "lon"]:
-        if c in out.columns:
-            out[c + "_num"] = pd.to_numeric(out[c], errors="coerce")
-    if "lat_num" in out.columns and "lon_num" in out.columns:
-        out["precision_coordenada"] = "VALIDA"
-        out.loc[(out["lat_num"].abs() > 90) | (out["lon_num"].abs() > 180), "precision_coordenada"] = "REQUIERE_REVISION"
-        out.loc[out[["lat_num", "lon_num"]].isna().any(axis=1), "precision_coordenada"] = "SIN_COORDENADA"
+    if df is None or df.empty: return pd.DataFrame()
+    out=df.copy().fillna("")
+    for c in ("lat","lon"): out[c+"_num"]=pd.to_numeric(out[c],errors="coerce") if c in out.columns else pd.NA
+    out["precision_coordenada"]="VALIDA"
+    out.loc[out[["lat_num","lon_num"]].isna().any(axis=1),"precision_coordenada"]="SIN_COORDENADA"
+    inval=(out["lat_num"].abs()>90)|(out["lon_num"].abs()>180)
+    out.loc[inval & out[["lat_num","lon_num"]].notna().all(axis=1),"precision_coordenada"]="REQUIERE_REVISION"
     return out
-
 
 def config_gsheets():
     try:
-        connections = st.secrets.get("connections", {})
-        cfg = connections.get("gsheets", {}) if hasattr(connections, "get") else {}
-        return dict(cfg) if hasattr(cfg, "items") else {}
-    except Exception:
-        return {}
-
+        c=st.secrets.get("connections",{}); x=c.get("gsheets",{}) if hasattr(c,"get") else {}
+        return dict(x) if hasattr(x,"items") else {}
+    except Exception: return {}
 
 def spreadsheet_id_desde_config(cfg):
-    raw = str(cfg.get("spreadsheet", "") or cfg.get("spreadsheet_url", "")).strip()
-    m = re.search(r"/spreadsheets/d/([a-zA-Z0-9-_]+)", raw)
+    raw=str(cfg.get("spreadsheet","") or cfg.get("spreadsheet_url","")).strip(); m=re.search(r"/spreadsheets/d/([A-Za-z0-9_-]+)",raw)
     return m.group(1) if m else raw
 
-
-@st.cache_data(ttl=300, show_spinner=False)
+@st.cache_data(ttl=300,show_spinner=False)
 def leer_google_sheets():
     from streamlit_gsheets import GSheetsConnection
-    conn = st.connection("gsheets", type=GSheetsConnection)
-    resultado = {}
-    for hoja in ["Conflictos", "Actores", "SADCI", "Relación Interinstitucional"]:
-        try:
-            resultado[hoja] = conn.read(worksheet=hoja, ttl=300).fillna("")
-        except Exception as e:
-            resultado[hoja] = e
-    return resultado
+    conn=st.connection("gsheets",type=GSheetsConnection); r={}
+    for hoja in ("Conflictos","Actores","SADCI","Relación Interinstitucional"):
+        try: r[hoja]=conn.read(worksheet=hoja,ttl=300).fillna("")
+        except Exception as e: r[hoja]=e
+    return r
 
+def popup_conflicto(row):
+    v=lambda c: html.escape(str(row.get(c,"") or ""))
+    return f"<div style='width:280px;font-family:Arial'><h4>Situación registrada</h4><b>ID:</b> {v('id_conflicto')}<br><b>Tipo:</b> {v('tipo_conflicto')}<br><b>Vereda:</b> {v('vereda')}<br><b>Descripción:</b> {v('descripcion')}<br><b>Registrado por:</b> {v('registrado_por')}<br><b>Estado coordenada:</b> {v('precision_coordenada')}<br><b>Lat/Lon fuente:</b> {v('lat')} / {v('lon')}</div>"
 
-@st.cache_data(show_spinner=False)
-def cargar_respaldo_local(nombre):
-    ruta = DATA_DIR / f"DB_{nombre.replace(' ', '_')}.csv"
-    if ruta.exists():
-        return pd.read_csv(ruta, dtype=str).fillna("")
-    return pd.DataFrame()
-
+def construir_mapa(topo,eventos_historicos,conflictos=None,codigo_seleccionado="",mostrar_conflictos=True):
+    m=folium.Map(location=[1.9123,-75.1842],zoom_start=10,tiles="CartoDB positron")
+    folium.Marker([1.9123,-75.1842],tooltip="Puerto Rico, Caquetá").add_to(m)
+    conteo=eventos_historicos["codigo_ver_resuelto"].astype(str).str.strip().value_counts().to_dict() if not eventos_historicos.empty and "codigo_ver_resuelto" in eventos_historicos.columns else {}
+    topo_mapa=json.loads(json.dumps(topo))
+    for g in topo_mapa.get("objects",{}).get("Veredas",{}).get("geometries",[]):
+        p=g.setdefault("properties",{}); codigo=str(p.get("CODIGO_VER","")).strip(); r=resumen_vereda(codigo,eventos_historicos)
+        p.update({"SIGOber_situaciones":r["n"],"SIGOber_anios":r["anios"],"SIGOber_tipos":r["tipos"],"SIGOber_confianza":r["conf"]})
+    def estilo(feature):
+        p=feature.get("properties",{}); codigo=str(p.get("CODIGO_VER","")).strip(); n=int(conteo.get(codigo,0)); sel=codigo and codigo==str(codigo_seleccionado).strip()
+        return {"fillColor":"#d73027" if n>0 else "#eeeeee","color":"#111111" if sel else "#555555","weight":2.5 if sel else .7,"fillOpacity":.68 if sel else (.55 if n>0 else .18)}
+    tooltip=folium.GeoJsonTooltip(fields=["NOMBRE_VER","CODIGO_VER","SIGOber_situaciones","SIGOber_anios","SIGOber_tipos","SIGOber_confianza","AREA_HA","FUENTE"],aliases=["Vereda","Código","Situaciones documentadas","Años","Tipos de situación","Confianza","Área (ha)","Fuente cartográfica"],localize=True,sticky=True,labels=True,style="background-color:white;color:#222;font-family:Arial;font-size:12px;padding:8px;")
+    folium.TopoJson(data=topo_mapa,object_path="objects.Veredas",name="Veredas + situaciones territoriales",style_function=estilo,tooltip=tooltip,show=True).add_to(m)
+    if mostrar_conflictos and conflictos is not None and not conflictos.empty:
+        grupo=folium.FeatureGroup(name="Conflictos registrados — Google Sheets",show=True)
+        for _,row in conflictos[conflictos["precision_coordenada"]=="VALIDA"].iterrows():
+            folium.CircleMarker(location=[float(row["lat_num"]),float(row["lon_num"])],radius=7,weight=2,fill=True,fill_opacity=.85,tooltip=f"{row.get('tipo_conflicto','Situación')} — {row.get('vereda','')}",popup=folium.Popup(popup_conflicto(row),max_width=340)).add_to(grupo)
+        grupo.add_to(m)
+    folium.LayerControl(collapsed=False).add_to(m); return m
 
 st.title("SIGOber-Rural")
 st.caption("Sistema de Información para la Gobernabilidad Territorial Rural — Puerto Rico, Caquetá")
-
-eventos_locales = cargar_eventos_locales()
-
-if "veredas_topo" not in st.session_state:
-    st.session_state["veredas_topo"] = None
-if "google_data" not in st.session_state:
-    st.session_state["google_data"] = None
-
-c1, c2, c3, c4 = st.columns(4)
-c1.metric("Situaciones documentadas", len(eventos_locales))
-c2.metric("Veredas con eventos", eventos_locales["codigo_ver_resuelto"].nunique() if "codigo_ver_resuelto" in eventos_locales.columns and not eventos_locales.empty else 0)
-c3.metric("Actores", "—" if st.session_state["google_data"] is None else (len(st.session_state["google_data"].get("Actores", [])) if isinstance(st.session_state["google_data"].get("Actores"), pd.DataFrame) else "—"))
-c4.metric("SADCI", "—" if st.session_state["google_data"] is None else (len(st.session_state["google_data"].get("SADCI", [])) if isinstance(st.session_state["google_data"].get("SADCI"), pd.DataFrame) else "—"))
-
-st.info("SIGOber-Rural organiza la lectura del territorio alrededor de situaciones, actores y capacidad institucional. La geometría es un soporte para la gobernabilidad, no el resultado final.")
-
-col_a, col_b = st.columns([1, 3])
-with col_a:
-    if st.button("Cargar capa de veredas", type="primary", disabled=st.session_state["veredas_topo"] is not None):
-        with st.spinner("Cargando cartografía…"):
-            try:
-                st.session_state["veredas_topo"] = cargar_veredas_topo()
-                st.success("Cartografía cargada.")
-            except Exception as e:
-                st.error(f"No se pudo cargar la capa: {type(e).__name__}: {e}")
-with col_b:
-    st.caption("Pase el cursor sobre una vereda para ver un resumen territorial inmediato. Use el selector para abrir la ficha detallada.")
-
-veredas_df = propiedades_veredas(st.session_state["veredas_topo"]) if st.session_state["veredas_topo"] else pd.DataFrame()
-
-if not veredas_df.empty:
-    nombres = veredas_df[["CODIGO_VER", "NOMBRE_VER"]].drop_duplicates().copy()
-    nombres["etiqueta"] = nombres["NOMBRE_VER"].astype(str) + " — " + nombres["CODIGO_VER"].astype(str)
-    opciones = ["Todas las veredas"] + sorted(nombres["etiqueta"].tolist())
-    seleccion = st.selectbox("Explorar territorio", opciones)
-    codigo_sel = "" if seleccion == "Todas las veredas" else seleccion.split(" — ")[-1]
-
-    f1, f2, f3 = st.columns(3)
-    eventos_f = eventos_locales.copy()
-    if not eventos_f.empty:
-        if "anio" in eventos_f.columns:
-            anios = sorted([x for x in eventos_f["anio"].astype(str).unique() if x], reverse=True)
-            anio_sel = f1.multiselect("Año", anios, default=[])
-            if anio_sel:
-                eventos_f = eventos_f[eventos_f["anio"].astype(str).isin(anio_sel)]
-        if "tipo_conflicto" in eventos_f.columns:
-            tipos = sorted([x for x in eventos_f["tipo_conflicto"].astype(str).unique() if x])
-            tipo_sel = f2.multiselect("Tipo de situación", tipos, default=[])
-            if tipo_sel:
-                eventos_f = eventos_f[eventos_f["tipo_conflicto"].astype(str).isin(tipo_sel)]
-        if "confianza" in eventos_f.columns:
-            confs = sorted([x for x in eventos_f["confianza"].astype(str).unique() if x])
-            conf_sel = f3.multiselect("Confianza", confs, default=[])
-            if conf_sel:
-                eventos_f = eventos_f[eventos_f["confianza"].astype(str).isin(conf_sel)]
-
-    m = construir_mapa(st.session_state["veredas_topo"], eventos_f, codigo_sel)
-    st_folium(m, width="100%", height=620, returned_objects=["last_active_drawing"])
-
-    if codigo_sel:
-        fila = veredas_df[veredas_df["CODIGO_VER"].astype(str) == str(codigo_sel)].head(1)
-        if not fila.empty:
-            p = fila.iloc[0]
-            st.subheader(f"Ficha territorial — {p.get('NOMBRE_VER', '')}")
-            eventos_vereda = eventos_f[eventos_f["codigo_ver_resuelto"].astype(str).str.strip() == str(codigo_sel).strip()] if "codigo_ver_resuelto" in eventos_f.columns else pd.DataFrame()
-            a, b, c, d = st.columns(4)
-            a.metric("Situaciones", len(eventos_vereda))
-            b.metric("Primera referencia", eventos_vereda["anio"].min() if not eventos_vereda.empty and "anio" in eventos_vereda.columns else "—")
-            c.metric("Última referencia", eventos_vereda["anio"].max() if not eventos_vereda.empty and "anio" in eventos_vereda.columns else "—")
-            d.metric("Área (ha)", p.get("AREA_HA", "—"))
-            st.markdown("**Identificación cartográfica**")
-            st.write({"Vereda": p.get("NOMBRE_VER", ""), "Código": p.get("CODIGO_VER", ""), "Fuente": p.get("FUENTE", ""), "Vigencia": p.get("VIGENCIA", "")})
-            if eventos_vereda.empty:
-                st.info("No hay situaciones documentadas para esta vereda con los filtros actuales.")
-            else:
-                st.markdown("**Situaciones documentadas**")
-                cols = [c for c in ["id", "fecha", "anio", "tipo_conflicto", "subtipo", "confianza", "precision_espacial", "fuente", "estado_territorial"] if c in eventos_vereda.columns]
-                st.dataframe(eventos_vereda[cols], use_container_width=True, hide_index=True)
-
-            if st.session_state["google_data"]:
-                actores = st.session_state["google_data"].get("Actores")
-                if isinstance(actores, pd.DataFrame) and not actores.empty and "Vereda" in actores.columns:
-                    actores_v = actores[actores["Vereda"].astype(str).str.strip().str.upper() == str(p.get("NOMBRE_VER", "")).strip().upper()]
-                    st.markdown("**Actores registrados**")
-                    st.dataframe(actores_v, use_container_width=True, hide_index=True) if not actores_v.empty else st.caption("No hay actores asociados en la hoja cargada.")
-
-st.divider()
-st.subheader("Capacidad institucional y fuentes externas")
-st.write("La conexión con Google Sheets se carga bajo demanda. Si falla, SIGOber puede continuar trabajando con las capas locales.")
-
-if st.button("Cargar / actualizar Google Sheets"):
-    with st.spinner("Leyendo las cuatro hojas…"):
-        datos = leer_google_sheets()
-        st.session_state["google_data"] = datos
-        ok = [k for k, v in datos.items() if isinstance(v, pd.DataFrame)]
-        errores = {k: v for k, v in datos.items() if not isinstance(v, pd.DataFrame)}
-        if ok:
-            st.success(f"Hojas leídas correctamente: {', '.join(ok)}.")
-        if errores:
-            st.warning("Google respondió, pero no se pudieron leer una o más hojas.")
-            for nombre, err in errores.items():
-                st.error(f"{nombre}: {type(err).__name__}: {err}")
-
-cfg = config_gsheets()
+if "veredas_topo" not in st.session_state: st.session_state["veredas_topo"]=None
+if "google_data" not in st.session_state: st.session_state["google_data"]=None
+historicos=cargar_eventos_locales(); gd=st.session_state["google_data"]
+a,b,c,d=st.columns(4); a.metric("Situaciones históricas",len(historicos)); b.metric("Veredas con situaciones",historicos["codigo_ver_resuelto"].nunique() if not historicos.empty and "codigo_ver_resuelto" in historicos.columns else 0); c.metric("Conflictos en Sheets",len(gd["Conflictos"]) if isinstance(gd,dict) and isinstance(gd.get("Conflictos"),pd.DataFrame) else "—"); d.metric("Actores",len(gd["Actores"]) if isinstance(gd,dict) and isinstance(gd.get("Actores"),pd.DataFrame) else "—")
+st.info("SIGOber-Rural organiza la lectura del territorio alrededor de situaciones, actores y capacidad institucional. La geometría es soporte para la gobernabilidad, no el resultado final.")
 with st.expander("🔧 Diagnóstico de configuración de Google Sheets"):
-    sid = spreadsheet_id_desde_config(cfg)
-    st.write({
-        "connections.gsheets_presente": bool(cfg),
-        "spreadsheet_configurado": bool(cfg.get("spreadsheet") or cfg.get("spreadsheet_url")),
-        "identificador_detectado": (sid[:6] + "…" + sid[-4:]) if len(sid) > 12 else ("configurado" if sid else "NO CONFIGURADO"),
-        "worksheet_predeterminado": cfg.get("worksheet", "no definido; la app solicita cada pestaña explícitamente"),
-        "tipo_credencial": cfg.get("type", "no informado"),
-    })
-    st.markdown("**Interpretación de `SpreadsheetNotFound`:** la conexión está llegando al servicio, pero la cuenta usada por la aplicación no puede abrir el archivo identificado por `spreadsheet`. Las causas principales son ID/URL incorrecto o que el archivo no está compartido con el `client_email` de la cuenta de servicio.")
-    st.info("Para corregirlo: en Streamlit Cloud → Settings → Secrets, verifica `connections.gsheets.spreadsheet`; después comparte el archivo de Google Sheets con el correo `client_email` de la cuenta de servicio. La pestaña debe llamarse exactamente `Conflictos`, `Actores`, `SADCI` o `Relación Interinstitucional`.")
-
-if st.session_state["google_data"]:
-    datos = st.session_state["google_data"]
-    tabs = st.tabs(["Conflictos", "Actores", "SADCI", "Relación interinstitucional"])
-    for tab, nombre in zip(tabs, ["Conflictos", "Actores", "SADCI", "Relación Interinstitucional"]):
-        with tab:
-            df = datos.get(nombre)
-            if isinstance(df, pd.DataFrame):
-                if nombre == "Conflictos":
-                    df2 = normalizar_conflictos(df)
-                    st.dataframe(df2, use_container_width=True, hide_index=True)
-                    if "precision_coordenada" in df2.columns:
-                        st.caption("Las coordenadas fuera de rango se marcan como REQUIERE_REVISION; no se corrigen automáticamente.")
-                elif df.empty:
-                    st.info("La hoja existe pero actualmente no contiene registros.")
-                else:
-                    st.dataframe(df, use_container_width=True, hide_index=True)
-            else:
-                st.warning(f"No se pudo leer {nombre}: {type(df).__name__}: {df}")
+    cfg=config_gsheets(); sid=spreadsheet_id_desde_config(cfg); st.write({"connections.gsheets_presente":bool(cfg),"spreadsheet_configurado":bool(sid),"spreadsheet_id":(sid[:6]+"…"+sid[-4:]) if sid else "No configurado","worksheet_configurado":bool(cfg.get("worksheet")),"credential_type":cfg.get("type","No especificado")})
+if st.button("Cargar / actualizar Google Sheets",type="secondary"):
+    with st.spinner("Leyendo las cuatro hojas…"): st.session_state["google_data"]=leer_google_sheets(); st.rerun()
+if st.session_state["google_data"] is not None:
+    st.markdown("### Estado de las hojas"); cols=st.columns(4)
+    for col,hoja in zip(cols,("Conflictos","Actores","SADCI","Relación Interinstitucional")):
+        x=st.session_state["google_data"].get(hoja); col.success(f"{hoja}: {len(x)} registros") if isinstance(x,pd.DataFrame) else col.error(f"{hoja}: {type(x).__name__}: {x}")
+if st.session_state["veredas_topo"] is None:
+    if st.button("Cargar capa de veredas",type="primary"):
+        with st.spinner("Cargando cartografía…"): st.session_state["veredas_topo"]=cargar_veredas_topo(); st.rerun()
+else:
+    topo=st.session_state["veredas_topo"]; veredas_df=propiedades_veredas(topo); conflictos=pd.DataFrame(); gd=st.session_state.get("google_data") or {}
+    if isinstance(gd.get("Conflictos"),pd.DataFrame): conflictos=normalizar_conflictos(gd["Conflictos"])
+    nombres=veredas_df[["CODIGO_VER","NOMBRE_VER"]].drop_duplicates().copy(); nombres["etiqueta"]=nombres["NOMBRE_VER"].astype(str)+" — "+nombres["CODIGO_VER"].astype(str); opciones=["Todas las veredas"]+sorted(nombres["etiqueta"].tolist()); seleccion=st.selectbox("Explorar territorio",opciones); codigo_sel="" if seleccion=="Todas las veredas" else seleccion.split(" — ")[-1]
+    f1,f2,f3,f4=st.columns(4); eventos_f=historicos.copy()
+    if not eventos_f.empty:
+        anios=sorted([x for x in eventos_f.get("anio",pd.Series(dtype=str)).astype(str).unique() if x],reverse=True); ys=f1.multiselect("Año",anios,default=[]); tipos=sorted([x for x in eventos_f.get("tipo_conflicto",pd.Series(dtype=str)).astype(str).unique() if x]); ts=f2.multiselect("Tipo de situación",tipos,default=[]); confs=sorted([x for x in eventos_f.get("confianza",pd.Series(dtype=str)).astype(str).unique() if x]); cs=f3.multiselect("Confianza",confs,default=[])
+        if ys: eventos_f=eventos_f[eventos_f["anio"].astype(str).isin(ys)]
+        if ts: eventos_f=eventos_f[eventos_f["tipo_conflicto"].astype(str).isin(ts)]
+        if cs: eventos_f=eventos_f[eventos_f["confianza"].astype(str).isin(cs)]
+    mostrar=f4.checkbox("Mostrar conflictos de Sheets",value=True)
+    st.caption("Capa histórica: SITUACIONES_TERRITORIALES. Puntos: registros operativos de la hoja Conflictos. Las fuentes se mantienen separadas.")
+    st_folium(construir_mapa(topo,eventos_f,conflictos,codigo_sel,mostrar),width="100%",height=650,returned_objects=["last_active_drawing"])
+    if not conflictos.empty:
+        bad=conflictos[conflictos["precision_coordenada"]!="VALIDA"]
+        if not bad.empty:
+            with st.expander(f"⚠️ Conflictos no dibujados por calidad de coordenadas ({len(bad)})"):
+                st.warning("Los valores originales se conservan. No se corrigen automáticamente."); st.dataframe(bad[[c for c in ["id_conflicto","tipo_conflicto","vereda","lat","lon","precision_coordenada","descripcion"] if c in bad.columns]],use_container_width=True,hide_index=True)
+    if codigo_sel:
+        fila=veredas_df[veredas_df["CODIGO_VER"].astype(str)==str(codigo_sel)].head(1)
+        if not fila.empty:
+            p=fila.iloc[0]; ev=eventos_f[eventos_f["codigo_ver_resuelto"].astype(str).str.strip()==str(codigo_sel).strip()] if "codigo_ver_resuelto" in eventos_f.columns else pd.DataFrame(); st.subheader(f"Ficha territorial — {p.get('NOMBRE_VER','')}"); q=st.columns(4); q[0].metric("Situaciones históricas",len(ev)); q[1].metric("Primera referencia",ev["anio"].min() if not ev.empty and "anio" in ev.columns else "—"); q[2].metric("Última referencia",ev["anio"].max() if not ev.empty and "anio" in ev.columns else "—"); q[3].metric("Área (ha)",p.get("AREA_HA","—")); st.write({"Vereda":p.get("NOMBRE_VER",""),"Código":p.get("CODIGO_VER",""),"Fuente":p.get("FUENTE",""),"Vigencia":p.get("VIGENCIA","")})
+            if not conflictos.empty and "vereda" in conflictos.columns:
+                cv=conflictos[conflictos["vereda"].astype(str).str.strip().str.upper()==str(p.get("NOMBRE_VER","")).strip().upper()]; st.markdown("**Conflictos operativos registrados en Google Sheets**"); st.dataframe(cv[[c for c in ["id_conflicto","tipo_conflicto","vereda","descripcion","precision_coordenada","registrado_por"] if c in cv.columns]],use_container_width=True,hide_index=True) if not cv.empty else st.caption("No hay registros operativos asociados por nombre de vereda.")
+st.divider(); st.subheader("Capacidad institucional"); gd=st.session_state.get("google_data") or {}; sadci=gd.get("SADCI"); st.dataframe(sadci,use_container_width=True,hide_index=True) if isinstance(sadci,pd.DataFrame) else st.caption("Cargue Google Sheets para consultar SADCI."); rel=gd.get("Relación Interinstitucional");
+if isinstance(rel,pd.DataFrame): st.subheader("Relación interinstitucional"); st.dataframe(rel,use_container_width=True,hide_index=True) if not rel.empty else st.caption("La hoja está disponible pero actualmente no contiene registros.")
