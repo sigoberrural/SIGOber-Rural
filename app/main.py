@@ -8,7 +8,8 @@ import os
 import uuid
 import gspread
 from google.oauth2.service_account import Credentials
-from shapely.geometry import shape, Point
+from shapely.geometry import shape, Point, mapping
+from shapely.ops import unary_union
 import topojson as tp
 from streamlit_js_eval import get_geolocation
 import plotly.express as px
@@ -268,64 +269,148 @@ def cargar_datos_con_cache(nombre_hoja):
         return pd.DataFrame()
 
 def cargar_situaciones_territoriales():
+    """Carga eventos históricos validados a escala de vereda.
+    La tabla no contiene coordenadas inventadas: la geometría se obtiene de la vereda.
+    """
     ruta = os.path.join('data', 'SITUACIONES_TERRITORIALES_eventos.csv')
-    if os.path.exists(ruta):
-        return pd.read_csv(ruta)
-    return pd.DataFrame()
-
-def enriquecer_veredas_con_situaciones(topo_data, eventos):
-    if topo_data is None or eventos.empty:
-        return topo_data
+    if not os.path.exists(ruta):
+        return pd.DataFrame()
     try:
-        geojson_data = tp.to_geojson(topo_data)
-        por_codigo = eventos.dropna(subset=['codigo_ver_resuelto']).copy()
-        por_codigo['codigo_ver_resuelto'] = por_codigo['codigo_ver_resuelto'].astype(str)
-        resumen = por_codigo.groupby('codigo_ver_resuelto').agg(
-            SIGOber_eventos=('id', 'count'),
-            SIGOber_primera_fecha=('fecha', 'min'),
-            SIGOber_ultima_fecha=('fecha', 'max'),
-            SIGOber_tipos=('tipo_conflicto', lambda x: ' | '.join(sorted(set(x.dropna().astype(str)))))
-        ).reset_index()
-        resumen['codigo_ver_resuelto'] = resumen['codigo_ver_resuelto'].astype(str)
-        lookup = resumen.set_index('codigo_ver_resuelto').to_dict('index')
-        for feature in geojson_data.get('features', []):
-            props = feature.setdefault('properties', {})
-            codigo = str(props.get('CODIGO_VER', ''))
-            datos = lookup.get(codigo, {})
-            props['SIGOber_eventos'] = int(datos.get('SIGOber_eventos', 0) or 0)
-            props['SIGOber_primera_fecha'] = datos.get('SIGOber_primera_fecha', '')
-            props['SIGOber_ultima_fecha'] = datos.get('SIGOber_ultima_fecha', '')
-            props['SIGOber_tipos'] = datos.get('SIGOber_tipos', '')
-        return geojson_data
-    except Exception:
+        df = pd.read_csv(ruta, dtype={'codigo_ver_resuelto': str})
+        if 'codigo_ver_resuelto' in df.columns:
+            df['codigo_ver_resuelto'] = df['codigo_ver_resuelto'].astype(str)
+        return df
+    except Exception as e:
+        st.warning(f"No se pudo cargar SITUACIONES_TERRITORIALES: {e}")
+        return pd.DataFrame()
+
+def enriquecer_veredas_con_situaciones(topo_data, df_situaciones):
+    """Añade indicadores documentales a las propiedades de cada vereda.
+    Acepta TopoJSON o GeoJSON y garantiza que cada feature tenga properties."""
+    if not topo_data:
         return topo_data
-
-# 3. CARGA DE CARTOGRAFÍA
-veredas_topo = cargar_json_local('veredas_puerto_rico.json')
-situaciones = cargar_situaciones_territoriales()
-veredas_situaciones = enriquecer_veredas_con_situaciones(veredas_topo, situaciones)
-
-# 4. NAVEGACIÓN
-pestanas = st.tabs(["🗺️ Situaciones Territoriales", "🧭 Auditoría SADCI", "👥 Registro de Actores"])
-
-with pestanas[0]:
-    st.subheader("Visualizador de Situaciones Territoriales")
-    st.caption("Las situaciones históricas documentadas se presentan como evidencia territorial para apoyar prevención, coordinación y priorización. La intensidad visual no equivale por sí sola a nivel de riesgo.")
-    c1, c2, c3 = st.columns(3)
-    eventos_vinculados = int(situaciones['codigo_ver_resuelto'].notna().sum()) if not situaciones.empty and 'codigo_ver_resuelto' in situaciones.columns else 0
-    veredas_con_evidencia = int(situaciones['codigo_ver_resuelto'].dropna().astype(str).nunique()) if not situaciones.empty and 'codigo_ver_resuelto' in situaciones.columns else 0
-    fuentes = int(situaciones['fuente'].nunique()) if not situaciones.empty and 'fuente' in situaciones.columns else 0
-    c1.metric("Eventos históricos vinculados", eventos_vinculados)
-    c2.metric("Veredas con evidencia", veredas_con_evidencia)
-    c3.metric("Fuentes", fuentes)
-    if situaciones.empty:
-        st.info("No hay situaciones territoriales históricas cargadas en la carpeta data.")
+    data = json.loads(json.dumps(topo_data))
+    if data.get('type') == 'FeatureCollection':
+        for feature in data.get('features', []):
+            if not isinstance(feature, dict):
+                continue
+            feature.setdefault('properties', {})
+        if df_situaciones.empty:
+            return data
+        features = data.get('features', [])
     else:
-        st.dataframe(situaciones, use_container_width=True, hide_index=True)
+        if df_situaciones.empty:
+            try:
+                geojson_data = tp.to_geojson(data)
+                for feature in geojson_data.get('features', []):
+                    feature.setdefault('properties', {})
+                return geojson_data
+            except Exception as e:
+                st.error(f'No se pudo convertir la capa de veredas a GeoJSON: {e}')
+                return None
+        features = []
+        obj_name = list(data.get('objects', {}).keys())[0] if data.get('objects') else None
+        if obj_name:
+            features = data['objects'][obj_name].get('geometries', [])
+    agg = (df_situaciones.groupby('codigo_ver_resuelto', dropna=False)
+           .agg(eventos_documentados=('id','nunique'),
+                primera_fecha=('fecha','min'),
+                ultima_fecha=('fecha','max'),
+                tipos_conflicto=('tipo_conflicto', lambda s: ' | '.join(sorted(set(map(str,s))))),
+                confianza_alta=('confianza', lambda s: sum(str(x).upper() == 'ALTA' for x in s)))
+           .reset_index())
+    lookup = {str(r['codigo_ver_resuelto']): r for _, r in agg.iterrows()}
+    for geom in features:
+        props = geom.setdefault('properties', {})
+        codigo = str(props.get('CODIGO_VER',''))
+        r = lookup.get(codigo)
+        props['SIGOber_eventos'] = int(r['eventos_documentados']) if r is not None else 0
+        props['SIGOber_primera_fecha'] = str(r['primera_fecha']) if r is not None else ''
+        props['SIGOber_ultima_fecha'] = str(r['ultima_fecha']) if r is not None else ''
+        props['SIGOber_tipos'] = str(r['tipos_conflicto']) if r is not None else ''
+        props['SIGOber_confianza_alta'] = int(r['confianza_alta']) if r is not None else 0
+    if data.get('type') == 'FeatureCollection':
+        return data
+    try:
+        geojson_data = tp.to_geojson(data)
+        if not isinstance(geojson_data, dict) or geojson_data.get('type') != 'FeatureCollection':
+            raise ValueError('La conversión no produjo un FeatureCollection válido')
+        for feature in geojson_data.get('features', []):
+            if isinstance(feature, dict):
+                feature.setdefault('properties', {})
+        return geojson_data
+    except Exception as e:
+        st.error(f'No se pudo convertir la capa de veredas a GeoJSON: {e}')
+        return None
 
-    df_conflictos = cargar_datos_con_cache("Conflictos")
-    df_plot = df_conflictos.copy()
-    if not df_plot.empty:
+# 3. PANELES DE CONTROL
+tab_mapa, tab_sadci, tab_actores = st.tabs([
+    "🗺️ Situaciones Territoriales", 
+    "📊 Auditoría SADCI", 
+    "👥 Registro de Actores"
+])
+
+# --- TAB 1: MAPA ---
+with tab_mapa:
+    st.subheader("Visualizador de Situaciones Territoriales")
+    
+    df_situaciones = cargar_situaciones_territoriales()
+    veredas_situaciones = enriquecer_veredas_con_situaciones(veredas_topo, df_situaciones)
+
+    df_raw = cargar_datos_con_cache("Conflictos")
+    df_plot = pd.DataFrame()
+    
+    if df_raw is not None and not df_raw.empty:
+        df_plot = df_raw.copy()
+        
+        # 1. Estandarizar nombres de columnas a minúsculas
+        df_plot.columns = [str(c).strip().lower() for c in df_plot.columns]
+
+        # 2. Preferir nombres explícitos; usar posiciones solo como respaldo
+        def buscar_columna(candidatas):
+            for c in candidatas:
+                if c in df_plot.columns:
+                    return c
+            return None
+
+        lat_col = buscar_columna(['lat', 'latitude', 'latitud', 'y', 'coord_lat', 'coordenada_latitud'])
+        lon_col = buscar_columna(['lon', 'lng', 'longitude', 'longitud', 'x', 'coord_lon', 'coordenada_longitud'])
+        tipo_col = buscar_columna(['tipo', 'tipo_conflicto', 'tipo_mapa', 'categoria'])
+        vereda_col = buscar_columna(['vereda', 'vereda_mapa', 'nombre_vereda', 'territorio'])
+        desc_col = buscar_columna(['descripcion', 'descripción', 'desc', 'detalle', 'observacion', 'observación'])
+
+        if lat_col is None or lon_col is None:
+            if df_plot.shape[1] >= 5:
+                matriz_valores = df_plot.values
+                lat_col, lon_col = '__lat_pos', '__lon_pos'
+                df_plot[lat_col] = matriz_valores[:, 3]
+                df_plot[lon_col] = matriz_valores[:, 4]
+            else:
+                lat_col = lon_col = None
+
+        if lat_col and lon_col:
+            df_plot['lat'] = df_plot[lat_col]
+            df_plot['lon'] = df_plot[lon_col]
+        if tipo_col:
+            df_plot['tipo_mapa'] = df_plot[tipo_col]
+        elif df_plot.shape[1] >= 2:
+            df_plot['tipo_mapa'] = df_plot.iloc[:, 1]
+        else:
+            df_plot['tipo_mapa'] = 'Situación territorial'
+        if vereda_col:
+            df_plot['vereda_mapa'] = df_plot[vereda_col]
+        elif df_plot.shape[1] >= 3:
+            df_plot['vereda_mapa'] = df_plot.iloc[:, 2]
+        else:
+            df_plot['vereda_mapa'] = 'Territorio'
+        if desc_col:
+            df_plot['desc_mapa'] = df_plot[desc_col]
+        elif df_plot.shape[1] > 5:
+            df_plot['desc_mapa'] = df_plot.iloc[:, 5]
+        else:
+            df_plot['desc_mapa'] = 'Sin descripción'
+
+        # 3. LIMPIEZA INTELIGENTE DE COORDENADAS (Corrige el error de múltiples puntos)
         for col in ['lat', 'lon']:
             if col in df_plot.columns:
                 val_str = df_plot[col].astype(str).str.strip().str.replace(',', '.', regex=False)
@@ -336,17 +421,15 @@ with pestanas[0]:
                     return texto
                 df_plot[col] = val_str.apply(arreglar_puntos)
                 df_plot[col] = pd.to_numeric(df_plot[col], errors='coerce')
-        df_plot = df_plot.dropna(subset=['lat', 'lon'])
+        if 'lat' in df_plot.columns and 'lon' in df_plot.columns:
+            df_plot = df_plot.dropna(subset=['lat', 'lon'])
+            df_plot = df_plot[df_plot['lat'].between(-5, 15) & df_plot['lon'].between(-80, -65)]
 
     if "gps_capturado" not in st.session_state:
         loc = get_geolocation()
-        # La geolocalización del navegador puede estar bloqueada por permisos
-        # del navegador, configuración del administrador o políticas de privacidad.
-        # En esos casos el componente puede devolver un objeto sin `coords`.
-        # No debemos asumir que latitude/longitude existen.
-        coords = loc.get("coords") if isinstance(loc, dict) else None
-        lat_gps = coords.get("latitude") if isinstance(coords, dict) else None
-        lon_gps = coords.get("longitude") if isinstance(coords, dict) else None
+        coords = loc.get('coords') if isinstance(loc, dict) else None
+        lat_gps = coords.get('latitude') if isinstance(coords, dict) else None
+        lon_gps = coords.get('longitude') if isinstance(coords, dict) else None
         if lat_gps is not None and lon_gps is not None:
             try:
                 st.session_state.lat_click = float(lat_gps)
@@ -364,73 +447,193 @@ with pestanas[0]:
         if topo_data is None: return True, "Capa no cargada"
         try:
             punto_eval = Point(float(lon), float(lat))
-            geojson_data = tp.to_geojson(topo_data)
+            geojson_data = tp.to_geojson(topo_data) if topo_data.get('type') != 'FeatureCollection' else topo_data
             for feature in geojson_data['features']:
                 if shape(feature['geometry']).contains(punto_eval):
-                    return True, feature['properties'].get('NOMBRE_VER', 'Vereda Localizada')
+                    return True, feature.get('properties', {}).get('NOMBRE_VER', 'Vereda Localizada')
             return False, None
         except Exception:
             return True, "Error técnico de validación"
 
-    # MAPA
-    mapa = folium.Map(location=[st.session_state.lat_click, st.session_state.lon_click], zoom_start=12, control_scale=True)
-    if veredas_situaciones is not None:
-        try:
-            geojson_map = veredas_situaciones if isinstance(veredas_situaciones, dict) else tp.to_geojson(veredas_situaciones)
-            folium.GeoJson(
-                geojson_map,
-                name="Veredas y evidencia histórica",
-                style_function=lambda feature: {
-                    'fillColor': '#d73027' if feature['properties'].get('SIGOber_eventos', 0) >= 3 else ('#fc8d59' if feature['properties'].get('SIGOber_eventos', 0) >= 1 else '#eeeeee'),
-                    'color': '#666666', 'weight': 1, 'fillOpacity': 0.55 if feature['properties'].get('SIGOber_eventos', 0) else 0.15
-                },
-                tooltip=folium.GeoJsonTooltip(fields=['NOMBRE_VER', 'SIGOber_eventos', 'SIGOber_primera_fecha', 'SIGOber_ultima_fecha'], aliases=['Vereda', 'Eventos documentados', 'Primera fecha', 'Última fecha'], localize=True),
-                popup=folium.GeoJsonPopup(fields=['NOMBRE_VER', 'SIGOber_tipos'], aliases=['Vereda', 'Tipos documentados'], localize=True)
-            ).add_to(mapa)
-        except Exception as e:
-            st.warning(f"No fue posible dibujar la capa enriquecida de veredas: {e}")
-    if not df_plot.empty:
-        for _, row in df_plot.iterrows():
-            folium.CircleMarker([row['lat'], row['lon']], radius=5, popup=str(row.get('descripcion', row.get('desc', 'Situación registrada'))), color='blue', fill=True).add_to(mapa)
-    folium.LayerControl().add_to(mapa)
-    st_folium(mapa, use_container_width=True, height=560)
+    if not df_situaciones.empty:
+        v_con = df_situaciones['codigo_ver_resuelto'].nunique()
+        e_con = df_situaciones['id'].nunique()
+        m1, m2, m3 = st.columns(3)
+        m1.metric('Eventos históricos vinculados', e_con)
+        m2.metric('Veredas con evidencia', v_con)
+        m3.metric('Fuentes/documentos', df_situaciones['fuente'].nunique())
+        st.caption('La simbología de las veredas representa densidad de documentación histórica recuperada. No es un índice automático de riesgo.')
 
-    st.markdown("### 📍 Captura de una situación territorial")
-    col1, col2 = st.columns(2)
-    with col1:
-        quien = st.text_input("Encuestador / líder")
-        tipo = st.selectbox("Tipo de situación", ["Linderos", "Uso de Suelo", "Ambiental", "Tenencia"])
-        descripcion = st.text_area("Descripción")
-    with col2:
-        lat = st.number_input("Latitud", value=float(st.session_state.lat_click), format="%.6f")
-        lon = st.number_input("Longitud", value=float(st.session_state.lon_click), format="%.6f")
-    if st.button("💾 Guardar situación"):
-        ok, vereda = validar_punto_preciso(lat, lon, veredas_topo)
-        if not ok:
-            st.error("El punto está fuera de la capa de veredas disponible. Revise las coordenadas.")
-        else:
+    col_menu, col_mapa = st.columns([1, 3])
+
+    with col_menu:
+        st.markdown("### ⚠️ Registrar Conflicto")
+        with st.form("form_conflictos", clear_on_submit=True):
+            quien = st.text_input("Encuestador / Líder")
+            tipo = st.selectbox("Tipo", ["Linderos", "Uso de Suelo", "Ambiental", "Tenencia"])
+            vereda_manual = st.text_input("Vereda")
+            
+            c1, c2 = st.columns(2)
+            lat_i = c1.number_input("Latitud", value=float(st.session_state.lat_click), format="%.6f")
+            lon_i = c2.number_input("Longitud", value=float(st.session_state.lon_click), format="%.6f")
+            
+            desc = st.text_area("Descripción")
+            
+            if st.form_submit_button("📍 Guardar Registro"):
+                es_valido, vereda_detectada = validar_punto_preciso(lat_i, lon_i, veredas_topo)
+                if es_valido and quien:
+                    try:
+                        sh = conectar_gspread()
+                        ws = sh.worksheet("Conflictos")
+                        v_final = vereda_detectada if vereda_detectada else vereda_manual
+                        ws.append_row([str(uuid.uuid4())[:5], tipo, v_final, str(lat_i), str(lon_i), desc, quien])
+                        st.success(f"✅ Registrado en {v_final}")
+                        st.cache_data.clear()
+                        st.rerun()
+                    except Exception as e: st.error(f"Error: {e}")
+                elif not es_valido:
+                    st.error("📍 Ubicación fuera de los límites de Puerto Rico.")
+                else: st.warning("Completa el nombre del encuestador.")
+
+    with col_mapa:
+        m = folium.Map(
+            location=[st.session_state.lat_click, st.session_state.lon_click], 
+            zoom_start=14, tiles=None
+        )
+        folium.TileLayer('https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', 
+                         attr='Google', name='Satélite', overlay=False).add_to(m)
+        folium.TileLayer('openstreetmap', name='Vías', overlay=False).add_to(m)
+
+        if veredas_situaciones:
             try:
-                hoja = conectar_gspread().worksheet("Conflictos")
-                hoja.append_row([str(uuid.uuid4()), quien, tipo, vereda, lat, lon, descripcion])
-                st.success(f"Situación guardada. Referencia territorial: {vereda}")
+                geojson_enriquecido = veredas_situaciones
+                if not isinstance(geojson_enriquecido, dict) or geojson_enriquecido.get('type') != 'FeatureCollection':
+                    raise ValueError('La capa de veredas no es un FeatureCollection GeoJSON válido')
+                for feature in geojson_enriquecido.get('features', []):
+                    if isinstance(feature, dict):
+                        feature.setdefault('properties', {})
+
+                try:
+                    geoms = [shape(f['geometry']) for f in geojson_enriquecido.get('features', []) if f.get('geometry')]
+                    if geoms:
+                        limite = mapping(unary_union(geoms))
+                        folium.GeoJson(
+                            {'type': 'Feature', 'properties': {'NOMBRE_MPIO': 'Puerto Rico (Caquetá)', 'FUENTE': 'Derivado de la capa de veredas'}, 'geometry': limite},
+                            name='Contorno municipal (derivado)',
+                            style_function=lambda f: {'fillOpacity': 0, 'color': '#003366', 'weight': 3, 'dashArray': '6,4'}
+                        ).add_to(m)
+                except Exception:
+                    pass
+
+                def estilo_vereda(feature):
+                    p = feature.get('properties', {})
+                    n = int(p.get('SIGOber_eventos', 0) or 0)
+                    relleno = '#ffffff' if n == 0 else ('#fff3bf' if n == 1 else ('#ffd166' if n <= 2 else '#f4a261'))
+                    return {'fillColor': relleno, 'color': '#6b6b00', 'weight': 1.5, 'fillOpacity': 0.35 if n else 0.08}
+
+                def popup_vereda(feature):
+                    p = feature.get('properties', {})
+                    n = int(p.get('SIGOber_eventos', 0) or 0)
+                    nombre = p.get('NOMBRE_VER', 'Vereda')
+                    codigo = p.get('CODIGO_VER', '')
+                    if n:
+                        return (f"<b>{nombre}</b><br>"
+                                f"Código: {codigo}<br>"
+                                f"<b>Situaciones documentadas: {n}</b><br>"
+                                f"Periodo: {p.get('SIGOber_primera_fecha','')} → {p.get('SIGOber_ultima_fecha','')}<br>"
+                                f"Tipos: {p.get('SIGOber_tipos','')}<br>"
+                                f"Confianza ALTA: {p.get('SIGOber_confianza_alta',0)}<br>"
+                                f"<i>Indicador documental; no equivale a riesgo.</i>")
+                    return f"<b>{nombre}</b><br>Código: {codigo}<br><i>Sin eventos históricos vinculados en la matriz v0.5.</i>"
+
+                folium.GeoJson(
+                    geojson_enriquecido, name="Veredas + situaciones documentadas",
+                    style_function=estilo_vereda,
+                    highlight_function=lambda x: {'weight': 3, 'fillOpacity': 0.5},
+                    tooltip=folium.GeoJsonTooltip(
+                        fields=['NOMBRE_VER','CODIGO_VER','SIGOber_eventos'],
+                        aliases=['Vereda:', 'Código:', 'Situaciones documentadas:'],
+                        sticky=True
+                    ),
+                    popup=folium.GeoJsonPopup(
+                        fields=['NOMBRE_VER','CODIGO_VER','SIGOber_eventos','SIGOber_primera_fecha','SIGOber_ultima_fecha','SIGOber_tipos','SIGOber_confianza_alta'],
+                        aliases=['Vereda','Código','Situaciones documentadas','Primera fecha','Última fecha','Tipos','Confianza ALTA'],
+                        localize=True, labels=True, sticky=False
+                    )
+                ).add_to(m)
             except Exception as e:
-                st.error(f"No fue posible guardar en Google Sheets: {e}")
+                st.warning(f"No se pudo enriquecer la capa de veredas: {e}")
 
-with pestanas[1]:
-    st.subheader("Auditoría SADCI")
-    df_sadci = cargar_datos_con_cache("SADCI")
-    if df_sadci.empty:
-        st.info("No hay registros SADCI disponibles.")
-    else:
-        st.dataframe(df_sadci, use_container_width=True, hide_index=True)
+        fg = folium.FeatureGroup(name="Historial Remoto")
+        for idx, row in df_plot.iterrows() if not df_plot.empty else []:
+            try:
+                lat_val = float(row['lat'])
+                lon_val = float(row['lon'])
+                tipo_c = row.get('tipo_mapa', 'Situación territorial')
+                vereda_c = row.get('vereda_mapa', 'Territorio')
+                desc_c = row.get('desc_mapa', 'Sin detalle')
+                folium.CircleMarker(
+                    location=[lat_val, lon_val], radius=6,
+                    color="#FF0000", fill=True, fill_color="#FF0000", fill_opacity=0.7,
+                    popup=f"<b>Tipo:</b> {tipo_c}<br><b>Vereda:</b> {vereda_c}<br><b>Nota:</b> {desc_c}"
+                ).add_to(fg)
+            except Exception:
+                pass
+        fg.add_to(m)
+        st.caption(f"Puntos con coordenadas válidas en 'Conflictos': {len(df_plot)}. Los eventos históricos de vereda se representan como evidencia territorial, no como puntos inventados.")
+        folium.LayerControl(collapsed=False).add_to(m)
+        output = st_folium(m, width="100%", height=450, key="mapa_final")
+        if output and output.get("last_clicked"):
+            clic = output["last_clicked"]
+            if abs(st.session_state.lat_click - clic["lat"]) > 0.0001:
+                st.session_state.lat_click = clic["lat"]
+                st.session_state.lon_click = clic["lng"]
+                st.rerun()
 
-with pestanas[2]:
-    st.subheader("Registro de Actores")
+
+# --- TAB 2: AUDITORÍA SADCI (Basado en Oszlak y Orellana) ---
+with tab_sadci:
+    st.subheader("📊 Diagnóstico de Capacidad Institucional (SADCI)")
+    
+    try:
+        df_sadci = cargar_datos_con_cache("SADCI")
+        if not df_sadci.empty:
+            df_sadci['dci_1_reglas'] = (df_sadci['calificacion_mepi'] * 0.7 + 
+                                       (df_sadci['protocolo'].map({"Sí": 100, "En proceso": 50, "No": 0}) * 0.3))
+            df_sadci['dci_2_interinst'] = df_sadci['rendicion'].map({"Anual": 100, "Semestral": 80, "Nunca": 20})
+            map_est = {"Ágil/Coherente": 100, "Funciones Duplicadas": 60, "Rígida/Burocrática": 30, "Inexistente": 0}
+            df_sadci['dci_3_estructura'] = df_sadci['estructura'].map(map_est).fillna(50)
+            dict_dig = {"Bajo": 25, "Medio": 50, "Alto": 75, "Excelente": 100}
+            df_sadci['puntos_digital'] = df_sadci['nivel_digitalizacion'].map(dict_dig)
+            df_sadci['dci_4_recursos'] = (df_sadci['ejecucion_presupuestal_pct'] + df_sadci['puntos_digital']) / 2
+            df_sadci['dci_5_personal'] = (df_sadci['num_personal_planta'] / 
+                                         (df_sadci['num_personal_planta'] + df_sadci['num_personal_contratista']) * 100).fillna(0)
+            map_cap = {"Especializado": 100, "Técnico Suficiente": 75, "Requiere Capacitación": 40, "Crítico/No Idóneo": 10}
+            df_sadci['dci_6_individual'] = df_sadci['capacitacion'].map(map_cap).fillna(50)
+            st.markdown("### Pilares de Capacidad Real")
+            cols = st.columns(6)
+            indicadores = [
+                ("DCI-1: Reglas", 'dci_1_reglas'), ("DCI-2: Interinst.", 'dci_2_interinst'),
+                ("DCI-3: Estructura", 'dci_3_estructura'), ("DCI-4: Recursos", 'dci_4_recursos'),
+                ("DCI-5: Personal", 'dci_5_personal'), ("DCI-6: Individual", 'dci_6_individual')
+            ]
+            for i, (label, col_name) in enumerate(indicadores):
+                with cols[i]:
+                    val = df_sadci[col_name].mean()
+                    st.metric(label, f"{val:.0f}%")
+        else:
+            st.info("No hay datos SADCI disponibles en la hoja conectada.")
+    except Exception as e:
+        st.error(f"Error procesando SADCI: {e}")
+
+# --- TAB 3: ACTORES ---
+with tab_actores:
+    st.subheader("👥 Registro de Actores")
     df_actores = cargar_datos_con_cache("Actores")
-    if df_actores.empty:
-        st.info("No hay actores registrados.")
+    if not df_actores.empty:
+        st.dataframe(df_actores, use_container_width=True)
     else:
-        st.dataframe(df_actores, use_container_width=True, hide_index=True)
+        st.info("No hay actores registrados en la hoja conectada.")
 
-st.divider()
-st.markdown("<div class='footer-container'><div class='footer-text'>Investigación ESAP 2026 · Colectivo de Estudios Sociales Guadalupe Salcedo</div></div>", unsafe_allow_html=True)
+st.markdown("---")
+st.markdown("<div class='footer-container'><div class='footer-text'>SIGOber-Rural · Herramienta técnica de gobernabilidad territorial · Puerto Rico, Caquetá</div></div>", unsafe_allow_html=True)
