@@ -108,17 +108,21 @@ def indicador_pct(valor):
 
 st.title("SIGOber-Rural")
 st.caption("Sistema de Información para la Gobernabilidad Territorial Rural — Puerto Rico, Caquetá")
-if "veredas_topo" not in st.session_state: st.session_state["veredas_topo"]=None
-if "google_data" not in st.session_state: st.session_state["google_data"]=None
+if "veredas_topo" not in st.session_state:
+    st.session_state["veredas_topo"]=cargar_veredas_topo()
+if "google_data" not in st.session_state:
+    with st.spinner("Conectando con las fuentes territoriales…"):
+        st.session_state["google_data"]=leer_google_sheets()
 historicos=cargar_eventos_locales(); gd=st.session_state["google_data"]
 a,b,c,d=st.columns(4); a.metric("Situaciones históricas",len(historicos)); b.metric("Veredas con situaciones",historicos["codigo_ver_resuelto"].nunique() if not historicos.empty and "codigo_ver_resuelto" in historicos.columns else 0); c.metric("Conflictos en Sheets",len(gd["Conflictos"]) if isinstance(gd,dict) and isinstance(gd.get("Conflictos"),pd.DataFrame) else "—"); d.metric("Actores",len(gd["Actores"]) if isinstance(gd,dict) and isinstance(gd.get("Actores"),pd.DataFrame) else "—")
 st.info("SIGOber-Rural organiza la lectura del territorio alrededor de situaciones, actores y capacidad institucional. La geometría es soporte para la gobernabilidad, no el resultado final.")
-with st.expander("🔧 Diagnóstico de configuración de Google Sheets"):
-    cfg=config_gsheets(); sid=spreadsheet_id_desde_config(cfg); st.write({"connections.gsheets_presente":bool(cfg),"spreadsheet_configurado":bool(sid),"spreadsheet_id":(sid[:6]+"…"+sid[-4:]) if sid else "No configurado","worksheet_configurado":bool(cfg.get("worksheet")),"credential_type":cfg.get("type","No especificado")})
-if st.button("Cargar / actualizar Google Sheets",type="secondary"):
-    with st.spinner("Leyendo las cuatro hojas…"): st.session_state["google_data"]=leer_google_sheets(); st.rerun()
+with st.expander("🔧 Diagnóstico de fuentes"):
+    cfg=config_gsheets(); sid=spreadsheet_id_desde_config(cfg); st.write({"Cartografía":"Disponible" if st.session_state.get("veredas_topo") else "No disponible","Google Sheets":"Conectado" if isinstance(gd,dict) else "No disponible","spreadsheet_id":(sid[:6]+"…"+sid[-4:]) if sid else "No configurado"})
+    st.caption("Las fuentes se cargan automáticamente al iniciar la aplicación. Este diagnóstico es únicamente para revisión técnica.")
+    if st.button("Actualizar fuentes"):
+        cargar_veredas_topo.clear(); leer_google_sheets.clear(); st.session_state["veredas_topo"]=cargar_veredas_topo(); st.session_state["google_data"]=leer_google_sheets(); st.rerun()
 if st.session_state["google_data"] is not None:
-    st.markdown("### Estado de las hojas")
+    st.markdown("### Estado de las fuentes")
     cols=st.columns(4)
     for col,hoja in zip(cols,("Conflictos","Actores","SADCI","Relación Interinstitucional")):
         x=st.session_state["google_data"].get(hoja)
@@ -126,37 +130,33 @@ if st.session_state["google_data"] is not None:
             col.success(f"{hoja}: {len(x)} registros")
         else:
             col.error(f"{hoja}: no disponible")
-if st.session_state["veredas_topo"] is None:
-    if st.button("Cargar capa de veredas",type="primary"):
-        with st.spinner("Cargando cartografía…"): st.session_state["veredas_topo"]=cargar_veredas_topo(); st.rerun()
-else:
-    topo=st.session_state["veredas_topo"]; veredas_df=propiedades_veredas(topo); conflictos=pd.DataFrame(); gd=st.session_state.get("google_data") or {}
-    if isinstance(gd.get("Conflictos"),pd.DataFrame): conflictos=normalizar_conflictos(gd["Conflictos"])
-    nombres=veredas_df[["CODIGO_VER","NOMBRE_VER"]].drop_duplicates().copy(); nombres["etiqueta"]=nombres["NOMBRE_VER"].astype(str)+" — "+nombres["CODIGO_VER"].astype(str); opciones=["Todas las veredas"]+sorted(nombres["etiqueta"].tolist()); seleccion=st.selectbox("Explorar territorio",opciones); codigo_sel="" if seleccion=="Todas las veredas" else seleccion.split(" — ")[-1]
-    f1,f2,f3,f4=st.columns(4); eventos_f=historicos.copy()
-    if not eventos_f.empty:
-        anios=sorted([x for x in eventos_f.get("anio",pd.Series(dtype=str)).astype(str).unique() if x],reverse=True); ys=f1.multiselect("Año",anios,default=[]); tipos=sorted([x for x in eventos_f.get("tipo_conflicto",pd.Series(dtype=str)).astype(str).unique() if x]); ts=f2.multiselect("Tipo de situación",tipos,default=[]); confs=sorted([x for x in eventos_f.get("confianza",pd.Series(dtype=str)).astype(str).unique() if x]); cs=f3.multiselect("Confianza",confs,default=[])
-        if ys: eventos_f=eventos_f[eventos_f["anio"].astype(str).isin(ys)]
-        if ts: eventos_f=eventos_f[eventos_f["tipo_conflicto"].astype(str).isin(ts)]
-        if cs: eventos_f=eventos_f[eventos_f["confianza"].astype(str).isin(cs)]
-    mostrar=f4.checkbox("Mostrar conflictos de Sheets",value=True)
-    st.caption("Capa histórica: SITUACIONES_TERRITORIALES. Puntos: registros operativos de la hoja Conflictos. Las fuentes se mantienen separadas.")
-    st_folium(construir_mapa(topo,eventos_f,conflictos,codigo_sel,mostrar),width="100%",height=650,returned_objects=["last_active_drawing"])
-    if not conflictos.empty:
-        bad=conflictos[conflictos["precision_coordenada"]!="VALIDA"]
-        if not bad.empty:
-            with st.expander(f"⚠️ Conflictos no dibujados por calidad de coordenadas ({len(bad)})"):
-                st.warning("Los valores originales se conservan. No se corrigen automáticamente."); st.dataframe(bad[[c for c in ["id_conflicto","tipo_conflicto","vereda","lat","lon","precision_coordenada","descripcion"] if c in bad.columns]],use_container_width=True,hide_index=True)
-    if codigo_sel:
-        fila=veredas_df[veredas_df["CODIGO_VER"].astype(str)==str(codigo_sel)].head(1)
-        if not fila.empty:
-            p=fila.iloc[0]; ev=eventos_f[eventos_f["codigo_ver_resuelto"].astype(str).str.strip()==str(codigo_sel).strip()] if "codigo_ver_resuelto" in eventos_f.columns else pd.DataFrame(); st.subheader(f"Ficha territorial — {p.get('NOMBRE_VER','')}"); q=st.columns(4); q[0].metric("Situaciones históricas",len(ev)); q[1].metric("Primera referencia",ev["anio"].min() if not ev.empty and "anio" in ev.columns else "—"); q[2].metric("Última referencia",ev["anio"].max() if not ev.empty and "anio" in ev.columns else "—"); q[3].metric("Área (ha)",p.get("AREA_HA","—")); st.write({"Vereda":p.get("NOMBRE_VER",""),"Código":p.get("CODIGO_VER",""),"Fuente":p.get("FUENTE",""),"Vigencia":p.get("VIGENCIA","")})
-            if not conflictos.empty and "vereda" in conflictos.columns:
-                cv=conflictos[conflictos["vereda"].astype(str).str.strip().str.upper()==str(p.get("NOMBRE_VER","")).strip().upper()]; st.markdown("**Conflictos operativos registrados en Google Sheets**")
-                if not cv.empty:
-                    st.dataframe(cv[[c for c in ["id_conflicto","tipo_conflicto","vereda","descripcion","precision_coordenada","registrado_por"] if c in cv.columns]],use_container_width=True,hide_index=True)
-                else:
-                    st.caption("No hay registros operativos asociados por nombre de vereda.")
+topo=st.session_state["veredas_topo"]; veredas_df=propiedades_veredas(topo); conflictos=pd.DataFrame(); gd=st.session_state.get("google_data") or {}
+if isinstance(gd.get("Conflictos"),pd.DataFrame): conflictos=normalizar_conflictos(gd["Conflictos"])
+nombres=veredas_df[["CODIGO_VER","NOMBRE_VER"]].drop_duplicates().copy(); nombres["etiqueta"]=nombres["NOMBRE_VER"].astype(str)+" — "+nombres["CODIGO_VER"].astype(str); opciones=["Todas las veredas"]+sorted(nombres["etiqueta"].tolist()); seleccion=st.selectbox("Explorar territorio",opciones); codigo_sel="" if seleccion=="Todas las veredas" else seleccion.split(" — ")[-1]
+f1,f2,f3,f4=st.columns(4); eventos_f=historicos.copy()
+if not eventos_f.empty:
+    anios=sorted([x for x in eventos_f.get("anio",pd.Series(dtype=str)).astype(str).unique() if x],reverse=True); ys=f1.multiselect("Año",anios,default=[]); tipos=sorted([x for x in eventos_f.get("tipo_conflicto",pd.Series(dtype=str)).astype(str).unique() if x]); ts=f2.multiselect("Tipo de situación",tipos,default=[]); confs=sorted([x for x in eventos_f.get("confianza",pd.Series(dtype=str)).astype(str).unique() if x]); cs=f3.multiselect("Confianza",confs,default=[])
+    if ys: eventos_f=eventos_f[eventos_f["anio"].astype(str).isin(ys)]
+    if ts: eventos_f=eventos_f[eventos_f["tipo_conflicto"].astype(str).isin(ts)]
+    if cs: eventos_f=eventos_f[eventos_f["confianza"].astype(str).isin(cs)]
+mostrar=f4.checkbox("Mostrar conflictos de Sheets",value=True)
+st.caption("Capa histórica: SITUACIONES_TERRITORIALES. Puntos: registros operativos de la hoja Conflictos. Las fuentes se mantienen separadas.")
+st_folium(construir_mapa(topo,eventos_f,conflictos,codigo_sel,mostrar),width="100%",height=650,returned_objects=["last_active_drawing"])
+if not conflictos.empty:
+    bad=conflictos[conflictos["precision_coordenada"]!="VALIDA"]
+    if not bad.empty:
+        with st.expander(f"⚠️ Conflictos no dibujados por calidad de coordenadas ({len(bad)})"):
+            st.warning("Los valores originales se conservan. No se corrigen automáticamente."); st.dataframe(bad[[c for c in ["id_conflicto","tipo_conflicto","vereda","lat","lon","precision_coordenada","descripcion"] if c in bad.columns]],use_container_width=True,hide_index=True)
+if codigo_sel:
+    fila=veredas_df[veredas_df["CODIGO_VER"].astype(str)==str(codigo_sel)].head(1)
+    if not fila.empty:
+        p=fila.iloc[0]; ev=eventos_f[eventos_f["codigo_ver_resuelto"].astype(str).str.strip()==str(codigo_sel).strip()] if "codigo_ver_resuelto" in eventos_f.columns else pd.DataFrame(); st.subheader(f"Ficha territorial — {p.get('NOMBRE_VER','')}"); q=st.columns(4); q[0].metric("Situaciones históricas",len(ev)); q[1].metric("Primera referencia",ev["anio"].min() if not ev.empty and "anio" in ev.columns else "—"); q[2].metric("Última referencia",ev["anio"].max() if not ev.empty and "anio" in ev.columns else "—"); q[3].metric("Área (ha)",p.get("AREA_HA","—")); st.write({"Vereda":p.get("NOMBRE_VER",""),"Código":p.get("CODIGO_VER",""),"Fuente":p.get("FUENTE",""),"Vigencia":p.get("VIGENCIA","")})
+        if not conflictos.empty and "vereda" in conflictos.columns:
+            cv=conflictos[conflictos["vereda"].astype(str).str.strip().str.upper()==str(p.get("NOMBRE_VER","")).strip().upper()]; st.markdown("**Conflictos operativos registrados en Google Sheets**")
+            if not cv.empty:
+                st.dataframe(cv[[c for c in ["id_conflicto","tipo_conflicto","vereda","descripcion","precision_coordenada","registrado_por"] if c in cv.columns]],use_container_width=True,hide_index=True)
+            else:
+                st.caption("No hay registros operativos asociados por nombre de vereda.")
 
 st.divider()
 st.subheader("Capacidad institucional — SADCI")
