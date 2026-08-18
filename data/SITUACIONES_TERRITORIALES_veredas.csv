@@ -1,0 +1,30 @@
+codigo_ver_resuelto,nombre_capa_resuelto,eventos_documentados,primera_fecha,ultima_fecha,tipos_conflicto,fuentes,confianza_alta,densidad_documental,nivel_documentacion
+18592006,ALTA RIVERA,1,2009-12-26,2009-12-26,Conflicto armado,Prensa con fuente institucional,0,0.2,BAJA
+18592009,ALTO LONDRES,2,2016-05-01,2020-02-26,Conflicto armado | Orden público / riesgo territorial,Alerta Temprana oficial | Prensa con fuente institucional,1,0.4,MEDIA
+18592014,BAJO LONDRES,2,2020-02-26,2021-04-02,Conflicto armado | Orden público / riesgo territorial,Alerta Temprana oficial | Fuente judicial oficial,2,0.4,MEDIA
+18592040,EL CONDOR,2,2009-10-25,2020-02-26,Conflicto armado | Orden público / riesgo territorial,Alerta Temprana oficial | Fuente oficial + prensa,2,0.4,MEDIA
+18592043,EL DANUBIO,1,2017-01-01,2017-01-01,Conflicto armado,Fuente de sociedad civil,0,0.2,BAJA
+18592045,EL DIAMANTE,1,2006-01-01,2006-01-01,Conflicto armado,Prensa,0,0.2,BAJA
+18592051,EL PALMAR,1,2010-01-01,2010-01-01,Conflicto armado,Fuente oficial + prensa,0,0.2,BAJA
+18592058,EL RETORNO,1,2012-01-01,2012-01-01,Conflicto armado,Prensa,0,0.2,BAJA
+18592056,EL RECREO,2,2019-01-01,2024-01-01,Conflicto armado | Tierra/desplazamiento,Unidad para las Víctimas | Fuente oficial + prensa,1,0.4,MEDIA
+18592055,EL QUEBRADON,1,2023-09-25,2023-09-25,Confinamiento/afectación humanitaria,Unidad para las Víctimas,1,0.2,BAJA
+18592009,ALTO LONDRES,2,2016-05-01,2020-02-26,Conflicto armado | Orden público / riesgo territorial,Alerta Temprana oficial | Fuente judicial oficial,1,0.4,MEDIA
+18592070,LA AURORA,1,2026-02-20,2026-02-20,Orden público / gobernabilidad territorial,Defensoría del Pueblo,1,0.2,BAJA
+18592076,LA CHONTA,1,2023-09-25,2023-09-25,Confinamiento/afectación humanitaria,Unidad para las Víctimas,1,0.2,BAJA
+18592088,LA GUADUALITO,1,2023-09-25,2023-09-25,Confinamiento/afectación humanitaria,Unidad para las Víctimas,1,0.2,BAJA
+18592091,LA NUTRIA,1,2023-09-25,2023-09-25,Confinamiento/afectación humanitaria,Unidad para las Víctimas,1,0.2,BAJA
+18592100,LA SEVILLA,2,2023-09-25,2026-02-20,Confinamiento/afectación humanitaria | Orden público / gobernabilidad territorial,Unidad para las Víctimas | Defensoría del Pueblo,2,0.4,MEDIA
+18592109,LAS IGLESIAS,2,2015-01-01,2020-02-26,Conflicto armado | Orden público / riesgo territorial,Fuente oficial + prensa | Alerta Temprana oficial,1,0.4,MEDIA
+18592117,LOS ANDES,1,2020-02-26,2020-02-26,Orden público / riesgo territorial,Alerta Temprana oficial,1,0.2,BAJA
+18592115,LOMA ALTA,1,2023-09-25,2023-09-25,Confinamiento/afectación humanitaria,Unidad para las Víctimas,1,0.2,BAJA
+18592132,MONTERREY,2,2012-01-01,2020-02-26,Conflicto armado | Orden público / riesgo territorial,Prensa | Alerta Temprana oficial,1,0.4,MEDIA
+18592121,MANZANARES,1,2000-01-01,2000-01-01,Conflicto armado,Prensa,0,0.2,BAJA
+18592122,MARACAIBO N 1,1,2026-02-20,2026-02-20,Orden público / riesgo territorial,Defensoría del Pueblo,1,0.2,BAJA
+18592123,MARACAIBO N 2,1,2026-02-20,2026-02-20,Orden público / riesgo territorial,Defensoría del Pueblo,1,0.2,BAJA
+18592151,SANTA ISABEL,1,2026-02-20,2026-02-20,Orden público / riesgo territorial,Defensoría del Pueblo,1,0.2,BAJA
+18592108,LAS BRISAS,1,2023-09-25,2023-09-25,Confinamiento/afectación humanitaria,Unidad para las Víctimas,1,0.2,BAJA
+18592180,LAS BRISAS,1,2023-09-25,2023-09-25,Confinamiento/afectación humanitaria,Unidad para las Víctimas,1,0.2,BAJA
+18592151,SANTA ISABEL,1,2023-09-25,2023-09-25,Confinamiento/afectación humanitaria,Unidad para las Víctimas,1,0.2,BAJA
+18592033,EL ARENOSO,1,2025-01-01,2025-01-01,Orden público / gobernabilidad territorial,Fuente oficial,1,0.2,BAJA
+18592034,EL ARENOSO,1,2025-01-01,2025-01-01,Orden público / gobernabilidad territorial,Fuente oficial,1,0.2,BAJA
