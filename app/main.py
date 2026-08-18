@@ -118,9 +118,14 @@ with st.expander("🔧 Diagnóstico de configuración de Google Sheets"):
 if st.button("Cargar / actualizar Google Sheets",type="secondary"):
     with st.spinner("Leyendo las cuatro hojas…"): st.session_state["google_data"]=leer_google_sheets(); st.rerun()
 if st.session_state["google_data"] is not None:
-    st.markdown("### Estado de las hojas"); cols=st.columns(4)
+    st.markdown("### Estado de las hojas")
+    cols=st.columns(4)
     for col,hoja in zip(cols,("Conflictos","Actores","SADCI","Relación Interinstitucional")):
-        x=st.session_state["google_data"].get(hoja); col.success(f"{hoja}: {len(x)} registros") if isinstance(x,pd.DataFrame) else col.error(f"{hoja}: {type(x).__name__}: {x}")
+        x=st.session_state["google_data"].get(hoja)
+        if isinstance(x,pd.DataFrame):
+            col.success(f"{hoja}: {len(x)} registros")
+        else:
+            col.error(f"{hoja}: no disponible")
 if st.session_state["veredas_topo"] is None:
     if st.button("Cargar capa de veredas",type="primary"):
         with st.spinner("Cargando cartografía…"): st.session_state["veredas_topo"]=cargar_veredas_topo(); st.rerun()
@@ -147,7 +152,11 @@ else:
         if not fila.empty:
             p=fila.iloc[0]; ev=eventos_f[eventos_f["codigo_ver_resuelto"].astype(str).str.strip()==str(codigo_sel).strip()] if "codigo_ver_resuelto" in eventos_f.columns else pd.DataFrame(); st.subheader(f"Ficha territorial — {p.get('NOMBRE_VER','')}"); q=st.columns(4); q[0].metric("Situaciones históricas",len(ev)); q[1].metric("Primera referencia",ev["anio"].min() if not ev.empty and "anio" in ev.columns else "—"); q[2].metric("Última referencia",ev["anio"].max() if not ev.empty and "anio" in ev.columns else "—"); q[3].metric("Área (ha)",p.get("AREA_HA","—")); st.write({"Vereda":p.get("NOMBRE_VER",""),"Código":p.get("CODIGO_VER",""),"Fuente":p.get("FUENTE",""),"Vigencia":p.get("VIGENCIA","")})
             if not conflictos.empty and "vereda" in conflictos.columns:
-                cv=conflictos[conflictos["vereda"].astype(str).str.strip().str.upper()==str(p.get("NOMBRE_VER","")).strip().upper()]; st.markdown("**Conflictos operativos registrados en Google Sheets**"); st.dataframe(cv[[c for c in ["id_conflicto","tipo_conflicto","vereda","descripcion","precision_coordenada","registrado_por"] if c in cv.columns]],use_container_width=True,hide_index=True) if not cv.empty else st.caption("No hay registros operativos asociados por nombre de vereda.")
+                cv=conflictos[conflictos["vereda"].astype(str).str.strip().str.upper()==str(p.get("NOMBRE_VER","")).strip().upper()]; st.markdown("**Conflictos operativos registrados en Google Sheets**")
+                if not cv.empty:
+                    st.dataframe(cv[[c for c in ["id_conflicto","tipo_conflicto","vereda","descripcion","precision_coordenada","registrado_por"] if c in cv.columns]],use_container_width=True,hide_index=True)
+                else:
+                    st.caption("No hay registros operativos asociados por nombre de vereda.")
 
 st.divider()
 st.subheader("Capacidad institucional — SADCI")
@@ -157,15 +166,9 @@ sadci=gd.get("SADCI")
 if isinstance(sadci,pd.DataFrame) and not sadci.empty:
     s=resumen_sadci(sadci) or {}
     k1,k2,k3,k4,k5=st.columns(5)
-    k1.metric("Entidades",len(sadci))
-    k2.metric("Ejecución presupuestal",indicador_pct(s.get("ejecucion_presupuestal_pct")))
-    k3.metric("Cumplimiento PDT",indicador_pct(s.get("cumplimiento_pdt_pct")))
-    k4.metric("MEPI promedio",indicador_pct(s.get("calificacion_mepi")))
-    k5.metric("Personal",int(s.get("num_personal_planta",0)+s.get("num_personal_contratista",0)) if "num_personal_planta" in s or "num_personal_contratista" in s else "—")
+    k1.metric("Entidades",len(sadci)); k2.metric("Ejecución presupuestal",indicador_pct(s.get("ejecucion_presupuestal_pct"))); k3.metric("Cumplimiento PDT",indicador_pct(s.get("cumplimiento_pdt_pct"))); k4.metric("MEPI promedio",indicador_pct(s.get("calificacion_mepi"))); k5.metric("Personal",int(s.get("num_personal_planta",0)+s.get("num_personal_contratista",0)) if "num_personal_planta" in s or "num_personal_contratista" in s else "—")
     st.markdown("**Estado institucional por entidad**")
-    vista=sadci.copy()
-    cols_vista=[c for c in ["id_entidad","nombre_entidad","presupuesto_anual_rural","num_personal_planta","num_personal_contratista","tiene_protocolo_articulacion","tramites_simplificados","frecuencia_rendicion_cuentas","nivel_digitalizacion","ejecucion_presupuestal_pct","cumplimiento_pdt_pct","existencia_instancias_participacion","calificacion_mepi"] if c in vista.columns]
-    st.dataframe(vista[cols_vista],use_container_width=True,hide_index=True)
+    vista=sadci.copy(); cols_vista=[c for c in ["id_entidad","nombre_entidad","presupuesto_anual_rural","num_personal_planta","num_personal_contratista","tiene_protocolo_articulacion","tramites_simplificados","frecuencia_rendicion_cuentas","nivel_digitalizacion","ejecucion_presupuestal_pct","cumplimiento_pdt_pct","existencia_instancias_participacion","calificacion_mepi"] if c in vista.columns]; st.dataframe(vista[cols_vista],use_container_width=True,hide_index=True)
     with st.expander("Ver detalle de capacidades y necesidades"):
         detalle=[c for c in ["nombre_entidad","protocolo","rendicion","estructura","capacitacion"] if c in sadci.columns]
         if detalle: st.dataframe(sadci[detalle],use_container_width=True,hide_index=True)
