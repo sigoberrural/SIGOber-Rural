@@ -283,17 +283,61 @@ def cargar_datos_con_cache(nombre_hoja):
 
 veredas_topo = cargar_json_local('veredas_puerto_rico.json')
 
+def cargar_situaciones_territoriales():
+    """Carga eventos históricos validados a escala de vereda.
+    La tabla no contiene coordenadas inventadas: la geometría se obtiene de la vereda.
+    """
+    ruta = os.path.join('data', 'SITUACIONES_TERRITORIALES_eventos.csv')
+    if not os.path.exists(ruta):
+        return pd.DataFrame()
+    try:
+        df = pd.read_csv(ruta, dtype={'codigo_ver_resuelto': str})
+        if 'codigo_ver_resuelto' in df.columns:
+            df['codigo_ver_resuelto'] = df['codigo_ver_resuelto'].astype(str)
+        return df
+    except Exception as e:
+        st.warning(f"No se pudo cargar SITUACIONES_TERRITORIALES: {e}")
+        return pd.DataFrame()
+
+def enriquecer_veredas_con_situaciones(topo_data, df_situaciones):
+    """Añade indicadores documentales a las propiedades de cada vereda."""
+    if not topo_data or df_situaciones.empty:
+        return topo_data
+    topo = json.loads(json.dumps(topo_data))
+    agg = (df_situaciones.groupby('codigo_ver_resuelto', dropna=False)
+           .agg(eventos_documentados=('id','nunique'),
+                primera_fecha=('fecha','min'),
+                ultima_fecha=('fecha','max'),
+                tipos_conflicto=('tipo_conflicto', lambda s: ' | '.join(sorted(set(map(str,s))))),
+                confianza_alta=('confianza', lambda s: sum(str(x).upper() == 'ALTA' for x in s)))
+           .reset_index())
+    lookup = {str(r['codigo_ver_resuelto']): r for _, r in agg.iterrows()}
+    obj_name = list(topo.get('objects', {}).keys())[0]
+    for geom in topo['objects'][obj_name].get('geometries', []):
+        props = geom.setdefault('properties', {})
+        codigo = str(props.get('CODIGO_VER',''))
+        r = lookup.get(codigo)
+        props['SIGOber_eventos'] = int(r['eventos_documentados']) if r is not None else 0
+        props['SIGOber_primera_fecha'] = str(r['primera_fecha']) if r is not None else ''
+        props['SIGOber_ultima_fecha'] = str(r['ultima_fecha']) if r is not None else ''
+        props['SIGOber_tipos'] = str(r['tipos_conflicto']) if r is not None else ''
+        props['SIGOber_confianza_alta'] = int(r['confianza_alta']) if r is not None else 0
+    return topo
+
 # 3. PANELES DE CONTROL
 tab_mapa, tab_sadci, tab_actores = st.tabs([
-    "🗺️ Mapa de Conflictos", 
+    "🗺️ Situaciones Territoriales", 
     "📊 Auditoría SADCI", 
     "👥 Registro de Actores"
 ])
 
 # --- TAB 1: MAPA ---
 with tab_mapa:
-    st.subheader("Visualizador de Tenencia y Conflictos")
+    st.subheader("Visualizador de Situaciones Territoriales")
     
+    df_situaciones = cargar_situaciones_territoriales()
+    veredas_situaciones = enriquecer_veredas_con_situaciones(veredas_topo, df_situaciones)
+
     df_raw = cargar_datos_con_cache("Conflictos")
     df_plot = pd.DataFrame()
     
@@ -358,6 +402,15 @@ with tab_mapa:
             return False, None
         except: return True, "Error técnico de validación"
 
+    if not df_situaciones.empty:
+        v_con = df_situaciones['codigo_ver_resuelto'].nunique()
+        e_con = df_situaciones['id'].nunique()
+        m1, m2, m3 = st.columns(3)
+        m1.metric('Eventos históricos vinculados', e_con)
+        m2.metric('Veredas con evidencia', v_con)
+        m3.metric('Fuentes/documentos', df_situaciones['fuente'].nunique())
+        st.caption('La simbología de las veredas representa densidad de documentación histórica recuperada. No es un índice automático de riesgo.')
+
     col_menu, col_mapa = st.columns([1, 3])
 
     with col_menu:
@@ -398,15 +451,51 @@ with tab_mapa:
                          attr='Google', name='Satélite', overlay=False).add_to(m)
         folium.TileLayer('openstreetmap', name='Vías', overlay=False).add_to(m)
 
-        if veredas_topo:
+        if veredas_situaciones:
             try:
-                obj_name = list(veredas_topo['objects'].keys())[0]
-                folium.TopoJson(
-                    veredas_topo, f"objects.{obj_name}", name="Veredas",
-                    style_function=lambda x: {'fillColor': 'transparent', 'color': '#FFFF00', 'weight': 2, 'fillOpacity': 0.1},
-                    tooltip=folium.GeoJsonTooltip(fields=['NOMBRE_VER'], aliases=['Vereda:'], sticky=True)
+                obj_name = list(veredas_situaciones['objects'].keys())[0]
+
+                def estilo_vereda(feature):
+                    p = feature.get('properties', {})
+                    n = int(p.get('SIGOber_eventos', 0) or 0)
+                    # La intensidad representa densidad documental, NO riesgo.
+                    relleno = '#ffffff' if n == 0 else ('#fff3bf' if n == 1 else ('#ffd166' if n <= 2 else '#f4a261'))
+                    return {'fillColor': relleno, 'color': '#6b6b00', 'weight': 1.5, 'fillOpacity': 0.35 if n else 0.08}
+
+                def popup_vereda(feature):
+                    p = feature.get('properties', {})
+                    n = int(p.get('SIGOber_eventos', 0) or 0)
+                    nombre = p.get('NOMBRE_VER', 'Vereda')
+                    codigo = p.get('CODIGO_VER', '')
+                    if n:
+                        return (f"<b>{nombre}</b><br>"
+                                f"Código: {codigo}<br>"
+                                f"<b>Situaciones documentadas: {n}</b><br>"
+                                f"Periodo: {p.get('SIGOber_primera_fecha','')} → {p.get('SIGOber_ultima_fecha','')}<br>"
+                                f"Tipos: {p.get('SIGOber_tipos','')}<br>"
+                                f"Confianza ALTA: {p.get('SIGOber_confianza_alta',0)}<br>"
+                                f"<i>Indicador documental; no equivale a riesgo.</i>")
+                    return f"<b>{nombre}</b><br>Código: {codigo}<br><i>Sin eventos históricos vinculados en la matriz v0.5.</i>"
+
+                from topojson import to_geojson
+                geojson_enriquecido = to_geojson(veredas_situaciones)
+                folium.GeoJson(
+                    geojson_enriquecido, name="Veredas + situaciones documentadas",
+                    style_function=estilo_vereda,
+                    highlight_function=lambda x: {'weight': 3, 'fillOpacity': 0.5},
+                    tooltip=folium.GeoJsonTooltip(
+                        fields=['NOMBRE_VER','CODIGO_VER','SIGOber_eventos'],
+                        aliases=['Vereda:', 'Código:', 'Situaciones documentadas:'],
+                        sticky=True
+                    ),
+                    popup=folium.GeoJsonPopup(
+                        fields=['NOMBRE_VER','CODIGO_VER','SIGOber_eventos','SIGOber_primera_fecha','SIGOber_ultima_fecha','SIGOber_tipos','SIGOber_confianza_alta'],
+                        aliases=['Vereda','Código','Situaciones documentadas','Primera fecha','Última fecha','Tipos','Confianza ALTA'],
+                        localize=True, labels=True, sticky=False
+                    )
                 ).add_to(m)
-            except: pass
+            except Exception as e:
+                st.warning(f"No se pudo enriquecer la capa de veredas: {e}")
 
         # Capa del Historial Remoto unificado (Online + Offline)
         fg = folium.FeatureGroup(name="Historial Remoto")
@@ -468,88 +557,39 @@ with tab_sadci:
             # DCI-4: Disponibilidad de Recursos
             dict_dig = {"Bajo": 25, "Medio": 50, "Alto": 75, "Excelente": 100}
             df_sadci['puntos_digital'] = df_sadci['nivel_digitalizacion'].map(dict_dig)
-            df_sadci['dci_4_recursos'] = (df_sadci['ejecucion_presupuestal_pct'] + df_sadci['puntos_digital']) / 2
+            df_sadci['dci_4_recursos'] = (df_sadci['presupuesto_asignado'].astype(str).str.replace(r'[^0-9]', '', regex=True).replace('', '0').astype(float).rank(pct=True) * 100)
             
-            # DCI-5: Políticas de Personal
-            df_sadci['dci_5_personal'] = (df_sadci['num_personal_planta'] / 
-                                         (df_sadci['num_personal_planta'] + df_sadci['num_personal_contratista']) * 100).fillna(0)
+            # DCI-5: Cultura Organizacional
+            map_cult = {"Colaborativa": 100, "Mixta": 60, "Fragmentada": 30, "Conflictiva": 10}
+            df_sadci['dci_5_cultura'] = df_sadci['cultura'].map(map_cult).fillna(50)
             
-            # DCI-6: Capacidad Individual (Know-how)
-            map_cap = {"Especializado": 100, "Técnico Suficiente": 75, "Requiere Capacitación": 40, "Crítico/No Idóneo": 10}
-            df_sadci['dci_6_individual'] = df_sadci['capacitacion'].map(map_cap).fillna(50)
-
-            # --- 2. VISUALIZACIÓN DE INDICADORES SADCI (6 Columnas) ---
-            st.markdown("### Pilares de Capacidad Real")
-            cols = st.columns(6)
+            # DCI-6: Capacidad Individual
+            map_ind = {"Alta": 100, "Media": 60, "Baja": 20}
+            df_sadci['dci_6_individual'] = df_sadci['capacidad_personal'].map(map_ind).fillna(50)
             
-            indicadores = [
-                ("DCI-1: Reglas", 'dci_1_reglas'), ("DCI-2: Interinst.", 'dci_2_interinst'),
-                ("DCI-3: Estructura", 'dci_3_estructura'), ("DCI-4: Recursos", 'dci_4_recursos'),
-                ("DCI-5: Personal", 'dci_5_personal'), ("DCI-6: Individual", 'dci_6_individual')
-            ]
+            # Cálculo del Índice Global de Capacidad
+            dci_cols = [c for c in df_sadci.columns if c.startswith('dci_')]
+            df_sadci['indice_sadci'] = df_sadci[dci_cols].mean(axis=1)
             
-            for i, (label, col_name) in enumerate(indicadores):
-                with cols[i]:
-                    val = df_sadci[col_name].mean()
-                    st.metric(label, f"{val:.0f}%")
-
-            st.divider()
-            st.write("**Análisis de Brecha: Aspiración vs. Realidad**")
-            st.line_chart(df_sadci.set_index('nombre_entidad')[['cumplimiento_pdt_pct', 'ejecucion_presupuestal_pct']])
-
-        # --- 4. FORMULARIO DE CAPTURA ACTUALIZADO ---
-        with st.expander("📝 Realizar Nueva Auditoría de Capacidad"):
-            with st.form("registro_sadci_full", clear_on_submit=True):
-                st.info("Esta encuesta identifica los obstáculos (DCI)")
-                c1, c2, c3 = st.columns(3)
-                with c1:
-                    nombre = st.text_input("Nombre Entidad")
-                    presupuesto = st.number_input("Presupuesto Rural ($)", min_value=0)
-                    planta = st.number_input("Personal de Planta (DCI-5)", min_value=0)
-                    contratos = st.number_input("Contratistas (DCI-5)", min_value=0)
-                with c2:
-                    ejecucion = st.slider("% Eficacia Gasto (DCI-4)", 0, 100, 70)
-                    pdt = st.slider("% Cumplimiento Metas", 0, 100, 50)
-                    mepi = st.number_input("Calificación MEPI (DCI-1)", 0, 100, 60)
-                with c3:
-                    digital = st.select_slider("Tecnología (DCI-4)", ["Bajo", "Medio", "Alto", "Excelente"])
-                    estructura = st.selectbox("Estructura (DCI-3)", ["Ágil/Coherente", "Funciones Duplicadas", "Rígida/Burocrática", "Inexistente"])
-                    capacitacion = st.selectbox("Personal (DCI-6)", ["Especializado", "Técnico Suficiente", "Requiere Capacitación", "Crítico/No Idóneo"])
-                    protocolo = st.selectbox("¿Protocolos? (DCI-1)", ["Sí", "No", "En proceso"])
-                    rendicion = st.selectbox("Rendición (DCI-2)", ["Anual", "Semestral", "Nunca"])
-
-                if st.form_submit_button("🚀 Guardar Auditoría"):
-                    if nombre:
-                        sh_d = conectar_gspread()
-                        ws_d = sh_d.worksheet("SADCI")
-                        # Mapeo de 14 columnas
-                        ws_d.append_row([
-                            str(uuid.uuid4())[:8], nombre, presupuesto, planta, contratos,
-                            protocolo, estructura, rendicion, digital, ejecucion, 
-                            pdt, "Activas", mepi, capacitacion
-                        ])
-                        st.success("✅ Diagnóstico completo registrado.")
-                        st.cache_data.clear()
-                        st.rerun()
-
-    except Exception as e: 
-        st.error(f"Error en el Sistema SADCI: {e}")
-
+            st.dataframe(df_sadci[['entidad','indice_sadci','dci_1_reglas','dci_2_interinst','dci_3_estructura','dci_4_recursos','dci_5_cultura','dci_6_individual']].sort_values('indice_sadci'), use_container_width=True)
+            
+            st.subheader("Brechas de Capacidad")
+            fig = px.bar(df_sadci, x='entidad', y='indice_sadci', color='indice_sadci', color_continuous_scale='RdYlGn')
+            st.plotly_chart(fig, use_container_width=True)
+        else: st.info("No hay datos SADCI registrados todavía.")
+    except Exception as e: st.error(f"Error SADCI: {e}")
 
 # --- TAB 3: ACTORES ---
 with tab_actores:
-    st.subheader("👥 Caracterización de Actores")
+    st.subheader("👥 Registro de Actores y Liderazgos")
+    
     try:
-        df_social = cargar_datos_con_cache("Actores")
-        if not df_social.empty:
-            m1, m2, m3 = st.columns(3)
-            m1.metric("Total Actores", len(df_social))
-            m2.metric("Veredas", df_social['Vereda'].nunique())
-            propiedad_total = len(df_social[df_social['Tenencia'] == 'Propiedad'])
-            m3.metric("Formalidad", f"{(propiedad_total/len(df_social))*100:.1f}%")
-
-        with st.expander("📝 Registrar Nuevo Actor"):
-            with st.form("registro_social", clear_on_submit=True):
+        df_actores = cargar_datos_con_cache("Actores")
+        if not df_actores.empty:
+            st.dataframe(df_actores, use_container_width=True)
+        
+        with st.expander("➕ Registrar Nuevo Actor"):
+            with st.form("form_actores"):
                 c1, c2 = st.columns(2)
                 with c1:
                     nombre_a = st.text_input("Nombre Actor/Líder")
