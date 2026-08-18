@@ -51,9 +51,6 @@ def construir_mapa(topo=None, eventos=None):
         if eventos is not None and not eventos.empty and "codigo_ver_resuelto" in eventos.columns:
             conteo = eventos["codigo_ver_resuelto"].astype(str).str.strip().value_counts().to_dict()
 
-        # Folium renderiza el TopoJSON directamente en el navegador.
-        # Esto evita la conversión TopoJSON -> GeoJSON que estaba provocando
-        # el problema de carga de la capa de veredas.
         def estilo(feature):
             props = feature.get("properties", {})
             codigo = str(props.get("CODIGO_VER", "")).strip()
@@ -65,11 +62,22 @@ def construir_mapa(topo=None, eventos=None):
                 "fillOpacity": 0.55 if n > 0 else 0.18,
             }
 
+        # TopoJSON directo: evita la conversión pesada en Python.
+        # GeoJsonTooltip funciona también con propiedades del TopoJSON.
+        tooltip = folium.GeoJsonTooltip(
+            fields=["NOMBRE_VER", "CODIGO_VER", "AREA_HA", "FUENTE", "VIGENCIA"],
+            aliases=["Vereda", "Código", "Área (ha)", "Fuente cartográfica", "Vigencia"],
+            localize=True,
+            sticky=True,
+            labels=True,
+        )
+
         folium.TopoJson(
             data=topo,
             object_path="objects.Veredas",
             name="Veredas + situaciones territoriales",
             style_function=estilo,
+            tooltip=tooltip,
         ).add_to(m)
 
     folium.LayerControl(collapsed=False).add_to(m)
@@ -95,7 +103,7 @@ if st.button("Cargar capa de veredas", type="primary", disabled=st.session_state
     with st.spinner("Cargando la capa de veredas…"):
         try:
             st.session_state["veredas_topo"] = cargar_veredas_topo()
-            st.success("Capa de veredas preparada. Se está mostrando directamente desde TopoJSON.")
+            st.success("Capa de veredas cargada. Pase el cursor sobre una vereda para consultar sus atributos.")
         except Exception as e:
             st.error(f"No se pudo cargar la capa de veredas: {type(e).__name__}: {e}")
 
@@ -104,21 +112,47 @@ st_folium(m, width="100%", height=620)
 
 st.divider()
 st.subheader("Fuentes externas")
-st.write("Google Sheets permanece separado del arranque de la aplicación. Primero se estabiliza la cartografía local y luego se valida la conexión externa.")
+st.write("Google Sheets permanece separado del arranque de la aplicación.")
 
 if st.button("Probar conexión con Google Sheets"):
     try:
         from streamlit_gsheets import GSheetsConnection
+
+        # Diagnóstico sin mostrar valores sensibles.
+        conexiones = st.secrets.get("connections", {})
+        config = conexiones.get("gsheets", {}) if hasattr(conexiones, "get") else {}
+        tiene_spreadsheet = bool(config.get("spreadsheet")) if hasattr(config, "get") else False
+        tiene_worksheet_config = bool(config.get("worksheet")) if hasattr(config, "get") else False
+
         with st.spinner("Consultando Google Sheets…"):
             conn = st.connection("gsheets", type=GSheetsConnection)
             df = conn.read(worksheet="Conflictos", ttl=300)
+
         if isinstance(df, pd.DataFrame):
             st.success(f"Google Sheets respondió correctamente: {len(df)} registros.")
         else:
             st.warning(f"Google Sheets respondió, pero el resultado no es una tabla pandas sino {type(df).__name__}.")
+
     except Exception as e:
         st.error(
-            "Google Sheets respondió al servidor, pero la lectura de la hoja no pudo completarse. "
+            "No se pudo leer la hoja 'Conflictos'. "
             f"Tipo de error: {type(e).__name__}. Detalle: {e}"
         )
-        st.info("Esto apunta a la configuración/lectura de la conexión (secrets, URL/ID o nombre de la hoja), no a una caída de Google Sheets.")
+        if type(e).__name__ == "SpreadsheetNotFound":
+            st.warning(
+                "La autenticación llegó hasta Google, pero no se encontró el SPREADSHEET. "
+                "Revisa en Streamlit Cloud → Settings → Secrets que exista [connections.gsheets] "
+                "con la clave 'spreadsheet' y que la URL/ID corresponda al archivo correcto."
+            )
+            st.write({
+                "config_connections_gsheets_presente": bool(config),
+                "spreadsheet_configurado": tiene_spreadsheet,
+                "worksheet_configurado": tiene_worksheet_config,
+                "worksheet_solicitado": "Conflictos",
+            })
+            st.info(
+                "Importante: 'spreadsheet' identifica el archivo de Google Sheets; 'worksheet' identifica una pestaña dentro de ese archivo. "
+                "Además, si se usa una cuenta de servicio, el archivo debe estar compartido con el client_email de esa cuenta."
+            )
+        else:
+            st.info("La capa cartográfica es independiente de Google Sheets; este error no afecta el mapa.")
