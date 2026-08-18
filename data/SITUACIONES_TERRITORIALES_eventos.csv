@@ -1,0 +1,41 @@
+id,fecha,anio,vereda_referencia,codigo_ver_resuelto,nombre_capa_resuelto,tipo_conflicto,subtipo,confianza,precision_espacial,fuente,tipo_fuente,url,estado_territorial
+PRC-2006-001,2006-02-25,2006,El Diamante,18592045,EL DIAMANTE,Conflicto armado,Masacre,ALTA,VEREDA,Rutas del Conflicto,Base documental de memoria/conflicto,https://rutasdelconflicto.com/masacres/puerto-rico-2006,VALIDADA_EN_CAPA
+PRC-2013-001,2013-04-12,2013,Los Andes,18592117,LOS ANDES,Conflicto armado,Combate,MEDIA-ALTA,VEREDA,El Tiempo,Prensa,https://www.eltiempo.com/archivo/documento/CMS-12739482,VALIDADA_EN_CAPA
+PRC-2015-001,2015-12-25,2015,Las Iglesias,18592109,LAS IGLESIAS,Conflicto armado,Combate,ALTA,VEREDA,Fuente oficial + prensa,Fuente oficial + prensa,https://www.eltiempo.com/archivo/documento/CMS-16493698,VALIDADA_EN_CAPA
+PRC-2014-002,2014-12-25,2014,Las Iglesias,18592109,LAS IGLESIAS,Minas antipersona,Accidente / riesgo,ALTA,VEREDA,Fuente secundaria que reproduce monitoreo de Defensoría,Fuente secundaria,https://www.elcolombiano.com/colombia/minas-antipersonal-caqueta-puerto-rico-2014,VALIDADA_EN_CAPA
+PRC-2014-001,2014-08-11,2014,La Ruidosa,18592099,LA RUIDOSA,Conflicto armado,Combate,ALTA,VEREDA,Fuente oficial,Fuente oficial,https://www.unidadvictimas.gov.co/,VALIDADA_EN_CAPA
+PRC-2016-001,2016-05-01,2016,Alto de Londres,18592009,ALTO LONDRES,Conflicto armado,Acción armada,MEDIA-ALTA,VEREDA,Prensa con fuente institucional,Prensa,https://www.eltiempo.com/,VALIDADA_EN_CAPA
+PRC-2016-002,2016-05-01,2016,Brisas,,LAS BRISAS,Conflicto armado,Acción armada,MEDIA-ALTA,VEREDA,El Tiempo,Prensa,https://www.eltiempo.com/,PENDIENTE
+PRC-2016-003,2016-01-01,2016,La Pradera,,LA PRADERA,Conflicto armado,Acción armada,MEDIA-ALTA,VEREDA,El Espectador / Noticias Caracol,Prensa,https://www.elespectador.com/,PENDIENTE
+PRC-2018-001,2018-12-05,2018,La Trocha,,LA TROCHA,Desplazamiento / afectación humanitaria,Desplazamiento,ALTA,VEREDA,Unidad para las Víctimas,Fuente oficial,https://www.unidadvictimas.gov.co/,VALIDADA_FUERA_DE_CAPA
+PRC-2018-002,2018-12-05,2018,La Trocha,,LA TROCHA,Desplazamiento / afectación humanitaria,Retorno / afectación,ALTA,VEREDA,Unidad para las Víctimas,Fuente oficial,VALIDADA_FUERA_DE_CAPA
+PRC-2019-001,2019-06-10,2019,El Recreo,18592056,EL RECREO,Conflicto armado / economías ilícitas,Acción armada,ALTA,VEREDA,Fuente judicial oficial,Fuente judicial oficial,https://www.ramajudicial.gov.co/,VALIDADA_EN_CAPA
+PRC-2020-001,2020-02-26,2020,Bajo Londres; Alto Londres; Las Iglesias; Los Andes; El Cóndor; Monterrey,,,,MEDIA-ALTA,VEREDAS (LISTADO PARCIAL),Alerta Temprana oficial,Fuente oficial,https://alertastempranas.defensoria.gov.co/,PENDIENTE
+PRC-2021-001,2021-04-02,2021,Bajo Londres,18592014,BAJO LONDRES,Conflicto armado,Acción armada,ALTA,VEREDA,Fuente judicial oficial,Fuente judicial oficial,https://www.ramajudicial.gov.co/,VALIDADA_EN_CAPA
+PRC-2023-002,2023-09-22,2023,Aires de Cordillera; Arenoso; Méndez; El Nutria; El Plumarejo; El Quebradón; Guadualito; La Cristalina; La Palestina; La Ruidosa; Las Brisas; Loma Alta,,,,ALTA,VEREDAS (LISTADO PARCIAL),Unidad para las Víctimas,Fuente oficial,https://www.unidadvictimas.gov.co/,PENDIENTE
+PRC-2023-003,2023-05-26,2023,La Chonta,18592076,LA CHONTA,Conflicto armado,Acción armada,ALTA,VEREDA,Fuente oficial,Fuente oficial,https://www.unidadvictimas.gov.co/,VALIDADA_EN_CAPA
+PRC-2024-001,2024-08-25,2024,El Recreo,18592056,EL RECREO,Desplazamiento / tierra,Desplazamiento,MEDIA-ALTA,VEREDA,Prensa,Prensa,https://www.eltiempo.com/,VALIDADA_EN_CAPA
+PRC-2026-001,2026-03-17,2026,La Aurora,18592070,LA AURORA,Conflicto armado,Acción armada,ALTA,VEREDA,Fuente oficial,Fuente oficial,https://www.defensoria.gov.co/,VALIDADA_EN_CAPA
+PRC-2026-002,2026-02-20,2026,Rionegro; Maracaibo I; Maracaibo II; Sevilla; Santa Isabel,,,,ALTA,VEREDAS (LISTADO PARCIAL),Alerta Temprana oficial,Fuente oficial,https://alertastempranas.defensoria.gov.co/,PENDIENTE
+PRC-2000-002,2000-07-20,2000,Manzanares,18592121,MANZANARES,Conflicto armado,Acción armada,ALTA,VEREDA,Prensa,Prensa,https://rutasdelconflicto.com/,VALIDADA_EN_CAPA
+PRC-2008-001B,2008-01-01,2008,Monte Bello,18592129,MONTE BELLO,Desplazamiento / afectación étnica,Reparación colectiva,ALTA,VEREDA,Fuente oficial / reparación colectiva,Fuente oficial,https://www.unidadvictimas.gov.co/,VALIDADA_EN_CAPA
+PRC-2009-001,2009-10-25,2009,El Cóndor,18592040,EL CONDOR,Conflicto armado,Acción armada,ALTA,VEREDA,Fuente oficial + prensa,Fuente oficial + prensa,https://rutasdelconflicto.com/,VALIDADA_EN_CAPA
+PRC-2009-002,2009-12-26,2009,Alto Rivera,18592006,ALTA RIVERA,Conflicto armado,Acción armada,MEDIA-ALTA,VEREDA,Prensa con fuente institucional,Prensa,https://www.elcolombiano.com/,VALIDADA_EN_CAPA
+PRC-2010-002,2010-12-13,2010,Villa Nueva,,VILLA NUEVA,Desplazamiento / afectación humanitaria,Desplazamiento,ALTA,VEREDA,ACNUR,Organismo internacional,https://www.acnur.org/,VALIDADA_FUERA_DE_CAPA
+PRC-2012-002,2012-02-07,2012,Arenosa,,LA ARENOSA,Conflicto armado,Acción armada,MEDIA-ALTA,VEREDA,El Tiempo,Prensa,https://www.eltiempo.com/,PENDIENTE
+PRC-2012-003,2012-02-07,2012,Monterrey; El Retorno,18592132,MONTERREY,Conflicto armado,Acción armada,MEDIA-ALTA,CORREGIMIENTO + VEREDAS,Prensa,Prensa,https://www.eltiempo.com/,VALIDADA_EN_CAPA
+PRC-2023-001,2023-08-23,2023,Santana Ramos,,,,ALTA,CORREGIMIENTO,Defensoría del Pueblo,Fuente oficial,https://www.defensoria.gov.co/,REFERENCIA_ESCALA_MAYOR
+PRC-2023-004,2023-09-22,2023,Puerto Rico rural,,,,ALTA,ZONA RURAL / RESGUARDOS,Unidad para las Víctimas,Fuente oficial,https://www.unidadvictimas.gov.co/,REFERENCIA_ESCALA_MAYOR
+PRC-2023-005,2023-09-22,2023,Puerto Rico rural,,,,ALTA,ZONA RURAL / RESGUARDOS,Unidad para las Víctimas,Fuente oficial,https://www.unidadvictimas.gov.co/,REFERENCIA_ESCALA_MAYOR
+PRC-2023-006,2023-09-22,2023,Puerto Rico rural,,,,MEDIA-ALTA,ZONA RURAL / RESGUARDOS,Defensoría del Pueblo,Fuente oficial,https://www.defensoria.gov.co/,REFERENCIA_ESCALA_MAYOR
+PRC-2024-002,2024-01-01,2024,Puerto Rico,,,,MEDIA-ALTA,MUNICIPIO,Fuente oficial,Fuente oficial,https://www.unidadvictimas.gov.co/,REFERENCIA_ESCALA_MAYOR
+PRC-2025-001,2025-01-01,2025,Arenoso,,EL ARENOSO,Orden público / gobernabilidad territorial,Acción institucional,ALTA,VEREDA,Fuente oficial,Fuente oficial,https://www.policia.gov.co/,PENDIENTE
+PRC-2025-002,2025-06-17,2025,Lusitania,,,,ALTA,REFERENCIA_ESCALA_DISCUTIDA,Policía Nacional,Fuente oficial,https://www.policia.gov.co/,REFERENCIA_ESCALA_DISCUTIDA
+PRC-2000-001,2000-01-01,2000,La Esmeralda,,,,MEDIA-ALTA,CORREGIMIENTO / CENTRO POBLADO,Rutas del Conflicto,Base documental de memoria/conflicto,https://rutasdelconflicto.com/,REFERENCIA_ESCALA_MAYOR
+PRC-2002-001,2002-01-01,2002,El Llanito,,EL LLANITO,Conflicto armado,Acción armada,MEDIA,VEREDA,CINEP,Base documental,https://www.cinep.org.co/,PENDIENTE
+PRC-2003-001,2003-01-01,2003,Puerto Rico cabecera,,,,MEDIA-ALTA,CORREGIMIENTO / CENTRO POBLADO,Prensa,Prensa,https://www.eltiempo.com/,REFERENCIA_ESCALA_MAYOR
+PRC-2004-001,2004-04-19,2004,La Esmeralda,,,,ALTA,CORREGIMIENTO / CENTRO POBLADO,Caracol Radio,Prensa,https://caracol.com.co/,REFERENCIA_ESCALA_MAYOR
+PRC-2004-002,2004-11-01,2004,Nepal,,NEPAL,Conflicto armado,Emboscada,ALTA,VEREDA,El Tiempo,Prensa,https://www.eltiempo.com/archivo/documento/MAM-1513218,PENDIENTE
+PRC-2005-001,2005-01-01,2005,Rancho Quemado,,,,MEDIA,CORREGIMIENTO / CENTRO POBLADO,CINEP,Base documental,https://www.cinep.org.co/,REFERENCIA_ESCALA_MAYOR
+PRC-2005-002,2005-01-01,2005,Puerto Rico cabecera,,,,MEDIA-ALTA,CORREGIMIENTO / CENTRO POBLADO,Prensa,Prensa,https://www.eltiempo.com/,REFERENCIA_ESCALA_MAYOR
+PRC-2006-001B,2006-02-25,2006,El Diamante,18592045,EL DIAMANTE,Conflicto armado,Masacre,ALTA,VEREDA,Rutas del Conflicto,Base documental de memoria/conflicto,https://rutasdelconflicto.com/,VALIDADA_EN_CAPA
