@@ -1,4 +1,5 @@
 import json
+import re
 from pathlib import Path
 
 import pandas as pd
@@ -44,8 +45,7 @@ def cargar_veredas_topo():
 def propiedades_veredas(topo):
     filas = []
     for g in topo.get("objects", {}).get("Veredas", {}).get("geometries", []):
-        p = g.get("properties", {}) or {}
-        filas.append(p)
+        filas.append(g.get("properties", {}) or {})
     return pd.DataFrame(filas).fillna("")
 
 
@@ -55,12 +55,42 @@ def contar_eventos(eventos):
     return eventos["codigo_ver_resuelto"].astype(str).str.strip().value_counts().to_dict()
 
 
+def resumen_vereda(codigo, eventos):
+    if eventos.empty or "codigo_ver_resuelto" not in eventos.columns:
+        return {"n": 0, "anios": "Sin registros", "tipos": "Sin registros", "conf": "Sin registros"}
+    ev = eventos[eventos["codigo_ver_resuelto"].astype(str).str.strip() == str(codigo).strip()].copy()
+    if ev.empty:
+        return {"n": 0, "anios": "Sin registros", "tipos": "Sin registros", "conf": "Sin registros"}
+    anios = sorted(ev["anio"].astype(str).loc[lambda s: s != ""].unique().tolist()) if "anio" in ev.columns else []
+    tipos = sorted(ev["tipo_conflicto"].astype(str).loc[lambda s: s != ""].unique().tolist()) if "tipo_conflicto" in ev.columns else []
+    conf = sorted(ev["confianza"].astype(str).loc[lambda s: s != ""].unique().tolist()) if "confianza" in ev.columns else []
+    return {
+        "n": len(ev),
+        "anios": ", ".join(anios) if anios else "Sin fecha",
+        "tipos": ", ".join(tipos) if tipos else "No especificado",
+        "conf": ", ".join(conf) if conf else "No especificada",
+    }
+
+
 def construir_mapa(topo=None, eventos=None, codigo_seleccionado=""):
     m = folium.Map(location=[1.9123, -75.1842], zoom_start=10, tiles="CartoDB positron")
     folium.Marker([1.9123, -75.1842], tooltip="Puerto Rico, Caquetá").add_to(m)
 
     if topo:
-        conteo = contar_eventos(eventos if eventos is not None else pd.DataFrame())
+        eventos = eventos if eventos is not None else pd.DataFrame()
+        conteo = contar_eventos(eventos)
+
+        # Enriquecemos las propiedades del TopoJSON únicamente en memoria.
+        # No modificamos la fuente cartográfica original.
+        topo_mapa = json.loads(json.dumps(topo))
+        for g in topo_mapa.get("objects", {}).get("Veredas", {}).get("geometries", []):
+            p = g.setdefault("properties", {})
+            codigo = str(p.get("CODIGO_VER", "")).strip()
+            r = resumen_vereda(codigo, eventos)
+            p["SIGOber_situaciones"] = r["n"]
+            p["SIGOber_anios"] = r["anios"]
+            p["SIGOber_tipos"] = r["tipos"]
+            p["SIGOber_confianza"] = r["conf"]
 
         def estilo(feature):
             props = feature.get("properties", {})
@@ -75,17 +105,18 @@ def construir_mapa(topo=None, eventos=None, codigo_seleccionado=""):
             }
 
         tooltip = folium.GeoJsonTooltip(
-            fields=["NOMBRE_VER", "CODIGO_VER", "AREA_HA", "FUENTE", "VIGENCIA"],
-            aliases=["Vereda", "Código", "Área (ha)", "Fuente cartográfica", "Vigencia"],
+            fields=["NOMBRE_VER", "CODIGO_VER", "SIGOber_situaciones", "SIGOber_anios", "SIGOber_tipos", "SIGOber_confianza", "AREA_HA", "FUENTE"],
+            aliases=["Vereda", "Código", "Situaciones documentadas", "Años", "Tipos de situación", "Confianza", "Área (ha)", "Fuente cartográfica"],
             localize=True,
             sticky=True,
             labels=True,
+            style=("background-color: white; color: #222; font-family: Arial; font-size: 12px; padding: 8px;")
         )
 
         folium.TopoJson(
-            data=topo,
+            data=topo_mapa,
             object_path="objects.Veredas",
-            name="Veredas",
+            name="Veredas + situaciones territoriales",
             style_function=estilo,
             tooltip=tooltip,
         ).add_to(m)
@@ -108,6 +139,21 @@ def normalizar_conflictos(df):
     return out
 
 
+def config_gsheets():
+    try:
+        connections = st.secrets.get("connections", {})
+        cfg = connections.get("gsheets", {}) if hasattr(connections, "get") else {}
+        return dict(cfg) if hasattr(cfg, "items") else {}
+    except Exception:
+        return {}
+
+
+def spreadsheet_id_desde_config(cfg):
+    raw = str(cfg.get("spreadsheet", "") or cfg.get("spreadsheet_url", "")).strip()
+    m = re.search(r"/spreadsheets/d/([a-zA-Z0-9-_]+)", raw)
+    return m.group(1) if m else raw
+
+
 @st.cache_data(ttl=300, show_spinner=False)
 def leer_google_sheets():
     from streamlit_gsheets import GSheetsConnection
@@ -119,6 +165,14 @@ def leer_google_sheets():
         except Exception as e:
             resultado[hoja] = e
     return resultado
+
+
+@st.cache_data(show_spinner=False)
+def cargar_respaldo_local(nombre):
+    ruta = DATA_DIR / f"DB_{nombre.replace(' ', '_')}.csv"
+    if ruta.exists():
+        return pd.read_csv(ruta, dtype=str).fillna("")
+    return pd.DataFrame()
 
 
 st.title("SIGOber-Rural")
@@ -148,9 +202,8 @@ with col_a:
                 st.success("Cartografía cargada.")
             except Exception as e:
                 st.error(f"No se pudo cargar la capa: {type(e).__name__}: {e}")
-
 with col_b:
-    st.caption("Las situaciones se visualizan por vereda y se pueden explorar mediante filtros y ficha territorial.")
+    st.caption("Pase el cursor sobre una vereda para ver un resumen territorial inmediato. Use el selector para abrir la ficha detallada.")
 
 veredas_df = propiedades_veredas(st.session_state["veredas_topo"]) if st.session_state["veredas_topo"] else pd.DataFrame()
 
@@ -159,9 +212,7 @@ if not veredas_df.empty:
     nombres["etiqueta"] = nombres["NOMBRE_VER"].astype(str) + " — " + nombres["CODIGO_VER"].astype(str)
     opciones = ["Todas las veredas"] + sorted(nombres["etiqueta"].tolist())
     seleccion = st.selectbox("Explorar territorio", opciones)
-    codigo_sel = ""
-    if seleccion != "Todas las veredas":
-        codigo_sel = seleccion.split(" — ")[-1]
+    codigo_sel = "" if seleccion == "Todas las veredas" else seleccion.split(" — ")[-1]
 
     f1, f2, f3 = st.columns(3)
     eventos_f = eventos_locales.copy()
@@ -183,7 +234,7 @@ if not veredas_df.empty:
                 eventos_f = eventos_f[eventos_f["confianza"].astype(str).isin(conf_sel)]
 
     m = construir_mapa(st.session_state["veredas_topo"], eventos_f, codigo_sel)
-    mapa_resultado = st_folium(m, width="100%", height=620, returned_objects=["last_active_drawing"])
+    st_folium(m, width="100%", height=620, returned_objects=["last_active_drawing"])
 
     if codigo_sel:
         fila = veredas_df[veredas_df["CODIGO_VER"].astype(str) == str(codigo_sel)].head(1)
@@ -196,15 +247,13 @@ if not veredas_df.empty:
             b.metric("Primera referencia", eventos_vereda["anio"].min() if not eventos_vereda.empty and "anio" in eventos_vereda.columns else "—")
             c.metric("Última referencia", eventos_vereda["anio"].max() if not eventos_vereda.empty and "anio" in eventos_vereda.columns else "—")
             d.metric("Área (ha)", p.get("AREA_HA", "—"))
-
             st.markdown("**Identificación cartográfica**")
             st.write({"Vereda": p.get("NOMBRE_VER", ""), "Código": p.get("CODIGO_VER", ""), "Fuente": p.get("FUENTE", ""), "Vigencia": p.get("VIGENCIA", "")})
-
             if eventos_vereda.empty:
                 st.info("No hay situaciones documentadas para esta vereda con los filtros actuales.")
             else:
                 st.markdown("**Situaciones documentadas**")
-                cols = [c for c in ["id", "anio", "tipo_conflicto", "subtipo", "confianza", "precision_espacial", "fuente", "estado_territorial"] if c in eventos_vereda.columns]
+                cols = [c for c in ["id", "fecha", "anio", "tipo_conflicto", "subtipo", "confianza", "precision_espacial", "fuente", "estado_territorial"] if c in eventos_vereda.columns]
                 st.dataframe(eventos_vereda[cols], use_container_width=True, hide_index=True)
 
             if st.session_state["google_data"]:
@@ -212,28 +261,37 @@ if not veredas_df.empty:
                 if isinstance(actores, pd.DataFrame) and not actores.empty and "Vereda" in actores.columns:
                     actores_v = actores[actores["Vereda"].astype(str).str.strip().str.upper() == str(p.get("NOMBRE_VER", "")).strip().upper()]
                     st.markdown("**Actores registrados**")
-                    if actores_v.empty:
-                        st.caption("No hay actores asociados en la hoja cargada.")
-                    else:
-                        st.dataframe(actores_v, use_container_width=True, hide_index=True)
+                    st.dataframe(actores_v, use_container_width=True, hide_index=True) if not actores_v.empty else st.caption("No hay actores asociados en la hoja cargada.")
 
 st.divider()
 st.subheader("Capacidad institucional y fuentes externas")
-st.write("La conexión con Google Sheets se carga bajo demanda para evitar bloquear el arranque cartográfico.")
+st.write("La conexión con Google Sheets se carga bajo demanda. Si falla, SIGOber puede continuar trabajando con las capas locales.")
 
 if st.button("Cargar / actualizar Google Sheets"):
-    with st.spinner("Leyendo Conflictos, Actores, SADCI y Relación Interinstitucional…"):
-        try:
-            datos = leer_google_sheets()
-            st.session_state["google_data"] = datos
-            ok = [k for k, v in datos.items() if isinstance(v, pd.DataFrame)]
-            errores = {k: f"{type(v).__name__}: {v}" for k, v in datos.items() if not isinstance(v, pd.DataFrame)}
-            st.success(f"Hojas leídas correctamente: {', '.join(ok) if ok else 'ninguna'}.")
-            if errores:
-                st.warning("Algunas hojas no pudieron leerse.")
-                st.json(errores)
-        except Exception as e:
-            st.error(f"No se pudo inicializar Google Sheets: {type(e).__name__}: {e}")
+    with st.spinner("Leyendo las cuatro hojas…"):
+        datos = leer_google_sheets()
+        st.session_state["google_data"] = datos
+        ok = [k for k, v in datos.items() if isinstance(v, pd.DataFrame)]
+        errores = {k: v for k, v in datos.items() if not isinstance(v, pd.DataFrame)}
+        if ok:
+            st.success(f"Hojas leídas correctamente: {', '.join(ok)}.")
+        if errores:
+            st.warning("Google respondió, pero no se pudieron leer una o más hojas.")
+            for nombre, err in errores.items():
+                st.error(f"{nombre}: {type(err).__name__}: {err}")
+
+cfg = config_gsheets()
+with st.expander("🔧 Diagnóstico de configuración de Google Sheets"):
+    sid = spreadsheet_id_desde_config(cfg)
+    st.write({
+        "connections.gsheets_presente": bool(cfg),
+        "spreadsheet_configurado": bool(cfg.get("spreadsheet") or cfg.get("spreadsheet_url")),
+        "identificador_detectado": (sid[:6] + "…" + sid[-4:]) if len(sid) > 12 else ("configurado" if sid else "NO CONFIGURADO"),
+        "worksheet_predeterminado": cfg.get("worksheet", "no definido; la app solicita cada pestaña explícitamente"),
+        "tipo_credencial": cfg.get("type", "no informado"),
+    })
+    st.markdown("**Interpretación de `SpreadsheetNotFound`:** la conexión está llegando al servicio, pero la cuenta usada por la aplicación no puede abrir el archivo identificado por `spreadsheet`. Las causas principales son ID/URL incorrecto o que el archivo no está compartido con el `client_email` de la cuenta de servicio.")
+    st.info("Para corregirlo: en Streamlit Cloud → Settings → Secrets, verifica `connections.gsheets.spreadsheet`; después comparte el archivo de Google Sheets con el correo `client_email` de la cuenta de servicio. La pestaña debe llamarse exactamente `Conflictos`, `Actores`, `SADCI` o `Relación Interinstitucional`.")
 
 if st.session_state["google_data"]:
     datos = st.session_state["google_data"]
