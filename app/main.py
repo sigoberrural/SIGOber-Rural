@@ -30,56 +30,46 @@ def cargar_eventos():
 
 
 @st.cache_data(show_spinner=False)
-def preparar_veredas(eventos_records):
-    """Convierte la capa TopoJSON una sola vez por versión de datos."""
+def cargar_veredas_topo():
     topo = cargar_json("veredas_puerto_rico.json")
     if not topo:
-        return None
-    if topo.get("type") == "FeatureCollection":
-        geojson = topo
-    elif topo.get("type") == "Topology":
-        try:
-            import topojson
-            resultado = topojson.Topology(topo).to_geojson()
-            geojson = json.loads(resultado) if isinstance(resultado, str) else resultado
-        except Exception as e:
-            raise RuntimeError(f"No fue posible convertir la cartografía de veredas: {type(e).__name__}: {e}") from e
-    else:
-        raise RuntimeError(f"Formato cartográfico no reconocido: {topo.get('type')}")
-
-    conteo = {}
-    for registro in eventos_records:
-        codigo = str(registro.get("codigo_ver_resuelto", "")).strip()
-        if codigo:
-            conteo[codigo] = conteo.get(codigo, 0) + 1
-
-    for feature in geojson.get("features", []):
-        props = feature.setdefault("properties", {})
-        codigo = str(props.get("CODIGO_VER", "")).strip()
-        props["eventos_documentados"] = int(conteo.get(codigo, 0))
-
-    return geojson
+        raise RuntimeError("No se encontró data/veredas_puerto_rico.json en el repositorio.")
+    if topo.get("type") != "Topology":
+        raise RuntimeError(f"La capa de veredas no tiene formato TopoJSON: {topo.get('type')}")
+    objetos = topo.get("objects", {})
+    if "Veredas" not in objetos:
+        raise RuntimeError(f"El TopoJSON no contiene el objeto 'Veredas'. Objetos encontrados: {list(objetos.keys())}")
+    return topo
 
 
-def construir_mapa(geojson=None):
+def construir_mapa(topo=None, eventos=None):
     m = folium.Map(location=[1.9123, -75.1842], zoom_start=10, tiles="CartoDB positron")
     folium.Marker([1.9123, -75.1842], tooltip="Puerto Rico, Caquetá").add_to(m)
 
-    if geojson:
-        folium.GeoJson(
-            geojson,
-            name="Veredas + situaciones territoriales",
-            style_function=lambda feature: {
-                "fillColor": "#d73027" if int(feature.get("properties", {}).get("eventos_documentados", 0)) > 0 else "#eeeeee",
+    if topo:
+        conteo = {}
+        if eventos is not None and not eventos.empty and "codigo_ver_resuelto" in eventos.columns:
+            conteo = eventos["codigo_ver_resuelto"].astype(str).str.strip().value_counts().to_dict()
+
+        # Folium renderiza el TopoJSON directamente en el navegador.
+        # Esto evita la conversión TopoJSON -> GeoJSON que estaba provocando
+        # el problema de carga de la capa de veredas.
+        def estilo(feature):
+            props = feature.get("properties", {})
+            codigo = str(props.get("CODIGO_VER", "")).strip()
+            n = int(conteo.get(codigo, 0))
+            return {
+                "fillColor": "#d73027" if n > 0 else "#eeeeee",
                 "color": "#555555",
                 "weight": 0.7,
-                "fillOpacity": 0.55 if int(feature.get("properties", {}).get("eventos_documentados", 0)) > 0 else 0.18,
-            },
-            tooltip=folium.GeoJsonTooltip(
-                fields=["NOMBRE_VER", "CODIGO_VER", "eventos_documentados", "FUENTE"],
-                aliases=["Vereda", "Código", "Situaciones documentadas", "Fuente cartográfica"],
-                localize=True,
-            ),
+                "fillOpacity": 0.55 if n > 0 else 0.18,
+            }
+
+        folium.TopoJson(
+            data=topo,
+            object_path="objects.Veredas",
+            name="Veredas + situaciones territoriales",
+            style_function=estilo,
         ).add_to(m)
 
     folium.LayerControl(collapsed=False).add_to(m)
@@ -90,7 +80,6 @@ st.title("SIGOber-Rural")
 st.caption("Sistema de Información para la Gobernabilidad Territorial Rural — Puerto Rico, Caquetá")
 
 eventos = cargar_eventos()
-eventos_records = tuple(eventos.to_dict("records"))
 
 c1, c2, c3 = st.columns(3)
 c1.metric("Situaciones documentadas", len(eventos))
@@ -99,19 +88,18 @@ c3.metric("Estado", "Operativo")
 
 st.success("La aplicación inició correctamente con datos locales. Las fuentes externas se cargan solo bajo demanda.")
 
-# La capa se conserva en session_state y no vuelve a convertirse en cada rerun.
-if "veredas_geojson" not in st.session_state:
-    st.session_state["veredas_geojson"] = None
+if "veredas_topo" not in st.session_state:
+    st.session_state["veredas_topo"] = None
 
-if st.button("Cargar capa de veredas", type="primary", disabled=st.session_state["veredas_geojson"] is not None):
-    with st.spinner("Preparando la cartografía de veredas por primera vez…"):
+if st.button("Cargar capa de veredas", type="primary", disabled=st.session_state["veredas_topo"] is not None):
+    with st.spinner("Cargando la capa de veredas…"):
         try:
-            st.session_state["veredas_geojson"] = preparar_veredas(eventos_records)
-            st.success("Capa de veredas cargada correctamente.")
+            st.session_state["veredas_topo"] = cargar_veredas_topo()
+            st.success("Capa de veredas preparada. Se está mostrando directamente desde TopoJSON.")
         except Exception as e:
-            st.error(str(e))
+            st.error(f"No se pudo cargar la capa de veredas: {type(e).__name__}: {e}")
 
-m = construir_mapa(st.session_state["veredas_geojson"])
+m = construir_mapa(st.session_state["veredas_topo"], eventos)
 st_folium(m, width="100%", height=620)
 
 st.divider()
@@ -124,11 +112,10 @@ if st.button("Probar conexión con Google Sheets"):
         with st.spinner("Consultando Google Sheets…"):
             conn = st.connection("gsheets", type=GSheetsConnection)
             df = conn.read(worksheet="Conflictos", ttl=300)
-
         if isinstance(df, pd.DataFrame):
             st.success(f"Google Sheets respondió correctamente: {len(df)} registros.")
         else:
-            st.warning(f"Google Sheets respondió, pero el resultado no es una tabla pandas sino {type(df).__name__}: {df!r}")
+            st.warning(f"Google Sheets respondió, pero el resultado no es una tabla pandas sino {type(df).__name__}.")
     except Exception as e:
         st.error(
             "Google Sheets respondió al servidor, pero la lectura de la hoja no pudo completarse. "
