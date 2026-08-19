@@ -11,6 +11,33 @@ from streamlit_folium import st_folium
 st.set_page_config(page_title="SIGOber-Rural", page_icon="🗺️", layout="wide")
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"
+PBOT_DIR = DATA_DIR / "PBOT2015"
+
+PBOT_CAPAS = [
+    ("PBOT2015_ZONIFICACION_USO_SUELO_RURAL.geojson", "Zonificación de uso del suelo rural", ["UGOT", "Aptitud", "area_ha"]),
+    ("PBOT2015_PROTECCION_RURAL.geojson", "Suelos de protección rural", ["Aptitud", "Area_ha"]),
+    ("PBOT2015_PERIMETRO_EXPANSION.geojson", "Perímetro y expansión urbana", ["Tipo", "area_m2", "Id"]),
+    ("PBOT2015_TRATAMIENTOS_URBANOS.geojson", "Tratamientos urbanos", ["Tipo", "area_m2", "Id"]),
+    ("PBOT2015_ZONAS_HOMOGENEAS_URBANAS.geojson", "Zonas homogéneas urbanas", ["Tipo", "area_m2", "Id"]),
+    ("PBOT2015_PUNTOS_EXPANSION_URBANO.geojson", "Puntos de expansión urbana", ["Tipo", "area_m2", "Id"]),
+    ("PBOT2015_MANZANAS_INSPECCIONES.geojson", "Manzanas e inspecciones", ["codigo", "sector_cat", "tipo_avalu", "Reporte"]),
+]
+
+@st.cache_data(show_spinner=False)
+def cargar_pbot_capas():
+    capas = []
+    for archivo, titulo, campos in PBOT_CAPAS:
+        ruta = PBOT_DIR / archivo
+        if not ruta.exists():
+            continue
+        try:
+            with open(ruta, "r", encoding="utf-8") as f:
+                geo = json.load(f)
+            if geo.get("type") == "FeatureCollection":
+                capas.append((titulo, geo, campos))
+        except Exception:
+            continue
+    return capas
 
 def cargar_json(nombre):
     ruta = DATA_DIR / nombre
@@ -92,77 +119,23 @@ def construir_mapa(topo,eventos_historicos,conflictos=None,codigo_seleccionado="
         for _,row in conflictos[conflictos["precision_coordenada"]=="VALIDA"].iterrows():
             folium.CircleMarker(location=[float(row["lat_num"]),float(row["lon_num"])],radius=7,weight=2,fill=True,fill_opacity=.85,tooltip=f"{row.get('tipo_conflicto','Situación')} — {row.get('vereda','')}",popup=folium.Popup(popup_conflicto(row),max_width=340)).add_to(grupo)
         grupo.add_to(m)
-            # ============================================================
+    # ============================================================
     # ORDENAMIENTO TERRITORIAL — PBOT 2015
     # Cartografía de formulación PBOT 2015.
     # No implica actualización al PBOT 2023.
     # No se asignan situaciones territoriales por inferencia espacial.
     # ============================================================
-
-    aliases_pbot = {
-        "UGOT": "UGOT",
-        "Aptitud": "Aptitud",
-        "area_ha": "Área (ha)",
-        "Area_ha": "Área (ha)",
-        "Tipo": "Tipo",
-        "area_m2": "Área (m²)",
-        "Id": "ID",
-        "codigo": "Código",
-        "sector_cat": "Sector catastral",
-        "tipo_avalu": "Tipo avalúo",
-        "Reporte": "Reporte",
-    }
-
+    aliases_pbot = {"UGOT":"UGOT","Aptitud":"Aptitud","area_ha":"Área (ha)","Area_ha":"Área (ha)","Tipo":"Tipo","area_m2":"Área (m²)","Id":"ID","codigo":"Código","sector_cat":"Sector catastral","tipo_avalu":"Tipo avalúo","Reporte":"Reporte"}
     for titulo, geo, campos_preferidos in cargar_pbot_capas():
-
-        grupo_pbot = folium.FeatureGroup(
-            name=f"{titulo} — PBOT 2015",
-            show=False,
-        )
-
-        features = geo.get("features", [])
-
-        props = (
-            features[0].get("properties", {}) or {}
-            if features
-            else {}
-        )
-
-        campos = [
-            campo
-            for campo in campos_preferidos
-            if campo in props
-        ]
-
-        tooltip = None
-
+        grupo_pbot=folium.FeatureGroup(name=f"{titulo} — PBOT 2015",show=False)
+        features=geo.get("features",[])
+        props=(features[0].get("properties",{}) or {}) if features else {}
+        campos=[campo for campo in campos_preferidos if campo in props]
+        tooltip=None
         if campos:
-            tooltip = folium.GeoJsonTooltip(
-                fields=campos,
-                aliases=[
-                    aliases_pbot.get(campo, campo)
-                    for campo in campos
-                ],
-                localize=True,
-                labels=True,
-                sticky=True,
-                style=(
-                    "background-color:white;"
-                    "color:#222;"
-                    "font-family:Arial;"
-                    "font-size:12px;"
-                    "padding:8px;"
-                ),
-            )
-
-        folium.GeoJson(
-            geo,
-            name=titulo,
-            tooltip=tooltip,
-        ).add_to(grupo_pbot)
-
+            tooltip=folium.GeoJsonTooltip(fields=campos,aliases=[aliases_pbot.get(campo,campo) for campo in campos],localize=True,labels=True,sticky=True,style="background-color:white;color:#222;font-family:Arial;font-size:12px;padding:8px;")
+        folium.GeoJson(geo,name=titulo,tooltip=tooltip).add_to(grupo_pbot)
         grupo_pbot.add_to(m)
-   
     folium.LayerControl(collapsed=False).add_to(m); return m
 
 def resumen_sadci(sadci):
@@ -211,7 +184,8 @@ if not eventos_f.empty:
     if ts: eventos_f=eventos_f[eventos_f["tipo_conflicto"].astype(str).isin(ts)]
     if cs: eventos_f=eventos_f[eventos_f["confianza"].astype(str).isin(cs)]
 mostrar=f4.checkbox("Mostrar conflictos de Sheets",value=True)
-st.caption(     "Capa histórica: SITUACIONES_TERRITORIALES. "     "Puntos: registros operativos de la hoja Conflictos. "     "Las fuentes se mantienen separadas." )  st.caption(     "Ordenamiento Territorial — cartografía de formulación PBOT 2015. "     "No implica actualización al PBOT 2023." )  st_folium(     construir_mapa(         topo,         eventos_f,         conflictos,         codigo_sel,         mostrar,     ),     width="100%",     height=650,     returned_objects=["last_active_drawing"], )
+st.caption("Capa histórica: SITUACIONES_TERRITORIALES. Puntos: registros operativos de la hoja Conflictos. Las fuentes se mantienen separadas.")
+st.caption("Ordenamiento Territorial — cartografía de formulación PBOT 2015. No implica actualización al PBOT 2023.")
 st_folium(construir_mapa(topo,eventos_f,conflictos,codigo_sel,mostrar),width="100%",height=650,returned_objects=["last_active_drawing"])
 if not conflictos.empty:
     bad=conflictos[conflictos["precision_coordenada"]!="VALIDA"]
