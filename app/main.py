@@ -128,23 +128,78 @@ def preparar_topo_para_eventos(topo, resumen):
             p["SIGOber_situaciones"] = 0; p["SIGOber_anios"] = "Sin registros"; p["SIGOber_tipos"] = "Sin registros"; p["SIGOber_confianza"] = "Sin registros"
     return copia
 
-def construir_mapa(topo, eventos_historicos, conflictos=None, codigo_seleccionado="", mostrar_conflictos=True, pbot_seleccionadas=(), mostrar_social_demo=False):
+def valor_numerico(df, columna):
+    if not isinstance(df, pd.DataFrame) or df.empty or columna not in df.columns: return None
+    vals = pd.to_numeric(df[columna], errors="coerce").dropna()
+    return float(vals.mean()) if not vals.empty else None
+
+def campos_coordenados(df):
+    if not isinstance(df, pd.DataFrame) or df.empty: return None, None
+    lat_col = next((c for c in ("lat", "latitude", "latitud") if c in df.columns), None)
+    lon_col = next((c for c in ("lon", "longitude", "longitud") if c in df.columns), None)
+    return lat_col, lon_col
+
+def construir_mapa(topo, eventos_historicos, conflictos=None, actores=None, sadci=None, relacion=None, codigo_seleccionado="", mostrar_conflictos=True, pbot_seleccionadas=(), perspectiva="Territorio", mostrar_social_demo=False):
     inicio = time.perf_counter(); resumen = resumenes_por_vereda(eventos_historicos); topo_mapa = preparar_topo_para_eventos(topo, resumen); conteo = resumen.set_index("codigo_ver_resuelto")["SIGOber_situaciones"].to_dict() if not resumen.empty else {}
-    m = folium.Map(location=[1.9123, -75.1842], zoom_start=10, tiles="OpenStreetMap", prefer_canvas=True); folium.Marker([1.9123, -75.1842], tooltip="Puerto Rico, Caquetá").add_to(m)
+    perspectiva = perspectiva or "Territorio"
+    m = folium.Map(location=[1.9123, -75.1842], zoom_start=10, tiles="OpenStreetMap", prefer_canvas=True)
+    folium.Marker([1.9123, -75.1842], tooltip="Puerto Rico, Caquetá").add_to(m)
+
     def estilo(feature):
-        p = feature.get("properties", {}); codigo = str(p.get("CODIGO_VER", "")).strip(); n = int(conteo.get(codigo, 0)); sel = bool(codigo) and codigo == str(codigo_seleccionado).strip(); return {"fillColor": "#d73027" if n > 0 else "#eeeeee", "color": "#111111" if sel else "#555555", "weight": 2.5 if sel else .7, "fillOpacity": .68 if sel else (.55 if n > 0 else .18)}
+        p = feature.get("properties", {}); codigo = str(p.get("CODIGO_VER", "")).strip(); n = int(conteo.get(codigo, 0)); sel = bool(codigo) and codigo == str(codigo_seleccionado).strip()
+        if perspectiva == "Situaciones":
+            fill = "#d73027" if n >= 2 else ("#fc8d59" if n == 1 else "#eeeeee"); opacity = .72 if n else .16
+        elif perspectiva == "Decisiones":
+            fill = "#d73027" if n else "#eeeeee"; opacity = .62 if n else .20
+        elif perspectiva == "Cartografía social":
+            fill = "#74add1" if n else "#eeeeee"; opacity = .48 if n else .13
+        elif perspectiva == "Actores":
+            fill = "#abd9e9" if n else "#eeeeee"; opacity = .38 if n else .13
+        elif perspectiva == "Capacidades":
+            fill = "#91bfdb" if n else "#eeeeee"; opacity = .35 if n else .13
+        else:
+            fill = "#eeeeee"; opacity = .22
+        return {"fillColor": fill, "color": "#111111" if sel else "#555555", "weight": 2.8 if sel else (1.0 if perspectiva != "Territorio" and n else .7), "fillOpacity": .78 if sel else opacity}
+
     tooltip = folium.GeoJsonTooltip(fields=["NOMBRE_VER", "CODIGO_VER", "SIGOber_situaciones", "SIGOber_anios", "SIGOber_tipos", "SIGOber_confianza", "AREA_HA", "FUENTE"], aliases=["Vereda", "Código", "Situaciones documentadas", "Años", "Tipos de situación", "Confianza", "Área (ha)", "Fuente cartográfica"], localize=True, sticky=True, labels=True, style="background-color:white;color:#222;font-family:Arial;font-size:12px;padding:8px;")
-    folium.TopoJson(data=topo_mapa, object_path="objects.Veredas", name="Veredas + situaciones territoriales", style_function=estilo, tooltip=tooltip, show=True).add_to(m)
-    if mostrar_conflictos and conflictos is not None and not conflictos.empty:
+    folium.TopoJson(data=topo_mapa, object_path="objects.Veredas", name=f"Veredas — {perspectiva}", style_function=estilo, tooltip=tooltip, show=True).add_to(m)
+
+    if perspectiva in ("Situaciones", "Decisiones") and mostrar_conflictos and conflictos is not None and not conflictos.empty:
         validos = conflictos.loc[conflictos["precision_coordenada"].eq("VALIDA")]; grupo = folium.FeatureGroup(name="Conflictos registrados — Google Sheets", show=True)
         for row in validos.itertuples(index=False):
             data = row._asdict(); folium.CircleMarker(location=[float(data["lat_num"]), float(data["lon_num"])], radius=7, weight=2, fill=True, fill_opacity=.85, tooltip=f"{data.get('tipo_conflicto', 'Situación')} — {data.get('vereda', '')}", popup=folium.Popup(popup_conflicto(data), max_width=340)).add_to(grupo)
         grupo.add_to(m)
-    if mostrar_social_demo:
+
+    if perspectiva in ("Cartografía social", "Decisiones") and mostrar_social_demo:
         grupo_social = folium.FeatureGroup(name="Cartografía social", show=True)
         for punto in PUNTOS_SOCIALES_DEMO:
             folium.CircleMarker(location=[punto["lat"], punto["lon"]], radius=8, weight=2, fill=True, fill_opacity=.9, tooltip=punto["categoria"], popup=folium.Popup(popup_social_demo(punto), max_width=340)).add_to(grupo_social)
         grupo_social.add_to(m)
+
+    if perspectiva == "Actores":
+        lat_col, lon_col = campos_coordenados(actores)
+        if lat_col and lon_col:
+            grupo_actores = folium.FeatureGroup(name="Actores registrados", show=True)
+            for row in actores.fillna("").itertuples(index=False):
+                data = row._asdict(); lat = pd.to_numeric(data.get(lat_col), errors="coerce"); lon = pd.to_numeric(data.get(lon_col), errors="coerce")
+                if pd.isna(lat) or pd.isna(lon) or abs(float(lat)) > 90 or abs(float(lon)) > 180: continue
+                nombre = next((str(data.get(c, "")).strip() for c in ("actor", "nombre", "nombre_actor", "organizacion", "organización") if str(data.get(c, "")).strip()), "Actor registrado")
+                folium.CircleMarker(location=[float(lat), float(lon)], radius=7, weight=2, fill=True, fill_opacity=.85, tooltip=nombre).add_to(grupo_actores)
+            grupo_actores.add_to(m)
+        else:
+            folium.Marker([1.9123, -75.1842], tooltip="Actores registrados: sin coordenadas geográficas en la fuente", icon=folium.Icon(icon="users", prefix="fa")).add_to(m)
+
+    if perspectiva == "Capacidades":
+        ejec = valor_numerico(sadci, "ejecucion_presupuestal_pct"); pdt = valor_numerico(sadci, "cumplimiento_pdt_pct")
+        texto = "Capacidad institucional"
+        if ejec is not None or pdt is not None:
+            texto += f" · ejecución {ejec:.0f}%" if ejec is not None else ""
+            texto += f" · PDT {pdt:.0f}%" if pdt is not None else ""
+        folium.Marker([1.9123, -75.1842], tooltip=texto, popup=texto, icon=folium.Icon(icon="building", prefix="fa")).add_to(m)
+
+    if perspectiva == "Decisiones":
+        folium.Marker([1.9123, -75.1842], tooltip="Lectura de decisión: priorizar, coordinar y actuar", popup="La lectura combina evidencia territorial, actores, capacidades y cartografía social disponible.", icon=folium.Icon(icon="bullseye", prefix="fa")).add_to(m)
+
     aliases_pbot = {"UGOT":"UGOT", "Aptitud":"Aptitud", "area_ha":"Área (ha)", "Area_ha":"Área (ha)", "Tipo":"Tipo", "area_m2":"Área (m²)", "Id":"ID", "codigo":"Código", "sector_cat":"Sector catastral", "tipo_avalu":"Tipo avalúo", "Reporte":"Reporte"}; disponibles = {x[0]: x for x in cargar_pbot_capas()}
     for archivo in pbot_seleccionadas:
         capa = disponibles.get(archivo)
@@ -169,7 +224,7 @@ def mostrar_panel_dimension(dimension, historicos, conflictos, actores, sadci, r
     codigo = seleccion.split(" — ")[-1] if seleccion != "Todas las veredas" else ""
     st.markdown(f"<div class='gigapp-panel'><b>{dimension}</b><span> · {nombre}</span></div>", unsafe_allow_html=True)
     if dimension == "Territorio":
-        st.write("La vereda funciona como unidad de lectura territorial. Seleccione otra vereda en el centro para desplazar el foco del mapa.")
+        st.write("La vereda funciona como unidad de lectura territorial. El mapa muestra ahora el territorio sin superponer evidencia temática.")
     elif dimension == "Situaciones":
         df = historicos.copy()
         if codigo and "codigo_ver_resuelto" in df.columns: df = df[df["codigo_ver_resuelto"].astype(str).str.strip().eq(codigo)]
@@ -179,14 +234,12 @@ def mostrar_panel_dimension(dimension, historicos, conflictos, actores, sadci, r
             cols = [c for c in ["anio", "tipo_conflicto", "subtipo", "confianza", "precision_espacial", "estado_territorial"] if c in df.columns]
             st.dataframe(df[cols].head(8), use_container_width=True, hide_index=True)
     elif dimension == "Cartografía social":
-        st.write("La lectura participativa complementa la evidencia documental con problemas, recursos, percepciones y oportunidades reconocidas en el territorio.")
-        st.info("Use el control del centro para incorporar la cartografía social al mapa.")
+        st.write("El mapa cambia a la lectura participativa: problemas, recursos, percepciones y oportunidades reconocidas en el territorio.")
     elif dimension == "Actores":
         st.metric("Actores registrados", len(actores) if isinstance(actores, pd.DataFrame) else 0)
-        if isinstance(actores, pd.DataFrame) and not actores.empty:
-            cols = [c for c in actores.columns if c not in {"lat", "lon"}][:5]
-            st.dataframe(actores[cols].head(6), use_container_width=True, hide_index=True)
-        st.caption("Pregunta de decisión: ¿quién puede intervenir, coordinar o aportar recursos frente a una situación localizada?")
+        lat_col, lon_col = campos_coordenados(actores)
+        if lat_col and lon_col: st.caption("La vista territorial incorpora los actores que cuentan con coordenadas válidas en la fuente.")
+        else: st.caption("La fuente de actores no contiene coordenadas utilizables; se conserva el registro sin inventar localizaciones.")
     elif dimension == "Capacidades":
         r = resumen_sadci(sadci)
         if r:
@@ -194,13 +247,13 @@ def mostrar_panel_dimension(dimension, historicos, conflictos, actores, sadci, r
         else: st.info("No hay indicadores SADCI disponibles para mostrar en este momento.")
     elif dimension == "Decisiones":
         nrel = len(relacion) if isinstance(relacion, pd.DataFrame) else 0
-        st.write("La decisión aparece cuando territorio, situaciones, actores y capacidades pueden ponerse en relación.")
+        st.write("La vista sintetiza las señales disponibles para pasar de lectura territorial a priorización y coordinación.")
         a,b = st.columns(2); a.metric("Relaciones interinstitucionales", nrel); b.metric("Actores disponibles", len(actores) if isinstance(actores, pd.DataFrame) else 0)
         st.markdown("**Pregunta de cierre:** ¿qué coordinación concreta puede activarse a partir de esta lectura territorial?")
 
 st.markdown("""
 <style>
-.sigo-hero{padding:.2rem 0 .6rem}.sigo-kicker{font-size:.72rem;font-weight:750;letter-spacing:.14em;text-transform:uppercase;opacity:.62}.sigo-title{font-size:2.25rem;font-weight:820;line-height:1.04;margin:.1rem 0 .25rem}.sigo-subtitle{font-size:.96rem;opacity:.72;max-width:920px}.sigo-section{margin-top:.55rem;margin-bottom:.15rem;font-size:1.1rem;font-weight:760}.sigo-note{padding:.75rem 1rem;border-radius:.75rem;border:1px solid rgba(128,128,128,.2);background:rgba(128,128,128,.045)}.gigapp-card{padding:.55rem .7rem;border:1px solid rgba(128,128,128,.22);border-radius:.9rem;background:rgba(128,128,128,.035);min-height:82px;margin-bottom:.45rem}.gigapp-card h4{margin:0 0 .18rem;font-size:.9rem}.gigapp-q{font-size:.76rem;opacity:.67}.gigapp-map{padding:0 .25rem}.gigapp-center{padding:.55rem .8rem;text-align:center;font-weight:760;letter-spacing:.03em}.gigapp-caption{font-size:.82rem;opacity:.72;text-align:center;margin:.1rem auto .6rem;max-width:680px}.gigapp-panel{margin:.5rem 0 .25rem;padding:.65rem .85rem;border-radius:.75rem;background:rgba(128,128,128,.055);border-left:3px solid rgba(80,80,80,.45)}div[data-testid="stMetric"]{padding:.4rem .65rem;border:1px solid rgba(128,128,128,.17);border-radius:.62rem;background:rgba(128,128,128,.03)}
+.sigo-hero{padding:.2rem 0 .6rem}.sigo-kicker{font-size:.72rem;font-weight:750;letter-spacing:.14em;text-transform:uppercase;opacity:.62}.sigo-title{font-size:2.25rem;font-weight:820;line-height:1.04;margin:.1rem 0 .25rem}.sigo-subtitle{font-size:.96rem;opacity:.72;max-width:920px}.sigo-section{margin-top:.55rem;margin-bottom:.15rem;font-size:1.1rem;font-weight:760}.sigo-note{padding:.75rem 1rem;border-radius:.75rem;border:1px solid rgba(128,128,128,.2);background:rgba(128,128,128,.045)}.gigapp-card{padding:.55rem .7rem;border:1px solid rgba(128,128,128,.22);border-radius:.9rem;background:rgba(128,128,128,.035);min-height:82px;margin-bottom:.2rem}.gigapp-card h4{margin:0 0 .18rem;font-size:.9rem}.gigapp-q{font-size:.76rem;opacity:.67}.gigapp-caption{font-size:.82rem;opacity:.72;text-align:center;margin:.1rem auto .6rem;max-width:680px}.gigapp-panel{margin:.5rem 0 .25rem;padding:.65rem .85rem;border-radius:.75rem;background:rgba(128,128,128,.055);border-left:3px solid rgba(80,80,80,.45)}.gigapp-active{border:2px solid rgba(80,80,80,.55);background:rgba(128,128,128,.08)}div[data-testid="stMetric"]{padding:.4rem .65rem;border:1px solid rgba(128,128,128,.17);border-radius:.62rem;background:rgba(128,128,128,.03)}
 </style>""", unsafe_allow_html=True)
 
 with st.sidebar:
@@ -219,8 +272,7 @@ num_actores = len(gd["Actores"]) if isinstance(gd.get("Actores"), pd.DataFrame) 
 sadci_resumen = resumen_sadci(gd.get("SADCI"))
 
 if modo_presentacion:
-    st.markdown("<div class='gigapp-center'>TERRITORIO · SITUACIONES · CARTOGRAFÍA SOCIAL · ACTORES · CAPACIDADES · DECISIONES</div>", unsafe_allow_html=True)
-    st.markdown("<div class='gigapp-caption'>El territorio en el centro; las dimensiones de gobernabilidad alrededor.</div>", unsafe_allow_html=True)
+    st.markdown("<div class='gigapp-caption'>Cada dimensión es una forma distinta de mirar el mismo territorio. Al seleccionarla, el mapa cambia de lectura.</div>", unsafe_allow_html=True)
 else:
     a,b,c,d = st.columns(4); a.metric("Situaciones históricas", len(historicos)); b.metric("Veredas con situaciones", num_veredas_situacion); c.metric("Conflictos en Sheets", num_conflictos if isinstance(gd.get("Conflictos"), pd.DataFrame) else "—"); d.metric("Actores", num_actores if isinstance(gd.get("Actores"), pd.DataFrame) else "—")
     st.markdown("<div class='sigo-note'><b>Lectura de gobernabilidad:</b> SIGOber-Rural organiza el territorio alrededor de situaciones, actores y capacidad institucional. La geometría es soporte para la decisión, no el resultado final.</div>", unsafe_allow_html=True)
@@ -236,42 +288,36 @@ veredas_df = propiedades_veredas(topo); nombres = veredas_df[["CODIGO_VER", "NOM
 if modo_presentacion:
     left, center, right = st.columns([1.05, 3.1, 1.05], gap="medium")
     if "gigapp_dimension" not in st.session_state: st.session_state["gigapp_dimension"] = "Territorio"
+    dimension = st.session_state["gigapp_dimension"]
     with left:
-        st.markdown("<div class='gigapp-card'><h4>01 · Territorio</h4><div class='gigapp-q'>¿Dónde?</div><p>Veredas como unidad de lectura.</p></div>", unsafe_allow_html=True)
-        if st.button("Explorar territorio", key="dim_territorio", use_container_width=True): st.session_state["gigapp_dimension"] = "Territorio"
-        st.markdown("<div class='gigapp-card'><h4>02 · Situaciones</h4><div class='gigapp-q'>¿Qué ocurre?</div><p>Evidencia documentada.</p></div>", unsafe_allow_html=True)
-        if st.button("Ver situaciones", key="dim_situaciones", use_container_width=True): st.session_state["gigapp_dimension"] = "Situaciones"
-        st.markdown("<div class='gigapp-card'><h4>03 · Cartografía social</h4><div class='gigapp-q'>¿Cómo se interpreta?</div><p>Conocimiento territorial.</p></div>", unsafe_allow_html=True)
-        if st.button("Escuchar al territorio", key="dim_social", use_container_width=True): st.session_state["gigapp_dimension"] = "Cartografía social"
+        cards_left = [("Territorio", "01", "¿Dónde?", "Veredas como unidad de lectura.", "Explorar territorio", "dim_territorio"), ("Situaciones", "02", "¿Qué ocurre?", "Evidencia documentada.", "Ver situaciones", "dim_situaciones"), ("Cartografía social", "03", "¿Cómo se interpreta?", "Conocimiento territorial.", "Escuchar al territorio", "dim_social")]
+        for nombre, num, pregunta, texto, boton, key in cards_left:
+            clase = "gigapp-card gigapp-active" if dimension == nombre else "gigapp-card"
+            st.markdown(f"<div class='{clase}'><h4>{num} · {nombre}</h4><div class='gigapp-q'>{pregunta}</div><p>{texto}</p></div>", unsafe_allow_html=True)
+            if st.button(boton, key=key, use_container_width=True):
+                st.session_state["gigapp_dimension"] = nombre
+                st.rerun()
     with center:
         seleccion = st.selectbox("Vereda", opciones, label_visibility="collapsed")
         codigo_sel = "" if seleccion == "Todas las veredas" else seleccion.split(" — ")[-1]
-        mostrar_social = st.toggle("Incorporar cartografía social", value=False, help="Añade la lectura participativa al mapa.")
+        mostrar_social = st.toggle("Mostrar cartografía social", value=(dimension == "Cartografía social"), help="Activa la capa participativa cuando la perspectiva social está seleccionada.")
         eventos_f = historicos.copy(); conflictos = normalizar_conflictos(gd["Conflictos"]) if isinstance(gd.get("Conflictos"), pd.DataFrame) else pd.DataFrame()
-        mapa, segundos_mapa = construir_mapa(topo, eventos_f, conflictos, codigo_sel, True, (), mostrar_social_demo=mostrar_social)
+        mapa, segundos_mapa = construir_mapa(topo, eventos_f, conflictos, gd.get("Actores"), gd.get("SADCI"), gd.get("Relación Interinstitucional"), codigo_sel, True, (), dimension, mostrar_social_demo=mostrar_social)
         st_folium(mapa, width="100%", height=610, returned_objects=["last_active_drawing"])
-        st.caption("Evidencia territorial documentada" + (" · + cartografía social" if mostrar_social else ""))
+        st.caption(f"Perspectiva activa: {dimension} · mapa generado en {segundos_mapa:.2f} s")
     with right:
-        st.markdown("<div class='gigapp-card'><h4>04 · Actores</h4><div class='gigapp-q'>¿Quiénes intervienen?</div><p>Presencia y acción territorial.</p></div>", unsafe_allow_html=True)
-        if st.button("Explorar actores", key="dim_actores", use_container_width=True): st.session_state["gigapp_dimension"] = "Actores"
-        st.markdown("<div class='gigapp-card'><h4>05 · Capacidades</h4><div class='gigapp-q'>¿Con qué recursos?</div><p>Capacidad institucional.</p></div>", unsafe_allow_html=True)
-        if st.button("Ver capacidades", key="dim_capacidades", use_container_width=True): st.session_state["gigapp_dimension"] = "Capacidades"
-        st.markdown("<div class='gigapp-card'><h4>06 · Decisiones</h4><div class='gigapp-q'>¿Qué podemos hacer?</div><p>Gobernabilidad rural.</p></div>", unsafe_allow_html=True)
-        if st.button("Abrir decisiones", key="dim_decisiones", use_container_width=True): st.session_state["gigapp_dimension"] = "Decisiones"
+        cards_right = [("Actores", "04", "¿Quiénes intervienen?", "Presencia y acción territorial.", "Explorar actores", "dim_actores"), ("Capacidades", "05", "¿Con qué recursos?", "Capacidad institucional.", "Ver capacidades", "dim_capacidades"), ("Decisiones", "06", "¿Qué podemos hacer?", "Gobernabilidad rural.", "Abrir decisiones", "dim_decisiones")]
+        for nombre, num, pregunta, texto, boton, key in cards_right:
+            clase = "gigapp-card gigapp-active" if dimension == nombre else "gigapp-card"
+            st.markdown(f"<div class='{clase}'><h4>{num} · {nombre}</h4><div class='gigapp-q'>{pregunta}</div><p>{texto}</p></div>", unsafe_allow_html=True)
+            if st.button(boton, key=key, use_container_width=True):
+                st.session_state["gigapp_dimension"] = nombre
+                st.rerun()
 
-    mostrar_panel_dimension(st.session_state["gigapp_dimension"], historicos, conflictos, gd.get("Actores"), gd.get("SADCI"), gd.get("Relación Interinstitucional"), seleccion)
-
-    if mostrar_social:
-        st.markdown("<div class='sigo-section'>Lectura territorial</div>", unsafe_allow_html=True)
-        if seleccion == "Todas las veredas":
-            st.caption("La cartografía social amplía la lectura documental incorporando problemas, recursos y percepciones del territorio.")
-        else:
-            nombre_sel = seleccion.rsplit(" — ", 1)[0]; resumen = resumenes_por_vereda(eventos_f); fila = resumen.loc[resumen["codigo_ver_resuelto"].eq(codigo_sel)] if not resumen.empty else pd.DataFrame(); n = int(fila.iloc[0]["SIGOber_situaciones"]) if not fila.empty else 0; tipos = str(fila.iloc[0]["SIGOber_tipos"]) if not fila.empty else "Sin situaciones documentadas"
-            a,b,c = st.columns(3); a.metric("Vereda", nombre_sel); b.metric("Situaciones documentadas", n); c.metric("Actores registrados", num_actores)
-            st.markdown(f"**Lectura:** {nombre_sel} concentra {n} situación(es) documentada(s). La cartografía social permite complementar esa evidencia con prioridades territoriales, recursos y percepciones que pueden orientar la acción institucional. **Dimensiones documentales:** {tipos}.")
+    mostrar_panel_dimension(dimension, historicos, conflictos, gd.get("Actores"), gd.get("SADCI"), gd.get("Relación Interinstitucional"), seleccion)
 
     st.markdown("<div class='sigo-section'>Gobernabilidad</div>", unsafe_allow_html=True)
-    st.markdown("<div class='sigo-note'><b>Territorio</b> → <b>Situaciones</b> → <b>Cartografía social</b> → <b>Actores</b> → <b>Capacidades</b> → <b>Decisiones</b><br><span style='opacity:.72'>La plataforma integra distintas formas de conocimiento para apoyar una mejor lectura del territorio.</span></div>", unsafe_allow_html=True)
+    st.markdown("<div class='sigo-note'><b>Territorio</b> → <b>Situaciones</b> → <b>Cartografía social</b> → <b>Actores</b> → <b>Capacidades</b> → <b>Decisiones</b><br><span style='opacity:.72'>Las dimensiones no agregan capas indiscriminadamente: cada una cambia la pregunta y la lectura del mapa.</span></div>", unsafe_allow_html=True)
     with st.expander("ⓘ Evidencia y metodología"):
         st.write("Las situaciones históricas provienen de la base territorial documentada y conservan su confianza y precisión espacial. Los registros operativos de Google Sheets se mantienen separados. La capa de cartografía social incluida para la puesta en escena es ilustrativa: sus coordenadas y voces no corresponden a registros reales de conflicto.")
         st.caption("La incorporación de cartografía social real reemplazará esta capa ilustrativa cuando estén disponibles las capas digitalizadas de los talleres participativos.")
@@ -287,6 +333,6 @@ else:
     st.caption("Capa histórica: SITUACIONES_TERRITORIALES. Puntos: registros operativos de la hoja Conflictos. Las fuentes se mantienen separadas."); st.caption("Ordenamiento Territorial — cartografía de formulación PBOT 2015. No implica actualización al PBOT 2023.")
     conflictos=pd.DataFrame()
     if isinstance(gd.get("Conflictos"),pd.DataFrame): conflictos=normalizar_conflictos(gd["Conflictos"])
-    mapa,segundos_mapa=construir_mapa(topo,eventos_f,conflictos,codigo_sel,mostrar,tuple(pbot_seleccionadas),mostrar_social_demo=False); st.caption(f"Generación del mapa en servidor: {segundos_mapa:.2f} s"); st_folium(mapa,width="100%",height=650,returned_objects=["last_active_drawing"])
+    mapa,segundos_mapa=construir_mapa(topo,eventos_f,conflictos,gd.get("Actores"),gd.get("SADCI"),gd.get("Relación Interinstitucional"),codigo_sel,mostrar,tuple(pbot_seleccionadas),"Situaciones",False); st.caption(f"Generación del mapa en servidor: {segundos_mapa:.2f} s"); st_folium(mapa,width="100%",height=650,returned_objects=["last_active_drawing"])
 
 st.caption("SIGOber-Rural · prototipo de trabajo para análisis y gobernabilidad territorial rural")
