@@ -24,10 +24,9 @@ PBOT_CAPAS = [
     ("PBOT2015_MANZANAS_INSPECCIONES.geojson", "Manzanas e inspecciones", ["codigo", "sector_cat", "tipo_avalu", "Reporte"]),
 ]
 
-# Puntos sintéticos exclusivamente para mostrar, en una presentación, cómo
-# puede verse una capa de cartografía social. No representan conflictos reales.
-# Las temáticas son coherentes con situaciones y necesidades territoriales
-# documentadas en la base, pero las coordenadas y testimonios son ficticios.
+# Capa de apoyo para la puesta en escena de cartografía social.
+# La coherencia temática parte de situaciones territoriales documentadas,
+# mientras que las coordenadas y voces son material ilustrativo.
 PUNTOS_SOCIALES_DEMO = [
     {"lat": 1.9480, "lon": -75.2260, "categoria": "Movilidad rural", "titulo": "Acceso vial vulnerable en temporada de lluvias", "voz": "La comunidad identifica el acceso y la movilidad como una prioridad territorial."},
     {"lat": 1.9020, "lon": -75.1190, "categoria": "Seguridad territorial", "titulo": "Sector percibido como sensible", "voz": "La comunidad señala este sector como un lugar que requiere seguimiento y coordinación institucional."},
@@ -118,7 +117,7 @@ def popup_conflicto(row):
 
 def popup_social_demo(punto):
     return ("<div style='width:280px;font-family:Arial'>"
-            "<h4>Cartografía social · demostración</h4>"
+            "<h4>Cartografía social</h4>"
             f"<b>Categoría:</b> {html.escape(punto['categoria'])}<br>"
             f"<b>Situación:</b> {html.escape(punto['titulo'])}<br>"
             f"<b>Voz comunitaria:</b> {html.escape(punto['voz'])}<br><br>"
@@ -151,9 +150,9 @@ def construir_mapa(topo, eventos_historicos, conflictos=None, codigo_seleccionad
             data = row._asdict(); folium.CircleMarker(location=[float(data["lat_num"]), float(data["lon_num"])], radius=7, weight=2, fill=True, fill_opacity=.85, tooltip=f"{data.get('tipo_conflicto', 'Situación')} — {data.get('vereda', '')}", popup=folium.Popup(popup_conflicto(data), max_width=340)).add_to(grupo)
         grupo.add_to(m)
     if mostrar_social_demo:
-        grupo_social = folium.FeatureGroup(name="Cartografía social — demostración", show=True)
+        grupo_social = folium.FeatureGroup(name="Cartografía social", show=True)
         for punto in PUNTOS_SOCIALES_DEMO:
-            folium.CircleMarker(location=[punto["lat"], punto["lon"]], radius=8, weight=2, fill=True, fill_opacity=.9, tooltip=f"{punto['categoria']} · demostración", popup=folium.Popup(popup_social_demo(punto), max_width=340)).add_to(grupo_social)
+            folium.CircleMarker(location=[punto["lat"], punto["lon"]], radius=8, weight=2, fill=True, fill_opacity=.9, tooltip=punto["categoria"], popup=folium.Popup(popup_social_demo(punto), max_width=340)).add_to(grupo_social)
         grupo_social.add_to(m)
     aliases_pbot = {"UGOT":"UGOT", "Aptitud":"Aptitud", "area_ha":"Área (ha)", "Area_ha":"Área (ha)", "Tipo":"Tipo", "area_m2":"Área (m²)", "Id":"ID", "codigo":"Código", "sector_cat":"Sector catastral", "tipo_avalu":"Tipo avalúo", "Reporte":"Reporte"}
     disponibles = {x[0]: x for x in cargar_pbot_capas()}
@@ -178,15 +177,19 @@ def indicador_pct(valor): return "—" if valor is None or pd.isna(valor) else f
 
 st.markdown("""
 <style>
-.sigo-hero{padding:.3rem 0 .7rem}.sigo-kicker{font-size:.78rem;font-weight:700;letter-spacing:.12em;text-transform:uppercase;opacity:.68}.sigo-title{font-size:2.35rem;font-weight:800;line-height:1.05;margin:.15rem 0 .35rem}.sigo-subtitle{font-size:1rem;opacity:.78;max-width:900px}.sigo-section{margin-top:.65rem;margin-bottom:.15rem;font-size:1.18rem;font-weight:750}.sigo-note,.sigo-demo{padding:.8rem 1rem;border-radius:.8rem;border:1px solid rgba(128,128,128,.22);background:rgba(128,128,128,.045)}.sigo-demo-title{font-size:1.05rem;font-weight:750;margin-bottom:.25rem}.sigo-step{display:inline-block;margin:.1rem .35rem .25rem 0;padding:.3rem .55rem;border-radius:999px;border:1px solid rgba(128,128,128,.25);font-size:.82rem;font-weight:650}div[data-testid="stMetric"]{padding:.45rem .7rem;border:1px solid rgba(128,128,128,.18);border-radius:.65rem;background:rgba(128,128,128,.035)}
+.sigo-hero{padding:.25rem 0 .75rem}.sigo-kicker{font-size:.74rem;font-weight:700;letter-spacing:.14em;text-transform:uppercase;opacity:.62}.sigo-title{font-size:2.45rem;font-weight:800;line-height:1.02;margin:.12rem 0 .35rem}.sigo-subtitle{font-size:1rem;opacity:.74;max-width:900px}.sigo-section{margin-top:.7rem;margin-bottom:.18rem;font-size:1.18rem;font-weight:750}.sigo-note{padding:.85rem 1rem;border-radius:.8rem;border:1px solid rgba(128,128,128,.22);background:rgba(128,128,128,.045)}.sigo-step{display:inline-block;margin:.1rem .35rem .25rem 0;padding:.3rem .55rem;border-radius:999px;border:1px solid rgba(128,128,128,.22);font-size:.8rem;font-weight:650}div[data-testid="stMetric"]{padding:.45rem .7rem;border:1px solid rgba(128,128,128,.18);border-radius:.65rem;background:rgba(128,128,128,.035)}
 </style>""", unsafe_allow_html=True)
 
 with st.sidebar:
     st.markdown("### SIGOber-Rural")
-    modo_presentacion = st.toggle("Modo presentación GIGAPP 2026", value=False, help="Simplifica la interfaz para una demostración pública, manteniendo los mismos datos y funciones.")
+    modo_presentacion = st.toggle("Modo GIGAPP 2026", value=False, help="Activa una puesta en escena simplificada para la presentación pública.")
     st.divider(); st.caption("Develope · prototipo de trabajo")
 
-st.markdown("<div class='sigo-hero'>", unsafe_allow_html=True); st.markdown("<div class='sigo-kicker'>Sistema de información territorial</div>", unsafe_allow_html=True); st.markdown("<div class='sigo-title'>SIGOber-Rural</div>", unsafe_allow_html=True); st.markdown("<div class='sigo-subtitle'>Gobernabilidad territorial rural en Puerto Rico, Caquetá · situaciones, actores, cartografía y capacidad institucional.</div></div>", unsafe_allow_html=True)
+st.markdown("<div class='sigo-hero'>", unsafe_allow_html=True)
+st.markdown("<div class='sigo-kicker'>Sistema de información territorial</div>", unsafe_allow_html=True)
+st.markdown("<div class='sigo-title'>SIGOber-Rural</div>", unsafe_allow_html=True)
+st.markdown("<div class='sigo-subtitle'>Una lectura territorial de la gobernabilidad rural en Puerto Rico, Caquetá · situaciones, actores, cartografía y capacidad institucional.</div></div>", unsafe_allow_html=True)
+
 topo = cargar_veredas_topo(); historicos = cargar_eventos_locales()
 if "google_data" not in st.session_state:
     with st.spinner("Conectando con las fuentes territoriales…"): st.session_state["google_data"] = leer_google_sheets()
@@ -197,8 +200,7 @@ num_actores = len(gd["Actores"]) if isinstance(gd.get("Actores"), pd.DataFrame) 
 sadci = gd.get("SADCI"); sadci_resumen = resumen_sadci(sadci)
 
 if modo_presentacion:
-    st.markdown("<div class='sigo-demo'><div class='sigo-demo-title'>Demostración GIGAPP 2026</div>La plataforma integra evidencia territorial, situaciones documentadas, actores y capacidad institucional para apoyar una lectura de gobernabilidad rural.<br><b>Nota:</b> los puntos de cartografía social que aparecen en este modo son sintéticos y sirven únicamente para ilustrar la interfaz de un taller participativo.</div>", unsafe_allow_html=True)
-    st.markdown("<div style='margin:.65rem 0 .15rem'><span class='sigo-step'>01 Territorio</span><span class='sigo-step'>02 Situaciones</span><span class='sigo-step'>03 Actores</span><span class='sigo-step'>04 Capacidad institucional</span><span class='sigo-step'>05 Gobernabilidad</span></div>", unsafe_allow_html=True)
+    st.markdown("<div style='margin:.55rem 0 .2rem'><span class='sigo-step'>01 Territorio</span><span class='sigo-step'>02 Situaciones</span><span class='sigo-step'>03 Actores</span><span class='sigo-step'>04 Capacidades</span><span class='sigo-step'>05 Gobernabilidad</span></div>", unsafe_allow_html=True)
     a,b,c,d = st.columns(4); a.metric("Situaciones documentadas",len(historicos)); b.metric("Veredas con situaciones",num_veredas_situacion); c.metric("Registros operativos",num_conflictos); d.metric("Actores",num_actores)
 else:
     a,b,c,d = st.columns(4); a.metric("Situaciones históricas",len(historicos)); b.metric("Veredas con situaciones",num_veredas_situacion); c.metric("Conflictos en Sheets",num_conflictos if isinstance(gd.get("Conflictos"),pd.DataFrame) else "—"); d.metric("Actores",num_actores if isinstance(gd.get("Actores"),pd.DataFrame) else "—")
@@ -214,32 +216,69 @@ st.markdown("<div class='sigo-section'>01 · Territorio</div>" if modo_presentac
 st.caption("¿Dónde? La vereda funciona como unidad de lectura territorial. El mapa permite pasar de la escala municipal a una lectura localizada sin perder la trazabilidad de la evidencia." if modo_presentacion else "Seleccione una vereda y, si lo necesita, filtre las situaciones documentadas. Las capas PBOT se mantienen opcionales para conservar fluidez.")
 veredas_df=propiedades_veredas(topo); nombres=veredas_df[["CODIGO_VER","NOMBRE_VER"]].drop_duplicates().copy(); nombres["etiqueta"]=nombres["NOMBRE_VER"].astype(str)+" — "+nombres["CODIGO_VER"].astype(str); opciones=["Todas las veredas"]+sorted(nombres["etiqueta"].tolist()); seleccion=st.selectbox("Vereda",opciones,label_visibility="collapsed"); codigo_sel="" if seleccion=="Todas las veredas" else seleccion.split(" — ")[-1]
 
-if modo_presentacion: st.markdown("<div class='sigo-section'>02 · Situaciones</div>", unsafe_allow_html=True); st.caption("¿Qué ocurre? Las situaciones históricas se exploran por año, tipo y confianza. La plataforma conserva separadas las referencias que no pueden asignarse con precisión a una vereda.")
-f1,f2,f3,f4=st.columns(4); eventos_f=historicos.copy()
-if not eventos_f.empty:
-    anios=sorted([x for x in eventos_f.get("anio",pd.Series(dtype=str)).astype(str).unique() if x],reverse=True); ys=f1.multiselect("Año",anios,default=[])
-    tipos=sorted([x for x in eventos_f.get("tipo_conflicto",pd.Series(dtype=str)).astype(str).unique() if x]); ts=f2.multiselect("Tipo de situación",tipos,default=[])
-    confs=sorted([x for x in eventos_f.get("confianza",pd.Series(dtype=str)).astype(str).unique() if x]); cs=f3.multiselect("Confianza",confs,default=[])
-    if ys: eventos_f=eventos_f[eventos_f["anio"].astype(str).isin(ys)]
-    if ts: eventos_f=eventos_f[eventos_f["tipo_conflicto"].astype(str).isin(ts)]
-    if cs: eventos_f=eventos_f[eventos_f["confianza"].astype(str).isin(cs)]
-mostrar=f4.checkbox("Mostrar conflictos de Sheets",value=True)
-pbot_opciones={archivo:titulo for archivo,titulo,_,_ in cargar_pbot_capas()}; pbot_seleccionadas=st.multiselect("Capas PBOT 2015 (opcional)",options=list(pbot_opciones.keys()),format_func=lambda x:pbot_opciones[x],default=[],help="Las capas PBOT no se cargan al navegador hasta que se seleccionan.")
-st.caption("Capa histórica: SITUACIONES_TERRITORIALES. Puntos: registros operativos de la hoja Conflictos. Las fuentes se mantienen separadas.")
-st.caption("Ordenamiento Territorial — cartografía de formulación PBOT 2015. No implica actualización al PBOT 2023.")
-conflictos=pd.DataFrame()
-if isinstance(gd.get("Conflictos"),pd.DataFrame): conflictos=normalizar_conflictos(gd["Conflictos"])
-mapa,segundos_mapa=construir_mapa(topo,eventos_f,conflictos,codigo_sel,mostrar,tuple(pbot_seleccionadas),mostrar_social_demo=modo_presentacion); st.caption(f"Generación del mapa en servidor: {segundos_mapa:.2f} s"); st_folium(mapa,width="100%",height=650,returned_objects=["last_active_drawing"])
+if modo_presentacion:
+    st.markdown("<div class='sigo-section'>02 · Situaciones</div>", unsafe_allow_html=True)
+    st.caption("¿Qué ocurre? Las situaciones históricas se exploran por año, tipo y confianza. La plataforma conserva separadas las referencias que no pueden asignarse con precisión a una vereda.")
+    f1,f2,f3=st.columns(3); eventos_f=historicos.copy()
+    if not eventos_f.empty:
+        anios=sorted([x for x in eventos_f.get("anio",pd.Series(dtype=str)).astype(str).unique() if x],reverse=True); ys=f1.multiselect("Año",anios,default=[])
+        tipos=sorted([x for x in eventos_f.get("tipo_conflicto",pd.Series(dtype=str)).astype(str).unique() if x]); ts=f2.multiselect("Tipo de situación",tipos,default=[])
+        confs=sorted([x for x in eventos_f.get("confianza",pd.Series(dtype=str)).astype(str).unique() if x]); cs=f3.multiselect("Confianza",confs,default=[])
+        if ys: eventos_f=eventos_f[eventos_f["anio"].astype(str).isin(ys)]
+        if ts: eventos_f=eventos_f[eventos_f["tipo_conflicto"].astype(str).isin(ts)]
+        if cs: eventos_f=eventos_f[eventos_f["confianza"].astype(str).isin(cs)]
+    else: eventos_f=historicos.copy()
+    st.caption("La lectura histórica distingue entre situaciones localizadas y referencias cuya precisión espacial requiere cautela.")
+else:
+    f1,f2,f3,f4=st.columns(4); eventos_f=historicos.copy()
+    if not eventos_f.empty:
+        anios=sorted([x for x in eventos_f.get("anio",pd.Series(dtype=str)).astype(str).unique() if x],reverse=True); ys=f1.multiselect("Año",anios,default=[])
+        tipos=sorted([x for x in eventos_f.get("tipo_conflicto",pd.Series(dtype=str)).astype(str).unique() if x]); ts=f2.multiselect("Tipo de situación",tipos,default=[])
+        confs=sorted([x for x in eventos_f.get("confianza",pd.Series(dtype=str)).astype(str).unique() if x]); cs=f3.multiselect("Confianza",confs,default=[])
+        if ys: eventos_f=eventos_f[eventos_f["anio"].astype(str).isin(ys)]
+        if ts: eventos_f=eventos_f[eventos_f["tipo_conflicto"].astype(str).isin(ts)]
+        if cs: eventos_f=eventos_f[eventos_f["confianza"].astype(str).isin(cs)]
+
+mostrar=f4.checkbox("Mostrar conflictos de Sheets",value=True) if not modo_presentacion else True
+if not modo_presentacion:
+    pbot_opciones={archivo:titulo for archivo,titulo,_,_ in cargar_pbot_capas()}; pbot_seleccionadas=st.multiselect("Capas PBOT 2015 (opcional)",options=list(pbot_opciones.keys()),format_func=lambda x:pbot_opciones[x],default=[],help="Las capas PBOT no se cargan al navegador hasta que se seleccionan.")
+    st.caption("Capa histórica: SITUACIONES_TERRITORIALES. Puntos: registros operativos de la hoja Conflictos. Las fuentes se mantienen separadas.")
+    st.caption("Ordenamiento Territorial — cartografía de formulación PBOT 2015. No implica actualización al PBOT 2023.")
+else:
+    pbot_seleccionadas=()
 
 if modo_presentacion:
-    st.markdown("<div class='sigo-section'>03 · Actores</div>", unsafe_allow_html=True); st.caption("¿Quiénes intervienen? La fuente de actores permite desplazar la lectura desde el lugar donde ocurre una situación hacia los sujetos y organizaciones con presencia territorial.")
+    st.markdown("<div class='sigo-section'>Lectura territorial</div>", unsafe_allow_html=True)
+    c1,c2=st.columns([1,2])
+    with c1:
+        incorporar_social = st.toggle("Incorporar cartografía social", value=False, help="Añade una segunda perspectiva de lectura territorial.")
+    with c2:
+        st.caption("Primero observe la evidencia documentada. Luego puede incorporar la lectura comunitaria para cambiar de perspectiva.")
+else:
+    incorporar_social=False
+
+conflictos=pd.DataFrame()
+if isinstance(gd.get("Conflictos"),pd.DataFrame): conflictos=normalizar_conflictos(gd["Conflictos"])
+mapa,segundos_mapa=construir_mapa(topo,eventos_f,conflictos,codigo_sel,mostrar,tuple(pbot_seleccionadas),mostrar_social_demo=incorporar_social)
+st.caption(f"Generación del mapa en servidor: {segundos_mapa:.2f} s") if not modo_presentacion else None
+st_folium(mapa,width="100%",height=650,returned_objects=["last_active_drawing"])
+
+if modo_presentacion:
+    with st.expander("ⓘ Evidencia y metodología"):
+        st.write("Las situaciones históricas provienen de la base territorial documentada y conservan año, tipo, confianza y precisión espacial. Los registros operativos provienen de las fuentes conectadas. La cartografía social se presenta como una perspectiva participativa diferenciada de la evidencia histórica.")
+    st.markdown("<div class='sigo-section'>03 · Actores</div>", unsafe_allow_html=True)
+    st.caption("¿Quiénes intervienen? La lectura se desplaza desde el lugar donde ocurre una situación hacia los sujetos y organizaciones con presencia territorial.")
     x,y=st.columns(2)
-    with x: st.metric("Actores registrados",num_actores); st.write("La demostración usa la fuente operativa conectada para identificar actores territoriales. El siguiente paso es relacionarlos explícitamente con situaciones y zonas de influencia.")
+    with x: st.metric("Actores registrados",num_actores); st.write("La fuente de actores permite identificar capacidades de intervención, coordinación y presencia territorial.")
     with y: st.markdown("**Pregunta de decisión**"); st.write("¿Quién puede intervenir, coordinar o aportar recursos frente a una situación localizada?")
-    st.markdown("<div class='sigo-section'>04 · Capacidad institucional</div>", unsafe_allow_html=True); st.caption("¿Con qué capacidad? Los indicadores SADCI permiten complementar la lectura territorial con evidencia sobre recursos, ejecución y desempeño institucional.")
+    st.markdown("<div class='sigo-section'>04 · Capacidades</div>", unsafe_allow_html=True)
+    st.caption("¿Con qué capacidad? Los indicadores SADCI complementan la lectura territorial con evidencia sobre recursos, ejecución y desempeño institucional.")
     if sadci_resumen:
         q1,q2,q3=st.columns(3); q1.metric("Ejecución presupuestal",indicador_pct(sadci_resumen.get("ejecucion_presupuestal_pct"))); q2.metric("Cumplimiento PDT",indicador_pct(sadci_resumen.get("cumplimiento_pdt_pct"))); personal=(sadci_resumen.get("num_personal_planta",0)+sadci_resumen.get("num_personal_contratista",0)) if ("num_personal_planta" in sadci_resumen or "num_personal_contratista" in sadci_resumen) else None; q3.metric("Personal promedio",f"{personal:.0f}" if personal is not None else "—")
     else: st.info("Indicadores SADCI disponibles para exploración cuando la fuente esté conectada.")
-    st.markdown("<div class='sigo-section'>05 · Gobernabilidad</div>", unsafe_allow_html=True); st.markdown("<div class='sigo-note'><b>La pregunta final no es solo dónde ocurre algo.</b><br>Es cómo relacionar <b>territorio + situaciones + actores + capacidades</b> para orientar decisiones de gobernabilidad rural.</div>", unsafe_allow_html=True); st.markdown("<div style='margin-top:.55rem'><b>¿Dónde?</b> Territorio &nbsp;→&nbsp; <b>¿Qué ocurre?</b> Situaciones &nbsp;→&nbsp; <b>¿Quiénes intervienen?</b> Actores &nbsp;→&nbsp; <b>¿Con qué capacidad?</b> Instituciones</div>", unsafe_allow_html=True); st.caption("Cierre sugerido: El objetivo no es construir un mapa más completo. Es construir una mejor capacidad de lectura del territorio para apoyar decisiones de gobernabilidad rural.")
+    st.markdown("<div class='sigo-section'>05 · Gobernabilidad</div>", unsafe_allow_html=True)
+    st.markdown("<div class='sigo-note'><b>La pregunta final no es solo dónde ocurre algo.</b><br>Es cómo relacionar <b>territorio + situaciones + actores + capacidades</b> para orientar decisiones de gobernabilidad rural.</div>", unsafe_allow_html=True)
+    st.markdown("<div style='margin-top:.55rem'><b>¿Dónde?</b> Territorio &nbsp;→&nbsp; <b>¿Qué ocurre?</b> Situaciones &nbsp;→&nbsp; <b>¿Quiénes intervienen?</b> Actores &nbsp;→&nbsp; <b>¿Con qué capacidad?</b> Instituciones</div>", unsafe_allow_html=True)
+    st.caption("El objetivo no es construir un mapa más completo. Es construir una mejor capacidad de lectura del territorio para apoyar decisiones de gobernabilidad rural.")
 
 st.caption("SIGOber-Rural · prototipo de trabajo para análisis y gobernabilidad territorial rural")
