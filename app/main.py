@@ -26,14 +26,16 @@ PBOT_CAPAS = [
 
 # Puntos sintéticos exclusivamente para mostrar, en una presentación, cómo
 # puede verse una capa de cartografía social. No representan conflictos reales.
+# Las temáticas son coherentes con situaciones y necesidades territoriales
+# documentadas en la base, pero las coordenadas y testimonios son ficticios.
 PUNTOS_SOCIALES_DEMO = [
-    {"lat": 1.9110, "lon": -75.1960, "categoria": "Acceso vial", "titulo": "Tramo con dificultad de acceso", "voz": "La comunidad prioriza mejorar el acceso en temporada de lluvias."},
-    {"lat": 1.9250, "lon": -75.1710, "categoria": "Agua", "titulo": "Punto de abastecimiento", "voz": "Se identifica como recurso estratégico para varias familias."},
-    {"lat": 1.8970, "lon": -75.1600, "categoria": "Producción", "titulo": "Zona de producción comunitaria", "voz": "Lugar señalado por su importancia para actividades productivas."},
-    {"lat": 1.9360, "lon": -75.2030, "categoria": "Equipamiento", "titulo": "Equipamiento comunitario", "voz": "Espacio reconocido como nodo de encuentro y gestión colectiva."},
-    {"lat": 1.8790, "lon": -75.1880, "categoria": "Riesgo", "titulo": "Punto percibido como vulnerable", "voz": "La comunidad señala una condición territorial que requiere atención."},
-    {"lat": 1.9440, "lon": -75.1510, "categoria": "Conectividad", "titulo": "Sector con baja conectividad", "voz": "Se prioriza mejorar la comunicación y el acceso a servicios."},
-    {"lat": 1.8860, "lon": -75.2160, "categoria": "Recurso natural", "titulo": "Lugar de valor ambiental", "voz": "La comunidad reconoce el sitio como recurso que debe ser protegido."},
+    {"lat": 1.9480, "lon": -75.2260, "categoria": "Movilidad rural", "titulo": "Acceso vial vulnerable en temporada de lluvias", "voz": "La comunidad identifica el acceso y la movilidad como una prioridad territorial."},
+    {"lat": 1.9020, "lon": -75.1190, "categoria": "Seguridad territorial", "titulo": "Sector percibido como sensible", "voz": "La comunidad señala este sector como un lugar que requiere seguimiento y coordinación institucional."},
+    {"lat": 1.8620, "lon": -75.2460, "categoria": "Riesgo por minas", "titulo": "Zona que requiere atención preventiva", "voz": "La comunidad identifica la necesidad de prevención, información y protección frente a riesgos territoriales."},
+    {"lat": 1.9720, "lon": -75.1640, "categoria": "Afectación humanitaria", "titulo": "Lugar asociado a necesidades de atención y retorno", "voz": "La comunidad prioriza la atención a población afectada y el acompañamiento institucional."},
+    {"lat": 1.8340, "lon": -75.1780, "categoria": "Servicios y equipamiento", "titulo": "Nodo comunitario para gestión de necesidades", "voz": "La comunidad reconoce la importancia de contar con servicios y espacios de gestión cercanos."},
+    {"lat": 1.9220, "lon": -75.0900, "categoria": "Conectividad", "titulo": "Sector con necesidad de mayor conectividad", "voz": "La comunidad prioriza mejorar la comunicación y el acceso a servicios y oportunidades."},
+    {"lat": 1.8030, "lon": -75.2180, "categoria": "Recurso territorial", "titulo": "Lugar de valor ambiental y comunitario", "voz": "La comunidad reconoce el lugar como un recurso territorial que debe ser protegido y gestionado."},
 ]
 
 @st.cache_data(show_spinner=False)
@@ -117,10 +119,9 @@ def popup_conflicto(row):
 def popup_social_demo(punto):
     return ("<div style='width:280px;font-family:Arial'>"
             "<h4>Cartografía social · demostración</h4>"
-            "<p><b>Punto sintético para presentación.</b></p>"
             f"<b>Categoría:</b> {html.escape(punto['categoria'])}<br>"
             f"<b>Situación:</b> {html.escape(punto['titulo'])}<br>"
-            f"<b>Voz comunitaria simulada:</b> {html.escape(punto['voz'])}<br><br>"
+            f"<b>Voz comunitaria:</b> {html.escape(punto['voz'])}<br><br>"
             "<i>No corresponde a un registro de conflicto real.</i></div>")
 
 @st.cache_data(show_spinner=False, max_entries=32)
