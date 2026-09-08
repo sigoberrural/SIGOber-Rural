@@ -200,7 +200,7 @@ def construir_mapa(topo, eventos_historicos, conflictos=None, codigo_seleccionad
     topo_mapa = preparar_topo_para_eventos(topo, resumen)
     conteo = resumen.set_index("codigo_ver_resuelto")["SIGOber_situaciones"].to_dict() if not resumen.empty else {}
 
-    m = folium.Map(location=[1.9123, -75.1842], zoom_start=10, tiles="CartoDB positron", prefer_canvas=True)
+    m = folium.Map(location=[1.9123, -75.1842], zoom_start=10, tiles="OpenStreetMap", prefer_canvas=True)
     folium.Marker([1.9123, -75.1842], tooltip="Puerto Rico, Caquetá").add_to(m)
 
     def estilo(feature):
@@ -289,8 +289,33 @@ def indicador_pct(valor):
     return "—" if valor is None or pd.isna(valor) else f"{float(valor):.0f}%"
 
 
-st.title("SIGOber-Rural")
-st.caption("Sistema de Información para la Gobernabilidad Territorial Rural — Puerto Rico, Caquetá")
+# -----------------------------------------------------------------------------
+# Interfaz: capa visual ligera, sin alterar las fuentes ni la lógica territorial.
+# -----------------------------------------------------------------------------
+st.markdown(
+    """
+    <style>
+    .sigo-hero { padding: 0.3rem 0 0.7rem 0; }
+    .sigo-kicker { font-size: .78rem; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; opacity: .68; }
+    .sigo-title { font-size: 2.35rem; font-weight: 800; line-height: 1.05; margin: .15rem 0 .35rem 0; }
+    .sigo-subtitle { font-size: 1rem; opacity: .78; max-width: 900px; }
+    .sigo-section { margin-top: .45rem; margin-bottom: .15rem; font-size: 1.18rem; font-weight: 750; }
+    .sigo-note { padding: .75rem 1rem; border-radius: .7rem; border: 1px solid rgba(128,128,128,.22); background: rgba(128,128,128,.055); }
+    div[data-testid="stMetric"] { padding: .45rem .7rem; border: 1px solid rgba(128,128,128,.18); border-radius: .65rem; background: rgba(128,128,128,.035); }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+with st.container():
+    st.markdown("<div class='sigo-hero'>", unsafe_allow_html=True)
+    st.markdown("<div class='sigo-kicker'>Sistema de información territorial</div>", unsafe_allow_html=True)
+    st.markdown("<div class='sigo-title'>SIGOber-Rural</div>", unsafe_allow_html=True)
+    st.markdown(
+        "<div class='sigo-subtitle'>Gobernabilidad territorial rural en Puerto Rico, Caquetá · situaciones, actores, cartografía y capacidad institucional.</div>",
+        unsafe_allow_html=True,
+    )
+    st.markdown("</div>", unsafe_allow_html=True)
 
 # Carga estable: cartografía y eventos históricos son locales y cacheados.
 topo = cargar_veredas_topo()
@@ -310,7 +335,10 @@ b.metric("Veredas con situaciones", historicos["codigo_ver_resuelto"].nunique() 
 c.metric("Conflictos en Sheets", len(gd["Conflictos"]) if isinstance(gd.get("Conflictos"), pd.DataFrame) else "—")
 d.metric("Actores", len(gd["Actores"]) if isinstance(gd.get("Actores"), pd.DataFrame) else "—")
 
-st.info("SIGOber-Rural organiza la lectura del territorio alrededor de situaciones, actores y capacidad institucional. La geometría es soporte para la gobernabilidad, no el resultado final.")
+st.markdown(
+    "<div class='sigo-note'><b>Lectura de gobernabilidad:</b> SIGOber-Rural organiza el territorio alrededor de situaciones, actores y capacidad institucional. La geometría es soporte para la decisión, no el resultado final.</div>",
+    unsafe_allow_html=True,
+)
 
 with st.expander("🔧 Diagnóstico de fuentes y rendimiento"):
     cfg = config_gsheets()
@@ -328,13 +356,14 @@ with st.expander("🔧 Diagnóstico de fuentes y rendimiento"):
         st.session_state["google_data"] = leer_google_sheets()
         st.rerun()
 
-# El usuario decide qué cartografía pesada se serializa al navegador.
-st.subheader("Explorar territorio")
+st.markdown("<div class='sigo-section'>Explorar territorio</div>", unsafe_allow_html=True)
+st.caption("Seleccione una vereda y, si lo necesita, filtre las situaciones documentadas. Las capas PBOT se mantienen opcionales para conservar fluidez.")
+
 veredas_df = propiedades_veredas(topo)
 nombres = veredas_df[["CODIGO_VER", "NOMBRE_VER"]].drop_duplicates().copy()
 nombres["etiqueta"] = nombres["NOMBRE_VER"].astype(str) + " — " + nombres["CODIGO_VER"].astype(str)
 opciones = ["Todas las veredas"] + sorted(nombres["etiqueta"].tolist())
-seleccion = st.selectbox("Vereda", opciones)
+seleccion = st.selectbox("Vereda", opciones, label_visibility="collapsed")
 codigo_sel = "" if seleccion == "Todas las veredas" else seleccion.split(" — ")[-1]
 
 f1, f2, f3, f4 = st.columns(4)
@@ -381,3 +410,5 @@ mapa, segundos_mapa = construir_mapa(
 )
 st.caption(f"Generación del mapa en servidor: {segundos_mapa:.2f} s")
 st_folium(mapa, width="100%", height=650, returned_objects=["last_active_drawing"])
+
+st.caption("SIGOber-Rural · prototipo de trabajo para análisis y gobernabilidad territorial rural")
