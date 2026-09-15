@@ -100,7 +100,9 @@ def preparar_topo_para_eventos(topo,resumen):
 
 def construir_mapa(topo,eventos_historicos,conflictos=None,codigo_seleccionado="",mostrar_conflictos=True,pbot_seleccionadas=(),perspectiva="Territorio",mostrar_social_demo=False):
     inicio=time.perf_counter(); resumen=resumenes_por_vereda(eventos_historicos); topo_mapa=preparar_topo_para_eventos(topo,resumen); conteo=resumen.set_index("codigo_ver_resuelto")["SIGOber_situaciones"].to_dict() if not resumen.empty else {}; perspectiva=perspectiva or "Territorio"
-    m=folium.Map(location=[1.9123,-75.1842],zoom_start=10,tiles="OpenStreetMap",prefer_canvas=True); folium.Marker([1.9123,-75.1842],tooltip="Puerto Rico, Caquetá").add_to(m)
+    m=folium.Map(location=[1.9123,-75.1842],zoom_start=10,tiles="OpenStreetMap",prefer_canvas=True)
+    grupo_territorio=folium.FeatureGroup(name="Territorio — Veredas",show=True)
+    folium.Marker([1.9123,-75.1842],tooltip="Puerto Rico, Caquetá").add_to(grupo_territorio)
     def estilo(feature):
         p=feature.get("properties",{}); codigo=str(p.get("CODIGO_VER","")).strip(); n=int(conteo.get(codigo,0)); sel=bool(codigo) and codigo==str(codigo_seleccionado).strip()
         if perspectiva=="Situaciones": fill="#d73027" if n>=2 else ("#fc8d59" if n==1 else "#eeeeee"); opacity=.72 if n else .16
@@ -108,7 +110,8 @@ def construir_mapa(topo,eventos_historicos,conflictos=None,codigo_seleccionado="
         else: fill="#eeeeee"; opacity=.22
         return {"fillColor":fill,"color":"#111111" if sel else "#555555","weight":2.8 if sel else (1.0 if perspectiva=="Situaciones" and n else .7),"fillOpacity":.78 if sel else opacity}
     tooltip=folium.GeoJsonTooltip(fields=["NOMBRE_VER","CODIGO_VER","SIGOber_situaciones","SIGOber_anios","SIGOber_tipos","SIGOber_confianza","AREA_HA","FUENTE"],aliases=["Vereda","Código","Situaciones documentadas","Años","Tipos de situación","Confianza","Área (ha)","Fuente cartográfica"],localize=True,sticky=True,labels=True,style="background-color:white;color:#222;font-family:Arial;font-size:12px;padding:8px;")
-    folium.TopoJson(data=topo_mapa,object_path="objects.Veredas",name="Veredas + situaciones territoriales",style_function=estilo,tooltip=tooltip,show=True).add_to(m)
+    folium.TopoJson(data=topo_mapa,object_path="objects.Veredas",name="Veredas + situaciones territoriales",style_function=estilo,tooltip=tooltip,show=True).add_to(grupo_territorio)
+    grupo_territorio.add_to(m)
     if mostrar_conflictos and conflictos is not None and not conflictos.empty:
         validos=conflictos.loc[conflictos["precision_coordenada"].eq("VALIDA")]; grupo=folium.FeatureGroup(name="Conflictos registrados — Google Sheets",show=True)
         for row in validos.itertuples(index=False):
