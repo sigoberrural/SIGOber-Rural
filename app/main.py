@@ -98,40 +98,35 @@ def preparar_topo_para_eventos(topo,resumen):
         else: p["SIGOber_situaciones"]=0; p["SIGOber_anios"]="Sin registros"; p["SIGOber_tipos"]="Sin registros"; p["SIGOber_confianza"]="Sin registros"
     return copia
 
-def construir_mapa(topo,eventos_historicos,conflictos=None,codigo_seleccionado="",mostrar_conflictos=True,pbot_seleccionadas=(),perspectiva="Territorio",mostrar_social_demo=False,modo_capas=False):
+def construir_mapa(topo,eventos_historicos,conflictos=None,codigo_seleccionado="",mostrar_conflictos=True,pbot_seleccionadas=(),perspectiva="Territorio",mostrar_social_demo=False):
     inicio=time.perf_counter(); resumen=resumenes_por_vereda(eventos_historicos); topo_mapa=preparar_topo_para_eventos(topo,resumen); conteo=resumen.set_index("codigo_ver_resuelto")["SIGOber_situaciones"].to_dict() if not resumen.empty else {}; perspectiva=perspectiva or "Territorio"
     m=folium.Map(location=[1.9123,-75.1842],zoom_start=10,tiles="OpenStreetMap",prefer_canvas=True)
     grupo_territorio=folium.FeatureGroup(name="Territorio — Veredas",show=True)
     folium.Marker([1.9123,-75.1842],tooltip="Puerto Rico, Caquetá").add_to(grupo_territorio)
     def estilo(feature):
-        p=feature.get("properties",{}); codigo=str(p.get("CODIGO_VER","")).strip(); sel=bool(codigo) and codigo==str(codigo_seleccionado).strip()
-        return {"fillColor":"#eeeeee","color":"#111111" if sel else "#555555","weight":2.8 if sel else .7,"fillOpacity":.22 if not sel else .78}
-    def estilo_situaciones(feature):
         p=feature.get("properties",{}); codigo=str(p.get("CODIGO_VER","")).strip(); n=int(conteo.get(codigo,0)); sel=bool(codigo) and codigo==str(codigo_seleccionado).strip()
-        fill="#d73027" if n>=2 else ("#fc8d59" if n==1 else "#eeeeee"); opacity=.72 if n else .16
-        return {"fillColor":fill,"color":"#111111" if sel else "#555555","weight":2.8 if sel else (1.0 if n else .7),"fillOpacity":.78 if sel else opacity}
+        if perspectiva=="Situaciones": fill="#d73027" if n>=2 else ("#fc8d59" if n==1 else "#eeeeee"); opacity=.72 if n else .16
+        elif perspectiva=="Cartografía social": fill="#74add1" if n else "#eeeeee"; opacity=.48 if n else .13
+        else: fill="#eeeeee"; opacity=.22
+        return {"fillColor":fill,"color":"#111111" if sel else "#555555","weight":2.8 if sel else (1.0 if perspectiva=="Situaciones" and n else .7),"fillOpacity":.78 if sel else opacity}
     tooltip=folium.GeoJsonTooltip(fields=["NOMBRE_VER","CODIGO_VER","SIGOber_situaciones","SIGOber_anios","SIGOber_tipos","SIGOber_confianza","AREA_HA","FUENTE"],aliases=["Vereda","Código","Situaciones documentadas","Años","Tipos de situación","Confianza","Área (ha)","Fuente cartográfica"],localize=True,sticky=True,labels=True,style="background-color:white;color:#222;font-family:Arial;font-size:12px;padding:8px;")
-    folium.TopoJson(data=topo_mapa,object_path="objects.Veredas",name="Veredas",style_function=estilo,tooltip=tooltip,show=True).add_to(grupo_territorio)
+    folium.TopoJson(data=topo_mapa,object_path="objects.Veredas",name="Veredas + situaciones territoriales",style_function=estilo,tooltip=tooltip,show=True).add_to(grupo_territorio)
     grupo_territorio.add_to(m)
-    grupo_situaciones=folium.FeatureGroup(name="Situaciones — evidencia territorial",show=False if modo_capas else False)
-    folium.TopoJson(data=topo_mapa,object_path="objects.Veredas",name="Situaciones",style_function=estilo_situaciones,tooltip=tooltip,show=False).add_to(grupo_situaciones)
-    grupo_situaciones.add_to(m)
-    if conflictos is not None and not conflictos.empty and (mostrar_conflictos or modo_capas):
+    if mostrar_conflictos and conflictos is not None and not conflictos.empty:
         validos=conflictos.loc[conflictos["precision_coordenada"].eq("VALIDA")]; grupo=folium.FeatureGroup(name="Conflictos registrados — Google Sheets",show=True)
         for row in validos.itertuples(index=False):
             data=row._asdict(); folium.CircleMarker(location=[float(data["lat_num"]),float(data["lon_num"])],radius=7,weight=2,fill=True,fill_opacity=.85,tooltip=f"{data.get('tipo_conflicto','Situación')} — {data.get('vereda','')}",popup=folium.Popup(popup_conflicto(data),max_width=340)).add_to(grupo)
         grupo.add_to(m)
-    if mostrar_social_demo or modo_capas:
-        grupo_social=folium.FeatureGroup(name="Cartografía social",show=bool(mostrar_social_demo and not modo_capas))
+    if mostrar_social_demo:
+        grupo_social=folium.FeatureGroup(name="Cartografía social",show=True)
         for punto in PUNTOS_SOCIALES_DEMO: folium.CircleMarker(location=[punto["lat"],punto["lon"]],radius=8,weight=2,fill=True,fill_opacity=.9,tooltip=punto["categoria"],popup=folium.Popup(popup_social_demo(punto),max_width=340)).add_to(grupo_social)
         grupo_social.add_to(m)
     aliases_pbot={"UGOT":"UGOT","Aptitud":"Aptitud","area_ha":"Área (ha)","Area_ha":"Área (ha)","Tipo":"Tipo","area_m2":"Área (m²)","Id":"ID","codigo":"Código","sector_cat":"Sector catastral","tipo_avalu":"Tipo avalúo","Reporte":"Reporte"}; disponibles={x[0]:x for x in cargar_pbot_capas()}
-    archivos_pbot=list(disponibles.keys()) if modo_capas else list(pbot_seleccionadas)
-    for archivo in archivos_pbot:
+    for archivo in pbot_seleccionadas:
         capa=disponibles.get(archivo)
         if not capa: continue
-        _,titulo,geo,campos_preferidos=capa; grupo_pbot=folium.FeatureGroup(name=f"{titulo} — PBOT 2015",show=bool(archivo in pbot_seleccionadas and not modo_capas)); features=geo.get("features",[]); props=(features[0].get("properties",{}) or {}) if features else {}; campos=[campo for campo in campos_preferidos if campo in props]; tooltip_pbot=folium.GeoJsonTooltip(fields=campos,aliases=[aliases_pbot.get(campo,campo) for campo in campos],localize=True,labels=True,sticky=True,style="background-color:white;color:#222;font-family:Arial;font-size:12px;padding:8px;") if campos else None; folium.GeoJson(geo,name=titulo,tooltip=tooltip_pbot).add_to(grupo_pbot); grupo_pbot.add_to(m)
-    folium.LayerControl(collapsed=False,position="topright").add_to(m); return m,time.perf_counter()-inicio
+        _,titulo,geo,campos_preferidos=capa; grupo_pbot=folium.FeatureGroup(name=f"{titulo} — PBOT 2015",show=True); features=geo.get("features",[]); props=(features[0].get("properties",{}) or {}) if features else {}; campos=[campo for campo in campos_preferidos if campo in props]; tooltip_pbot=folium.GeoJsonTooltip(fields=campos,aliases=[aliases_pbot.get(campo,campo) for campo in campos],localize=True,labels=True,sticky=True,style="background-color:white;color:#222;font-family:Arial;font-size:12px;padding:8px;") if campos else None; folium.GeoJson(geo,name=titulo,tooltip=tooltip_pbot).add_to(grupo_pbot); grupo_pbot.add_to(m)
+    folium.LayerControl(collapsed=False).add_to(m); return m,time.perf_counter()-inicio
 
 def resumen_sadci(sadci):
     if not isinstance(sadci,pd.DataFrame) or sadci.empty: return None
@@ -192,11 +187,17 @@ def render_mapa_interactivo():
                 if st.button("Explorar" if dimension=="Territorio" else "Ver evidencia",key=f"dim_{i}",use_container_width=True): st.session_state["gigapp_dimension"]=dimension
         with center:
             seleccion=st.selectbox("Vereda",opciones,label_visibility="collapsed"); codigo_sel="" if seleccion=="Todas las veredas" else seleccion.split(" — ")[-1]
+            dimension_actual=st.session_state["gigapp_dimension"]
+            mostrar_social=st.toggle("Incorporar cartografía social",value=(dimension_actual=="Cartografía social"),help="Añade la lectura participativa al mapa. La capa disponible para la puesta en escena es ilustrativa.")
             pbot_opciones={archivo:titulo for archivo,titulo,_,_ in cargar_pbot_capas()}
+            pbot_seleccionadas=[]
+            if dimension_actual=="Ordenamiento territorial":
+                pbot_seleccionada=st.selectbox("Capa PBOT",options=list(pbot_opciones.keys()),index=list(pbot_opciones.keys()).index(PBOT_PERSPECTIVA_DEFAULT) if PBOT_PERSPECTIVA_DEFAULT in pbot_opciones else 0,format_func=lambda x:pbot_opciones[x]) if pbot_opciones else None
+                if pbot_seleccionada: pbot_seleccionadas=[pbot_seleccionada]
             eventos_f=historicos.copy(); conflictos=normalizar_conflictos(gd["Conflictos"]) if isinstance(gd.get("Conflictos"),pd.DataFrame) else pd.DataFrame()
-            mapa,segundos_mapa=construir_mapa(topo,eventos_f,conflictos,codigo_sel,True,tuple(),perspectiva="Territorio",mostrar_social_demo=False,modo_capas=True)
+            mapa,segundos_mapa=construir_mapa(topo,eventos_f,conflictos,codigo_sel,True,tuple(pbot_seleccionadas),perspectiva=dimension_actual,mostrar_social_demo=mostrar_social)
             st_folium(mapa,width="100%",height=610,returned_objects=["last_active_drawing"])
-            st.caption("Las dimensiones de lectura no cambian el mapa. Use el control de capas dentro del mapa para combinar las capas de forma independiente.")
+            st.caption("Perspectiva: "+dimension_actual+(" · + cartografía social" if mostrar_social else ""))
         with right:
             for i,(dimension,meta) in enumerate(dimensiones[2:],3):
                 st.markdown(f"<div class='gigapp-card'><h4>{i:02d} · {dimension}</h4><div class='gigapp-q'>{meta['pregunta']}</div><p>{meta['descripcion']}</p></div>",unsafe_allow_html=True)
