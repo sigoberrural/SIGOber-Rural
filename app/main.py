@@ -165,11 +165,10 @@ st.markdown("<div class='sigo-hero'><div class='sigo-kicker'>Sistema de informac
 topo=cargar_veredas_topo(); historicos=cargar_eventos_locales()
 if "google_data" not in st.session_state:
     with st.spinner("Conectando con las fuentes territoriales…"): st.session_state["google_data"]=leer_google_sheets()
-gd=st.session_state["google_data"]; num_veredas_situacion=historicos["codigo_ver_resuelto"].nunique() if not historicos.empty and "codigo_ver_resuelto" in historicos.columns else 0; num_conflictos=len(gd["Conflictos"]) if isinstance(gd.get("Conflictos"),pd.DataFrame) else 0; num_actores=len(gd["Actores"]) if isinstance(gd.get("Actores"),pd.DataFrame) else 0
-if modo_presentacion: st.markdown("<div class='gigapp-center'>TERRITORIO · SITUACIONES · ORDENAMIENTO TERRITORIAL · CARTOGRAFÍA SOCIAL</div>",unsafe_allow_html=True); st.markdown("<div class='gigapp-caption'>Cuatro perspectivas cartográficas reconciliadas con las capas que ya existen en SIGOber-Rural.</div>",unsafe_allow_html=True)
-else:
-    a,b,c,d=st.columns(4); a.metric("Situaciones históricas",len(historicos)); b.metric("Veredas con situaciones",num_veredas_situacion); c.metric("Conflictos en Sheets",num_conflictos if isinstance(gd.get("Conflictos"),pd.DataFrame) else "—"); d.metric("Actores",num_actores if isinstance(gd.get("Actores"),pd.DataFrame) else "—"); st.markdown("<div class='sigo-note'><b>Lectura de gobernabilidad:</b> SIGOber-Rural organiza el territorio alrededor de situaciones, ordenamiento y conocimiento comunitario, manteniendo actores y capacidades como información institucional separada.</div>",unsafe_allow_html=True)
+gd=st.session_state["google_data"]
 if not modo_presentacion:
+    num_veredas_situacion=historicos["codigo_ver_resuelto"].nunique() if not historicos.empty and "codigo_ver_resuelto" in historicos.columns else 0; num_conflictos=len(gd["Conflictos"]) if isinstance(gd.get("Conflictos"),pd.DataFrame) else 0; num_actores=len(gd["Actores"]) if isinstance(gd.get("Actores"),pd.DataFrame) else 0
+    a,b,c,d=st.columns(4); a.metric("Situaciones históricas",len(historicos)); b.metric("Veredas con situaciones",num_veredas_situacion); c.metric("Conflictos en Sheets",num_conflictos if isinstance(gd.get("Conflictos"),pd.DataFrame) else "—"); d.metric("Actores",num_actores if isinstance(gd.get("Actores"),pd.DataFrame) else "—"); st.markdown("<div class='sigo-note'><b>Lectura de gobernabilidad:</b> SIGOber-Rural organiza el territorio alrededor de situaciones, ordenamiento y conocimiento comunitario, manteniendo actores y capacidades como información institucional separada.</div>",unsafe_allow_html=True)
     with st.expander("🔧 Diagnóstico de fuentes y rendimiento"):
         cfg=config_gsheets(); sid=spreadsheet_id_desde_config(cfg); st.write({"Cartografía":"Disponible" if topo else "No disponible","Eventos territoriales":f"{len(historicos)} registros","Google Sheets":"Conectado" if isinstance(gd,dict) else "No disponible","spreadsheet_id":(sid[:6]+"…"+sid[-4:]) if sid else "No configurado"})
         if st.button("Actualizar fuentes",key="actualizar_fuentes"): leer_google_hoja.clear(); cargar_eventos_locales.clear(); cargar_veredas_topo.clear(); st.session_state["google_data"]=leer_google_sheets(); st.rerun()
@@ -178,33 +177,25 @@ veredas_df=propiedades_veredas(topo); nombres=veredas_df[["CODIGO_VER","NOMBRE_V
 @st.fragment
 def render_mapa_interactivo():
     if modo_presentacion:
-        left,center,right=st.columns([1.05,3.1,1.05],gap="medium")
         if "gigapp_dimension" not in st.session_state or st.session_state["gigapp_dimension"] not in GIGAPP_DIMENSIONES: st.session_state["gigapp_dimension"]="Territorio"
+        left,center=st.columns([1.05,4.95],gap="medium")
         dimensiones=list(GIGAPP_DIMENSIONES.items())
         with left:
-            for i,(dimension,meta) in enumerate(dimensiones[:2],1):
+            st.markdown("### Selección")
+            st.caption("Las selecciones organizan la lectura. La composición cartográfica se controla directamente dentro del mapa.")
+            for i,(dimension,meta) in enumerate(dimensiones,1):
                 st.markdown(f"<div class='gigapp-card'><h4>{i:02d} · {dimension}</h4><div class='gigapp-q'>{meta['pregunta']}</div><p>{meta['descripcion']}</p></div>",unsafe_allow_html=True)
-                if st.button("Explorar" if dimension=="Territorio" else "Ver evidencia",key=f"dim_{i}",use_container_width=True): st.session_state["gigapp_dimension"]=dimension
-        with center:
-            seleccion=st.selectbox("Vereda",opciones,label_visibility="collapsed"); codigo_sel="" if seleccion=="Todas las veredas" else seleccion.split(" — ")[-1]
-            dimension_actual=st.session_state["gigapp_dimension"]
-            mostrar_social=st.toggle("Incorporar cartografía social",value=(dimension_actual=="Cartografía social"),help="Añade la lectura participativa al mapa. La capa disponible para la puesta en escena es ilustrativa.")
+                if st.button("Seleccionar",key=f"dim_{i}",use_container_width=True): st.session_state["gigapp_dimension"]=dimension
+            st.divider()
+            seleccion=st.selectbox("Vereda",opciones)
+            codigo_sel="" if seleccion=="Todas las veredas" else seleccion.split(" — ")[-1]
+            mostrar_social=st.toggle("Cartografía social",value=False,help="Incluye la capa social ilustrativa en el mapa; luego puede apagarse desde el control de capas del mapa.")
             pbot_opciones={archivo:titulo for archivo,titulo,_,_ in cargar_pbot_capas()}
-            pbot_seleccionadas=[]
-            if dimension_actual=="Ordenamiento territorial":
-                pbot_seleccionada=st.selectbox("Capa PBOT",options=list(pbot_opciones.keys()),index=list(pbot_opciones.keys()).index(PBOT_PERSPECTIVA_DEFAULT) if PBOT_PERSPECTIVA_DEFAULT in pbot_opciones else 0,format_func=lambda x:pbot_opciones[x]) if pbot_opciones else None
-                if pbot_seleccionada: pbot_seleccionadas=[pbot_seleccionada]
-            eventos_f=historicos.copy(); conflictos=normalizar_conflictos(gd["Conflictos"]) if isinstance(gd.get("Conflictos"),pd.DataFrame) else pd.DataFrame()
-            mapa,segundos_mapa=construir_mapa(topo,eventos_f,conflictos,codigo_sel,True,tuple(pbot_seleccionadas),perspectiva=dimension_actual,mostrar_social_demo=mostrar_social)
-            st_folium(mapa,width="100%",height=610,returned_objects=["last_active_drawing"])
-            st.caption("Perspectiva: "+dimension_actual+(" · + cartografía social" if mostrar_social else ""))
-        with right:
-            for i,(dimension,meta) in enumerate(dimensiones[2:],3):
-                st.markdown(f"<div class='gigapp-card'><h4>{i:02d} · {dimension}</h4><div class='gigapp-q'>{meta['pregunta']}</div><p>{meta['descripcion']}</p></div>",unsafe_allow_html=True)
-                if st.button("Explorar ordenamiento" if dimension=="Ordenamiento territorial" else "Escuchar al territorio",key=f"dim_{i}",use_container_width=True): st.session_state["gigapp_dimension"]=dimension
-        mostrar_panel_dimension(st.session_state["gigapp_dimension"],historicos,conflictos,gd.get("Actores"),gd.get("SADCI"),gd.get("Relación Interinstitucional"),seleccion)
-        mostrar_contexto_gobernabilidad(gd.get("Actores"),gd.get("SADCI"),gd.get("Relación Interinstitucional"))
-        with st.expander("ⓘ Evidencia y metodología"): st.write("Las situaciones históricas provienen de la base territorial documentada y conservan su confianza y precisión espacial. Los registros operativos de Google Sheets se mantienen separados. Las capas PBOT corresponden a su propia cartografía de ordenamiento. La capa de cartografía social incluida para la puesta en escena es ilustrativa: sus coordenadas y voces no corresponden a registros reales de conflicto."); st.caption("La incorporación de cartografía social real reemplazará esta capa ilustrativa cuando estén disponibles las capas digitalizadas de los talleres participativos.")
+            pbot_seleccionadas=st.multiselect("Capas PBOT 2015",options=list(pbot_opciones.keys()),format_func=lambda x:pbot_opciones[x],default=[],help="Estas capas se incorporan al mapa y quedan disponibles individualmente en el control de capas.")
+        with center:
+            conflictos=normalizar_conflictos(gd["Conflictos"]) if isinstance(gd.get("Conflictos"),pd.DataFrame) else pd.DataFrame()
+            mapa,segundos_mapa=construir_mapa(topo,historicos,conflictos,codigo_sel,True,tuple(pbot_seleccionadas),perspectiva="Territorio",mostrar_social_demo=mostrar_social)
+            st_folium(mapa,width="100%",height=720,returned_objects=["last_active_drawing"])
     else:
         st.markdown("<div class='sigo-section'>Explorar territorio</div>",unsafe_allow_html=True); st.caption("Seleccione una vereda y, si lo necesita, filtre las situaciones documentadas. Las capas PBOT se mantienen opcionales para conservar fluidez."); seleccion=st.selectbox("Vereda",opciones,label_visibility="collapsed"); codigo_sel="" if seleccion=="Todas las veredas" else seleccion.split(" — ")[-1]; f1,f2,f3,f4=st.columns(4); eventos_f=historicos.copy()
         if not eventos_f.empty:
