@@ -183,10 +183,13 @@ def interpretar_con_ia(contexto):
     if not api_key: return None,"IA no configurada: agregue la clave en secrets como [openai] api_key o OPENAI_API_KEY."
     modelo=str(cfg.get("model","gpt-5.6-luna")).strip() or "gpt-5.6-luna"
     system=("Eres una capa de interpretación territorial de SIGOber-Rural. Usa EXCLUSIVAMENTE el JSON entregado. "
-            "No inventes hechos, ubicaciones, causalidades ni recomendaciones de política pública. "
-            "Distingue evidencia de interpretación. Si faltan datos, dilo explícitamente. "
-            "Devuelve exactamente tres secciones breves en español: Síntesis territorial, Relaciones entre dimensiones, Preguntas para la decisión. "
-            "Las preguntas deben ser preguntas, no instrucciones ni recomendaciones. No uses información externa.")
+            "No inventes hechos, ubicaciones ni causalidades. Distingue evidencia, interpretación e hipótesis. "
+            "Puedes proponer relaciones o hipótesis causales como líneas de investigación cuando surjan de patrones o coincidencias presentes en los datos, pero debes etiquetarlas claramente como hipótesis, no como hechos. "
+            "Para cada hipótesis, explica brevemente qué evidencia del contexto la motiva y qué información adicional ayudaría a contrastarla. "
+            "No conviertas correlación, coincidencia temporal o proximidad territorial en causalidad demostrada. "
+            "No hagas recomendaciones de política pública ni tomes decisiones por la institución. "
+            "Devuelve exactamente tres secciones breves en español: Síntesis territorial, Relaciones e hipótesis para investigar, Preguntas para profundizar. "
+            "Las preguntas deben orientar investigación y verificación, no ordenar acciones. No uses información externa.")
     payload={"model":modelo,"input":[{"role":"system","content":system},{"role":"user","content":"Contexto controlado de SIGOber-Rural:\n"+json.dumps(contexto,ensure_ascii=False)}],"max_output_tokens":700}
     req=urllib.request.Request("https://api.openai.com/v1/responses",data=json.dumps(payload).encode("utf-8"),headers={"Authorization":f"Bearer {api_key}","Content-Type":"application/json"},method="POST")
     try:
@@ -271,7 +274,8 @@ def render_mapa_interactivo():
             mapa,segundos_mapa=construir_mapa(topo,historicos,conflictos,codigo_sel,True,tuple(pbot_seleccionadas),perspectiva="Territorio",mostrar_social_demo=mostrar_social)
             st_folium(mapa,width="100%",height=720,returned_objects=["last_active_drawing"])
         with right:
-            panel_interpretacion_ia(historicos,codigo_sel,dimension,tuple(pbot_seleccionadas),gd.get("SADCI"))
+            with st.container(height=500,border=True):
+                panel_interpretacion_ia(historicos,codigo_sel,dimension,tuple(pbot_seleccionadas),gd.get("SADCI"))
     else:
         st.markdown("<div class='sigo-section'>Explorar territorio</div>",unsafe_allow_html=True); st.caption("Seleccione una vereda y, si lo necesita, filtre las situaciones documentadas. Las capas PBOT se mantienen opcionales para conservar fluidez."); seleccion=st.selectbox("Vereda",opciones,label_visibility="collapsed"); codigo_sel="" if seleccion=="Todas las veredas" else seleccion.split(" — ")[-1]; f1,f2,f3,f4=st.columns(4); eventos_f=historicos.copy()
         if not eventos_f.empty:
