@@ -139,7 +139,22 @@ def resumen_sadci(sadci):
             vals=pd.to_numeric(sadci[c],errors="coerce").dropna()
             if not vals.empty: out[c]=float(vals.mean())
     return out
+
 def indicador_pct(valor): return "—" if valor is None or pd.isna(valor) else f"{float(valor):.0f}%"
+
+def mostrar_indicadores_sadci(sadci):
+    r=resumen_sadci(sadci)
+    st.markdown("<div class='sigo-section'>Indicadores SADCI</div>",unsafe_allow_html=True)
+    if not r:
+        st.caption("Sin datos SADCI disponibles para mostrar indicadores.")
+        return
+    a,b,c,d,e,f=st.columns(6)
+    a.metric("Presupuesto rural",f"{r.get('presupuesto_anual_rural',0):,.0f}" if r.get("presupuesto_anual_rural") is not None else "—")
+    b.metric("Personal planta",f"{r.get('num_personal_planta',0):.0f}" if r.get("num_personal_planta") is not None else "—")
+    c.metric("Contratistas",f"{r.get('num_personal_contratista',0):.0f}" if r.get("num_personal_contratista") is not None else "—")
+    d.metric("Ejecución",indicador_pct(r.get("ejecucion_presupuestal_pct")))
+    e.metric("Cumplimiento PDT",indicador_pct(r.get("cumplimiento_pdt_pct")))
+    f.metric("MEPI",f"{r.get('calificacion_mepi',0):.1f}" if r.get("calificacion_mepi") is not None else "—")
 
 def mostrar_contexto_gobernabilidad(actores,sadci,relacion):
     st.markdown("<div class='sigo-section'>Gobernabilidad</div>",unsafe_allow_html=True)
@@ -156,10 +171,14 @@ if "google_data" not in st.session_state:
 gd=st.session_state["google_data"]
 if not modo_presentacion:
     num_veredas_situacion=historicos["codigo_ver_resuelto"].nunique() if not historicos.empty and "codigo_ver_resuelto" in historicos.columns else 0; num_conflictos=len(gd["Conflictos"]) if isinstance(gd.get("Conflictos"),pd.DataFrame) else 0; num_actores=len(gd["Actores"]) if isinstance(gd.get("Actores"),pd.DataFrame) else 0
-    a,b,c,d=st.columns(4); a.metric("Situaciones históricas",len(historicos)); b.metric("Veredas con situaciones",num_veredas_situacion); c.metric("Conflictos en Sheets",num_conflictos if isinstance(gd.get("Conflictos"),pd.DataFrame) else "—"); d.metric("Actores",num_actores if isinstance(gd.get("Actores"),pd.DataFrame) else "—"); st.markdown("<div class='sigo-note'><b>Lectura de gobernabilidad:</b> SIGOber-Rural organiza el territorio alrededor de situaciones, ordenamiento y conocimiento comunitario, manteniendo actores y capacidades como información institucional separada.</div>",unsafe_allow_html=True)
+    a,b,c,d=st.columns(4); a.metric("Situaciones históricas",len(historicos)); b.metric("Veredas con situaciones",num_veredas_situacion); c.metric("Conflictos en Sheets",num_conflictos if isinstance(gd.get("Conflictos"),pd.DataFrame) else "—"); d.metric("Actores",num_actores if isinstance(gd.get("Actores"),pd.DataFrame) else "—")
+    mostrar_indicadores_sadci(gd.get("SADCI"))
+    st.markdown("<div class='sigo-note'><b>Lectura de gobernabilidad:</b> SIGOber-Rural organiza el territorio alrededor de situaciones, ordenamiento y conocimiento comunitario, manteniendo actores y capacidades como información institucional separada.</div>",unsafe_allow_html=True)
     with st.expander("🔧 Diagnóstico de fuentes y rendimiento"):
         cfg=config_gsheets(); sid=spreadsheet_id_desde_config(cfg); st.write({"Cartografía":"Disponible" if topo else "No disponible","Eventos territoriales":f"{len(historicos)} registros","Google Sheets":"Conectado" if isinstance(gd,dict) else "No disponible","spreadsheet_id":(sid[:6]+"…"+sid[-4:]) if sid else "No configurado"})
         if st.button("Actualizar fuentes",key="actualizar_fuentes"): leer_google_hoja.clear(); cargar_eventos_locales.clear(); cargar_veredas_topo.clear(); st.session_state["google_data"]=leer_google_sheets(); st.rerun()
+else:
+    mostrar_indicadores_sadci(gd.get("SADCI"))
 veredas_df=propiedades_veredas(topo); nombres=veredas_df[["CODIGO_VER","NOMBRE_VER"]].drop_duplicates().copy(); nombres["etiqueta"]=nombres["NOMBRE_VER"].astype(str)+" — "+nombres["CODIGO_VER"].astype(str); opciones=["Todas las veredas"]+sorted(nombres["etiqueta"].tolist())
 
 @st.fragment
