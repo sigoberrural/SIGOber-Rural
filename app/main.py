@@ -2,6 +2,8 @@ import html
 import json
 import re
 import time
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 import folium
@@ -161,6 +163,61 @@ def mostrar_contexto_gobernabilidad(actores,sadci,relacion):
     st.markdown("<div class='sigo-note'><b>Actores</b> + <b>Capacidades</b> → interpretación institucional → <b>Decisiones</b><br><span style='opacity:.72'>Estas dimensiones permanecen como contexto de gobernabilidad y no se convierten en capas geográficas hasta disponer de datos espaciales propios.</span></div>",unsafe_allow_html=True)
     a,b,c=st.columns(3); a.metric("Actores registrados",len(actores) if isinstance(actores,pd.DataFrame) else 0); r=resumen_sadci(sadci); b.metric("Ejecución",indicador_pct(r.get("ejecucion_presupuestal_pct")) if r else "—"); c.metric("Relaciones interinstitucionales",len(relacion) if isinstance(relacion,pd.DataFrame) else 0)
 
+def contexto_interpretacion_ia(historicos,codigo_sel,dimension,pbot_seleccionadas,sadci):
+    codigo=str(codigo_sel or "").strip()
+    df=historicos.copy() if isinstance(historicos,pd.DataFrame) else pd.DataFrame()
+    if codigo and "codigo_ver_resuelto" in df.columns:
+        df=df[df["codigo_ver_resuelto"].astype(str).str.strip()==codigo]
+    resumen={"dimension_seleccionada":dimension,"codigo_vereda":codigo or "Todas las veredas","situaciones":int(len(df)),"tipos":[],"anios":[],"fuente_situaciones":"SITUACIONES_TERRITORIALES_eventos.csv","pbot":[],"sadci":{}}
+    for col,key in (("tipo_conflicto","tipos"),("anio","anios")):
+        if col in df.columns: resumen[key]=sorted({str(x).strip() for x in df[col].tolist() if str(x).strip()})[:20]
+    titulos={archivo:titulo for archivo,titulo,_,_ in cargar_pbot_capas()}
+    resumen["pbot"]=[titulos.get(x,x) for x in pbot_seleccionadas]
+    r=resumen_sadci(sadci)
+    if r: resumen["sadci"]={k:round(v,2) for k,v in r.items()}
+    return resumen
+
+def interpretar_con_ia(contexto):
+    cfg=st.secrets.get("openai",{}) if hasattr(st.secrets,"get") else {}
+    api_key=str(cfg.get("api_key","") or st.secrets.get("OPENAI_API_KEY","")).strip()
+    if not api_key: return None,"IA no configurada: agregue la clave en secrets como [openai] api_key o OPENAI_API_KEY."
+    modelo=str(cfg.get("model","gpt-5.6-luna")).strip() or "gpt-5.6-luna"
+    system=("Eres una capa de interpretación territorial de SIGOber-Rural. Usa EXCLUSIVAMENTE el JSON entregado. "
+            "No inventes hechos, ubicaciones, causalidades ni recomendaciones de política pública. "
+            "Distingue evidencia de interpretación. Si faltan datos, dilo explícitamente. "
+            "Devuelve exactamente tres secciones breves en español: Síntesis territorial, Relaciones entre dimensiones, Preguntas para la decisión. "
+            "Las preguntas deben ser preguntas, no instrucciones ni recomendaciones. No uses información externa.")
+    payload={"model":modelo,"input":[{"role":"system","content":system},{"role":"user","content":"Contexto controlado de SIGOber-Rural:\n"+json.dumps(contexto,ensure_ascii=False)}],"max_output_tokens":700}
+    req=urllib.request.Request("https://api.openai.com/v1/responses",data=json.dumps(payload).encode("utf-8"),headers={"Authorization":f"Bearer {api_key}","Content-Type":"application/json"},method="POST")
+    try:
+        with urllib.request.urlopen(req,timeout=25) as response: data=json.loads(response.read().decode("utf-8"))
+        texto=data.get("output_text","")
+        if not texto:
+            partes=[]
+            for item in data.get("output",[]):
+                for content in item.get("content",[]):
+                    if content.get("type")=="output_text": partes.append(content.get("text",""))
+            texto="\n".join(partes).strip()
+        return texto or None,"La respuesta de IA no contenía texto utilizable."
+    except (urllib.error.URLError,urllib.error.HTTPError,TimeoutError) as e:
+        return None,f"No fue posible consultar la IA en este momento ({type(e).__name__}). El mapa y las fuentes siguen disponibles."
+
+def panel_interpretacion_ia(historicos,codigo_sel,dimension,pbot_seleccionadas,sadci):
+    st.markdown("### Interpretación asistida por IA")
+    st.caption("La IA interpreta únicamente las evidencias que SIGOber-Rural le entrega; no agrega hechos externos.")
+    if st.button("Interpretar con IA",key="interpretar_ia",use_container_width=True):
+        contexto=contexto_interpretacion_ia(historicos,codigo_sel,dimension,pbot_seleccionadas,sadci)
+        with st.spinner("Interpretando las evidencias seleccionadas…"):
+            texto,error=interpretar_con_ia(contexto)
+        if texto:
+            st.session_state["ia_resultado"]={"texto":texto,"contexto":contexto}
+        else:
+            st.warning(error)
+    resultado=st.session_state.get("ia_resultado")
+    if resultado:
+        st.markdown(resultado["texto"])
+        st.caption("Fuentes utilizadas: situaciones territoriales locales, capas PBOT seleccionadas y/o indicadores SADCI disponibles. La interpretación no agrega hechos que no estén presentes en las fuentes.")
+
 st.markdown("""<style>.sigo-hero{padding:.2rem 0 .6rem}.sigo-kicker{font-size:.72rem;font-weight:750;letter-spacing:.14em;text-transform:uppercase;opacity:.62}.sigo-title{font-size:2.25rem;font-weight:820;line-height:1.04;margin:.1rem 0 .25rem}.sigo-subtitle{font-size:.96rem;opacity:.72;max-width:920px}.sigo-section{margin-top:.55rem;margin-bottom:.15rem;font-size:1.1rem;font-weight:760}.sigo-note{padding:.75rem 1rem;border-radius:.75rem;border:1px solid rgba(128,128,128,.2);background:rgba(128,128,128,.045)}.gigapp-card{padding:.35rem .5rem;border:1px solid rgba(128,128,128,.18);border-radius:.55rem;background:rgba(128,128,128,.025);margin-bottom:.3rem}.gigapp-card h4{margin:0;font-size:.86rem}.gigapp-q{font-size:.72rem;opacity:.62}.gigapp-card p{margin:.12rem 0 0;font-size:.74rem;opacity:.7}.gigapp-caption{font-size:.82rem;opacity:.72;text-align:center;margin:.1rem auto .6rem;max-width:680px}div[data-testid="stMetric"]{padding:.4rem .65rem;border:1px solid rgba(128,128,128,.17);border-radius:.62rem;background:rgba(128,128,128,.03)}</style>""",unsafe_allow_html=True)
 with st.sidebar:
     st.markdown("### SIGOber-Rural"); modo_presentacion=st.toggle("Modo GIGAPP 2026",value=False,help="Presentación narrativa alrededor del territorio."); st.divider(); st.caption("Develope · prototipo de trabajo")
@@ -185,7 +242,7 @@ veredas_df=propiedades_veredas(topo); nombres=veredas_df[["CODIGO_VER","NOMBRE_V
 def render_mapa_interactivo():
     if modo_presentacion:
         if "gigapp_dimension" not in st.session_state or st.session_state["gigapp_dimension"] not in GIGAPP_DIMENSIONES: st.session_state["gigapp_dimension"]="Territorio"
-        left,center=st.columns([1.0,5.0],gap="medium")
+        left,center,right=st.columns([1.0,4.8,1.8],gap="medium")
         with left:
             st.markdown("### Selección")
             st.caption("Partes y secciones")
@@ -206,6 +263,8 @@ def render_mapa_interactivo():
             conflictos=normalizar_conflictos(gd["Conflictos"]) if isinstance(gd.get("Conflictos"),pd.DataFrame) else pd.DataFrame()
             mapa,segundos_mapa=construir_mapa(topo,historicos,conflictos,codigo_sel,True,tuple(pbot_seleccionadas),perspectiva="Territorio",mostrar_social_demo=mostrar_social)
             st_folium(mapa,width="100%",height=720,returned_objects=["last_active_drawing"])
+        with right:
+            panel_interpretacion_ia(historicos,codigo_sel,dimension,tuple(pbot_seleccionadas),gd.get("SADCI"))
     else:
         st.markdown("<div class='sigo-section'>Explorar territorio</div>",unsafe_allow_html=True); st.caption("Seleccione una vereda y, si lo necesita, filtre las situaciones documentadas. Las capas PBOT se mantienen opcionales para conservar fluidez."); seleccion=st.selectbox("Vereda",opciones,label_visibility="collapsed"); codigo_sel="" if seleccion=="Todas las veredas" else seleccion.split(" — ")[-1]; f1,f2,f3,f4=st.columns(4); eventos_f=historicos.copy()
         if not eventos_f.empty:
