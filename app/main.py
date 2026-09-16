@@ -199,8 +199,15 @@ def interpretar_con_ia(contexto):
                     if content.get("type")=="output_text": partes.append(content.get("text",""))
             texto="\n".join(partes).strip()
         return texto or None,"La respuesta de IA no contenía texto utilizable."
-    except (urllib.error.URLError,urllib.error.HTTPError,TimeoutError) as e:
-        return None,f"No fue posible consultar la IA en este momento ({type(e).__name__}). El mapa y las fuentes siguen disponibles."
+    except urllib.error.HTTPError as e:
+        try:
+            detalle=e.read().decode("utf-8","replace")
+        except Exception:
+            detalle=""
+        detalle=detalle[:800].replace(api_key,"[API_KEY_OCULTA]")
+        return None,f"OpenAI respondió HTTP {e.code}: {detalle}"
+    except (urllib.error.URLError,TimeoutError) as e:
+        return None,f"No fue posible conectar con OpenAI ({type(e).__name__}). El mapa y las fuentes siguen disponibles."
 
 def panel_interpretacion_ia(historicos,codigo_sel,dimension,pbot_seleccionadas,sadci):
     st.markdown("### Interpretación asistida por IA")
