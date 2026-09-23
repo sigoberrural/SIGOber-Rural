@@ -177,10 +177,49 @@ def contexto_interpretacion_ia(historicos,codigo_sel,dimension,pbot_seleccionada
     if r: resumen["sadci"]={k:round(v,2) for k,v in r.items()}
     return resumen
 
+def interpretar_localmente(contexto):
+    """Fallback determinista sin conexión ni API."""
+    n=int(contexto.get("situaciones",0) or 0)
+    vereda=str(contexto.get("codigo_vereda","Todas las veredas"))
+    tipos=[str(x) for x in contexto.get("tipos",[]) if str(x).strip()]
+    anios=[str(x) for x in contexto.get("anios",[]) if str(x).strip()]
+    pbot=[str(x) for x in contexto.get("pbot",[]) if str(x).strip()]
+    lineas=[f"Se registran {n} situaciones documentadas para {vereda}."]
+    if tipos:
+        lineas.append("Los tipos registrados incluyen: "+", ".join(tipos[:6])+".")
+    if anios:
+        lineas.append("La evidencia disponible comprende los años: "+", ".join(anios[:8])+".")
+    if pbot:
+        lineas.append("La lectura puede contrastarse con: "+", ".join(pbot[:4])+".")
+    if contexto.get("sadci"):
+        lineas.append("También hay indicadores institucionales SADCI disponibles como contexto de capacidad.")
+    relaciones=[]
+    if n and len(tipos)>1:
+        relaciones.append("La coexistencia de distintos tipos de situación sugiere investigar si comparten factores territoriales, institucionales o temporales.")
+    if n and len(anios)>1:
+        relaciones.append("Los registros de varios años permiten investigar persistencias, cambios de concentración o secuencias temporales.")
+    if n and pbot:
+        relaciones.append("La superposición con el PBOT puede orientar una hipótesis sobre posibles relaciones entre situaciones y condiciones previstas por el ordenamiento; no demuestra causalidad.")
+    if not relaciones:
+        relaciones.append("La evidencia disponible no permite establecer causalidad; conviene ampliar o contrastar los datos antes de afirmar un patrón.")
+    preguntas=[
+        "¿La relación observada se mantiene al comparar otras veredas o periodos?",
+        "¿Qué información adicional permitiría contrastar esta hipótesis?",
+        "¿Qué fuente independiente podría confirmarla o refutarla?"
+    ]
+    texto=("### Síntesis territorial\n"+" ".join(lineas)+
+           "\n\n### Relaciones e hipótesis para investigar\n"+
+           "\n".join("- "+x for x in relaciones)+
+           "\n\n### Preguntas para profundizar\n"+
+           "\n".join("- "+x for x in preguntas)+
+           "\n\n> **Interpretación local:** generada sin API y exclusivamente a partir de las evidencias estructuradas disponibles en SIGOber-Rural.")
+    return texto,None
+
 def interpretar_con_ia(contexto):
     cfg=st.secrets.get("openai",{}) if hasattr(st.secrets,"get") else {}
     api_key=str(cfg.get("api_key","") or st.secrets.get("OPENAI_API_KEY","")).strip()
-    if not api_key: return None,"IA no configurada: agregue la clave en secrets como [openai] api_key o OPENAI_API_KEY."
+    if not api_key:
+        return interpretar_localmente(contexto)
     modelo=str(cfg.get("model","gpt-5.6-luna")).strip() or "gpt-5.6-luna"
     system=("Eres una capa de interpretación territorial de SIGOber-Rural. Usa EXCLUSIVAMENTE el JSON entregado. "
             "No inventes hechos, ubicaciones ni causalidades. Distingue evidencia, interpretación e hipótesis. "
@@ -202,15 +241,8 @@ def interpretar_con_ia(contexto):
                     if content.get("type")=="output_text": partes.append(content.get("text",""))
             texto="\n".join(partes).strip()
         return texto or None,"La respuesta de IA no contenía texto utilizable."
-    except urllib.error.HTTPError as e:
-        try:
-            detalle=e.read().decode("utf-8","replace")
-        except Exception:
-            detalle=""
-        detalle=detalle[:800].replace(api_key,"[API_KEY_OCULTA]")
-        return None,f"OpenAI respondió HTTP {e.code}: {detalle}"
-    except (urllib.error.URLError,TimeoutError) as e:
-        return None,f"No fue posible conectar con OpenAI ({type(e).__name__}). El mapa y las fuentes siguen disponibles."
+    except (urllib.error.HTTPError,urllib.error.URLError,TimeoutError):
+        return interpretar_localmente(contexto)
 
 def panel_interpretacion_ia(historicos,codigo_sel,dimension,pbot_seleccionadas,sadci):
     st.markdown("### Interpretación asistida por IA")
