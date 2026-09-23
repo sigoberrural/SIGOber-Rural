@@ -264,6 +264,16 @@ st.markdown("""<style>.sigo-hero{padding:.2rem 0 .6rem}.sigo-kicker{font-size:.7
 with st.sidebar:
     st.markdown("### SIGOber-Rural"); modo_presentacion=st.toggle("Modo GIGAPP 2026",value=False,help="Presentación narrativa alrededor del territorio."); st.divider(); st.caption("Develope · prototipo de trabajo")
 st.markdown("<div class='sigo-hero'><div class='sigo-kicker'>Sistema de información territorial</div><div class='sigo-title'>SIGOber-Rural</div><div class='sigo-subtitle'>Una lectura territorial de la gobernabilidad rural · Puerto Rico, Caquetá</div></div>",unsafe_allow_html=True)
+
+with st.expander("📡 Captura territorial offline", expanded=False):
+    st.markdown("**Capture evidencia directamente en el territorio, incluso con conectividad limitada.**")
+    st.caption("El formulario funciona desconectado, guarda los registros localmente en el dispositivo y permite sincronizarlos cuando se recupera la conexión.")
+    formulario_path=BASE_DIR/"app"/"captura_offline.html"
+    if formulario_path.exists():
+        with open(formulario_path,"rb") as f:
+            st.download_button("⬇️ Descargar formulario de captura offline",data=f.read(),file_name="captura_offline.html",mime="text/html",use_container_width=True)
+    else:
+        st.caption("Formulario de captura no disponible.")
 topo=cargar_veredas_topo(); historicos=cargar_eventos_locales()
 if "google_data" not in st.session_state:
     with st.spinner("Conectando con las fuentes territoriales…"): st.session_state["google_data"]=leer_google_sheets()
