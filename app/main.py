@@ -43,7 +43,7 @@ def cargar_pbot_capas():
     return capas
 @st.cache_data(show_spinner=False)
 def cargar_eventos_locales():
-    for nombre in ("SITUACIONES_TERRITORIALES_eventos.csv","SITUACIONES_TERRITORIALES_eventos_v0_1.csv"):
+    for nombre in ("SITUACIONES_TERRITORIALES_eventos.csv",):
         ruta=DATA_DIR/nombre
         if ruta.exists(): return pd.read_csv(ruta,dtype=str).fillna("")
     return pd.DataFrame()
