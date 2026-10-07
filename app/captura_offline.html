@@ -102,25 +102,6 @@
         const LAT_DEFECTO = 1.9123;
         const LON_DEFECTO = -75.1842;
 
-        // CORRECCIÓN 2: Capa base de contingencia inyectada directamente para que el mapa nunca se quede en blanco
-        const datosVeredasGeoJSON = {
-            "type": "FeatureCollection",
-            "features": [
-                {
-                    "type": "Feature",
-                    "properties": {"NOMBRE_VER": "Zona Rural General - Puerto Rico"},
-                    "geometry": {
-                        "type": "Polygon",
-                        "coordinates": [[
-                            [-75.30, 2.05], [-75.00, 2.05], 
-                            [-75.00, 1.80], [-75.30, 1.80], 
-                            [-75.30, 2.05]
-                        ]]
-                    }
-                }
-            ]
-        };
-
         if(!localStorage.getItem("conflictos_offline")) {
             localStorage.setItem("conflictos_offline", JSON.stringify([]));
         }
@@ -139,20 +120,6 @@
                 maxZoom: 19,
                 attribution: '© OpenStreetMap'
             }).addTo(mapa);
-
-            // Renderizar la capa de contingencia espacial (Funciona CON o SIN internet siempre)
-            try {
-                capaVeredas = L.geoJSON(datosVeredasGeoJSON, {
-                    style: function () {
-                        return { color: "#FFFF00", weight: 2, fillColor: "#FFFF00", fillOpacity: 0.05 };
-                    },
-                    onEachFeature: function (feature, layer) {
-                        if (feature.properties && feature.properties.NOMBRE_VER) {
-                            layer.bindTooltip(feature.properties.NOMBRE_VER, { permanent: true, direction: "center", className: "leaflet-tooltip-own" });
-                        }
-                    }
-                }).addTo(mapa);
-            } catch(e) { console.error("Error cargando polígonos locales:", e); }
 
             // CORRECCIÓN 3: Reconfigurar pines nativos con círculos vectoriales para evitar que se rompa el mapa al buscar imágenes offline
             marcador = L.circleMarker([LAT_DEFECTO, LON_DEFECTO], {
@@ -175,21 +142,9 @@
         function actualizarInputsYVereda(lat, lon) {
             document.getElementById("lat").value = Number(lat).toFixed(6);
             document.getElementById("lon").value = Number(lon).toFixed(6);
-            document.getElementById("vereda").value = "Vereda Localizada";
+            document.getElementById("vereda").value = "Pendiente de identificación";
 
-            if (capaVeredas) {
-                const puntoEval = turf.point([lon, lat]);
-                capaVeredas.eachLayer(function (layer) {
-                    try {
-                        const polígonoEval = layer.feature;
-                        if (turf.booleanPointInPolygon(puntoEval, polígonoEval)) {
-                            if(layer.feature.properties && layer.feature.properties.NOMBRE_VER) {
-                                document.getElementById("vereda").value = layer.feature.properties.NOMBRE_VER;
-                            }
-                        }
-                    } catch(err) { }
-                });
-            }
+            // La vereda se identifica cuando exista cartografía territorial real disponible en el formulario.
         }
 
         function recapturarGPSNativo() {
