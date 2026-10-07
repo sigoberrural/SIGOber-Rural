@@ -17,8 +17,6 @@ DATA_DIR = BASE_DIR / "data"
 PBOT_DIR = DATA_DIR / "PBOT2015"
 
 PBOT_CAPAS = [("PBOT2015_ZONIFICACION_USO_SUELO_RURAL.geojson", "Zonificación de uso del suelo rural", ["UGOT", "Aptitud", "area_ha"]),("PBOT2015_PROTECCION_RURAL.geojson", "Suelos de protección rural", ["Aptitud", "Area_ha"]),("PBOT2015_PERIMETRO_EXPANSION.geojson", "Perímetro y expansión urbana", ["Tipo", "area_m2", "Id"]),("PBOT2015_TRATAMIENTOS_URBANOS.geojson", "Tratamientos urbanos", ["Tipo", "area_m2", "Id"]),("PBOT2015_ZONAS_HOMOGENEAS_URBANAS.geojson", "Zonas homogéneas urbanas", ["Tipo", "area_m2", "Id"]),("PBOT2015_PUNTOS_EXPANSION.geojson", "Puntos de expansión urbana", ["Tipo", "area_m2", "Id"]),("PBOT2015_MANZANAS_INSPECCIONES.geojson", "Manzanas e inspecciones", ["codigo", "sector_cat", "tipo_avalu", "Reporte"])]
-PUNTOS_SOCIALES_DEMO = [{"lat":1.9480,"lon":-75.2260,"categoria":"Movilidad rural","titulo":"Acceso vial vulnerable en temporada de lluvias","voz":"La comunidad identifica el acceso y la movilidad como una prioridad territorial."},{"lat":1.9020,"lon":-75.1190,"categoria":"Seguridad territorial","titulo":"Sector percibido como sensible","voz":"La comunidad señala este sector como un lugar que requiere seguimiento y coordinación institucional."},{"lat":1.8620,"lon":-75.2460,"categoria":"Riesgo por minas","titulo":"Zona que requiere atención preventiva","voz":"La comunidad identifica la necesidad de prevención, información y protección frente a riesgos territoriales."},{"lat":1.9720,"lon":-75.1640,"categoria":"Afectación humanitaria","titulo":"Lugar asociado a necesidades de atención y retorno","voz":"La comunidad prioriza la atención a población afectada y el acompañamiento institucional."},{"lat":1.8340,"lon":-75.1780,"categoria":"Servicios y equipamiento","titulo":"Nodo comunitario para gestión de necesidades","voz":"La comunidad reconoce la importancia de contar con servicios y espacios de gestión cercanos."},{"lat":1.9220,"lon":-75.0900,"categoria":"Conectividad","titulo":"Sector con necesidad de mayor conectividad","voz":"La comunidad prioriza mejorar la comunicación y el acceso a servicios y oportunidades."},{"lat":1.8030,"lon":-75.2180,"categoria":"Recurso territorial","titulo":"Lugar de valor ambiental y comunitario","voz":"La comunidad reconoce el lugar como un recurso territorial que debe ser protegido y gestionado."}]
-
 GIGAPP_DIMENSIONES = {
     "Territorio": {"pregunta":"¿Dónde?", "descripcion":"Veredas como unidad de lectura territorial."},
     "Situaciones": {"pregunta":"¿Qué ocurre?", "descripcion":"Evidencia territorial documentada."},
@@ -89,7 +87,6 @@ def leer_google_sheets():
     return resultado
 def popup_conflicto(row):
     v=lambda c: html.escape(str(row.get(c,"") or "")); return ("<div style='width:280px;font-family:Arial'><h4>Situación registrada</h4>" f"<b>ID:</b> {v('id_conflicto')}<br><b>Tipo:</b> {v('tipo_conflicto')}<br><b>Vereda:</b> {v('vereda')}<br><b>Descripción:</b> {v('descripcion')}<br><b>Registrado por:</b> {v('registrado_por')}<br><b>Estado coordenada:</b> {v('precision_coordenada')}<br><b>Lat/Lon fuente:</b> {v('lat')} / {v('lon')}</div>")
-def popup_social_demo(punto): return ("<div style='width:280px;font-family:Arial'><h4>Cartografía social</h4>" f"<b>Categoría:</b> {html.escape(punto['categoria'])}<br><b>Situación:</b> {html.escape(punto['titulo'])}<br><b>Voz comunitaria:</b> {html.escape(punto['voz'])}<br><br><i>No corresponde a un registro de conflicto real.</i></div>")
 @st.cache_data(show_spinner=False,max_entries=32)
 def preparar_topo_para_eventos(topo,resumen):
     copia=json.loads(json.dumps(topo)); tabla=resumen.set_index("codigo_ver_resuelto") if not resumen.empty else pd.DataFrame()
@@ -122,10 +119,6 @@ def construir_mapa(topo,eventos_historicos,conflictos=None,codigo_seleccionado="
         for row in validos.itertuples(index=False):
             data=row._asdict(); folium.CircleMarker(location=[float(data["lat_num"]),float(data["lon_num"])],radius=7,weight=2,fill=True,fill_opacity=.85,tooltip=f"{data.get('tipo_conflicto','Situación')} — {data.get('vereda','')}",popup=folium.Popup(popup_conflicto(data),max_width=340)).add_to(grupo)
         grupo.add_to(m)
-    if mostrar_social_demo:
-        grupo_social=folium.FeatureGroup(name="Cartografía social",show=True)
-        for punto in PUNTOS_SOCIALES_DEMO: folium.CircleMarker(location=[punto["lat"],punto["lon"]],radius=8,weight=2,fill=True,fill_opacity=.9,tooltip=punto["categoria"],popup=folium.Popup(popup_social_demo(punto),max_width=340)).add_to(grupo_social)
-        grupo_social.add_to(m)
     aliases_pbot={"UGOT":"UGOT","Aptitud":"Aptitud","area_ha":"Área (ha)","Area_ha":"Área (ha)","Tipo":"Tipo","area_m2":"Área (m²)","Id":"ID","codigo":"Código","sector_cat":"Sector catastral","tipo_avalu":"Tipo avalúo","Reporte":"Reporte"}; disponibles={x[0]:x for x in cargar_pbot_capas()}
     for archivo in pbot_seleccionadas:
         capa=disponibles.get(archivo)
@@ -305,15 +298,13 @@ def render_mapa_interactivo():
             st.markdown("**Vereda**")
             seleccion=st.selectbox("Vereda",opciones,label_visibility="collapsed")
             codigo_sel="" if seleccion=="Todas las veredas" else seleccion.split(" — ")[-1]
-            st.markdown("**Cartografía social**")
-            mostrar_social=st.toggle("Mostrar",value=False,label_visibility="collapsed",help="Incluye la capa social ilustrativa; después puede apagarse desde el control de capas del mapa.")
             st.divider()
             st.markdown("**Capas PBOT 2015**")
             pbot_opciones={archivo:titulo for archivo,titulo,_,_ in cargar_pbot_capas()}
             pbot_seleccionadas=st.multiselect("Capas",options=list(pbot_opciones.keys()),format_func=lambda x:pbot_opciones[x],default=[],label_visibility="collapsed",help="Seleccione una o varias capas PBOT. Cada una queda disponible individualmente en el control del mapa.")
         with center:
             conflictos=normalizar_conflictos(gd["Conflictos"]) if isinstance(gd.get("Conflictos"),pd.DataFrame) else pd.DataFrame()
-            mapa,segundos_mapa=construir_mapa(topo,historicos,conflictos,codigo_sel,True,tuple(pbot_seleccionadas),perspectiva="Territorio",mostrar_social_demo=mostrar_social)
+            mapa,segundos_mapa=construir_mapa(topo,historicos,conflictos,codigo_sel,True,tuple(pbot_seleccionadas),perspectiva="Territorio",mostrar_social_demo=False)
             st_folium(mapa,width="100%",height=720,returned_objects=["last_active_drawing"])
         with right:
             with st.container(height=500,border=True):
