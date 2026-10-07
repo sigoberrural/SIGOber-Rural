@@ -1,594 +1,322 @@
-import streamlit as st
-import folium
-from streamlit_folium import st_folium
-from streamlit_gsheets import GSheetsConnection
-import pandas as pd
+import html
 import json
-import os
-import uuid
-import gspread
-from google.oauth2.service_account import Credentials
-from shapely.geometry import shape, Point
-import topojson as tp
-from streamlit_js_eval import get_geolocation
-import plotly.express as px
+import re
+import time
+import urllib.error
+import urllib.request
+from pathlib import Path
+
+import folium
 import pandas as pd
+import streamlit as st
+from streamlit_folium import st_folium
 
-# 1. CONFIGURACIÓN E INTERFAZ (Optimizado para móvil)
-st.set_page_config(
-    page_title="SIGOber-Rural Puerto Rico", 
-    layout="wide",
-    initial_sidebar_state="collapsed"
-)
+st.set_page_config(page_title="SIGOber-Rural", page_icon="🗺️", layout="wide")
+BASE_DIR = Path(__file__).resolve().parent.parent
+DATA_DIR = BASE_DIR / "data"
+PBOT_DIR = DATA_DIR / "PBOT2015"
 
-# --- ESTILO CSS PERSONALIZADO ---
-st.markdown("""
-    <style>
-    .stButton>button {
-        width: 100%;
-        border-radius: 8px;
-        height: 3em;
-        font-weight: bold;
-    }
-    .block-container {
-        padding-top: 1rem;
-        padding-bottom: 1rem;
-    }
-    /* Estilo para los créditos finales */
-    .footer-container {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        gap: 20px;
-        padding: 10px;
-        margin-top: 20px;
-    }
-    .footer-text {
-        font-size: 0.9rem;
-        color: #555;
-        text-align: center;
-    }
-    </style>
-    """, unsafe_allow_html=True)
+PBOT_CAPAS = [("PBOT2015_ZONIFICACION_USO_SUELO_RURAL.geojson", "Zonificación de uso del suelo rural", ["UGOT", "Aptitud", "area_ha"]),("PBOT2015_PROTECCION_RURAL.geojson", "Suelos de protección rural", ["Aptitud", "Area_ha"]),("PBOT2015_PERIMETRO_EXPANSION.geojson", "Perímetro y expansión urbana", ["Tipo", "area_m2", "Id"]),("PBOT2015_TRATAMIENTOS_URBANOS.geojson", "Tratamientos urbanos", ["Tipo", "area_m2", "Id"]),("PBOT2015_ZONAS_HOMOGENEAS_URBANAS.geojson", "Zonas homogéneas urbanas", ["Tipo", "area_m2", "Id"]),("PBOT2015_PUNTOS_EXPANSION.geojson", "Puntos de expansión urbana", ["Tipo", "area_m2", "Id"]),("PBOT2015_MANZANAS_INSPECCIONES.geojson", "Manzanas e inspecciones", ["codigo", "sector_cat", "tipo_avalu", "Reporte"])]
+GIGAPP_DIMENSIONES = {
+    "Territorio": {"pregunta":"¿Dónde?", "descripcion":"Veredas como unidad de lectura territorial."},
+    "Situaciones": {"pregunta":"¿Qué ocurre?", "descripcion":"Evidencia territorial documentada."},
+    "Ordenamiento territorial": {"pregunta":"¿Qué territorio tenemos previsto?", "descripcion":"Lectura de las capas PBOT 2015."},
+    "Cartografía social": {"pregunta":"¿Cómo lo interpreta la comunidad?", "descripcion":"Problemas, recursos y percepciones participativas."},
+}
+PBOT_PERSPECTIVA_DEFAULT = "PBOT2015_ZONIFICACION_USO_SUELO_RURAL.geojson"
 
-# -----------------------------------------------------------------------------
-# 🛰️ CÓDIGO DEL FORMULARIO OFFLINE EN LA MEMORIA DE PYTHON
-# -----------------------------------------------------------------------------
-AUTOGENERADO_HTML = """<!DOCTYPE html>
-<html lang="es">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SADCI - Captura Rural Unificada</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <style>
-        body { background-color: #f8f9fa; padding: 10px; font-size: 16px; }
-        .card { border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); margin-bottom: 12px; }
-        .btn-grande { height: 50px; font-weight: bold; font-size: 1.1rem; border-radius: 8px; }
-        .status-badge { font-size: 0.85rem; padding: 8px; display: inline-block; width: 100%; text-align: center; border-radius: 6px; }
-        #mapa { height: 350px; width: 100%; border-radius: 8px; border: 2px solid #ddd; background-color: #e5e3df; }
-        .leaflet-tooltip-own { background: #333; color: #fff; border: none; font-weight: bold; padding: 4px 8px; border-radius: 4px; }
-    </style>
-</head>
-<body>
-    <div class="container-fluid m-0 p-0">
-        <h3 class="text-center my-2">🛰️ SIGOber-Rural</h3>
-        <p class="text-muted text-center mb-3" style="font-size:0.85rem;">Puerto Rico (Caquetá) - Formulario Único Offline</p>
-        <div class="card p-3 mb-2">
-            <div class="row text-center align-items-center">
-                <div class="col-6"><span id="contador-locales" class="badge bg-warning text-dark p-2 w-100 fs-6">0 Pendientes</span></div>
-                <div class="col-6"><span id="estado-red" class="status-badge bg-success text-white">🟢 Con Internet</span></div>
-                <div class="col-12 mt-2">
-                    <button id="btn-sincronizar" class="btn btn-primary btn-sm w-100 d-none" onclick="sincronizarDatos()">🔄 Enviar Datos Guardados a la Nube</button>
-                </div>
-            </div>
-        </div>
-        <div class="row">
-            <div class="col-12 col-md-4">
-                <div class="card p-3">
-                    <h5 class="card-title text-danger mb-3">⚠️ Registrar Conflicto</h5>
-                    <form id="form-conflictos">
-                        <div class="mb-2">
-                            <label class="form-label small fw-bold">Encuestador / Líder</label>
-                            <input type="text" id="quien" class="form-control form-control-sm" required placeholder="Tu nombre">
-                        </div>
-                        <div class="mb-2">
-                            <label class="form-label small fw-bold">Tipo de Conflicto</label>
-                            <select id="tipo" class="form-select form-select-sm">
-                                <option value="Linderos">Linderos</option>
-                                <option value="Uso de Suelo">Uso de Suelo</option>
-                                <option value="Ambiental">Ambiental</option>
-                                <option value="Tenencia">Tenencia</option>
-                            </select>
-                        </div>
-                        <div class="mb-2">
-                            <label class="form-label small fw-bold">Vereda Identificada</label>
-                            <input type="text" id="vereda" class="form-control form-control-sm fw-bold text-danger" value="Vereda Localizada" readonly>
-                        </div>
-                        <div class="mb-2">
-                            <label class="form-label small fw-bold">Descripción</label>
-                            <textarea id="desc" class="form-control form-control-sm" rows="2" required placeholder="Detalles observados..."></textarea>
-                        </div>
-                        <div class="row g-2 mb-3 bg-light p-2 rounded border">
-                            <div class="col-6">
-                                <small class="text-muted d-block" style="font-size:0.75rem;">Latitud</small>
-                                <input type="text" id="lat" class="form-control form-control-sm text-center fw-bold" readonly value="1.912300">
-                            </div>
-                            <div class="col-6">
-                                <small class="text-muted d-block" style="font-size:0.75rem;">Longitud</small>
-                                <input type="text" id="lon" class="form-control form-control-sm text-center fw-bold" readonly value="-75.184200">
-                            </div>
-                        </div>
-                        <button type="submit" class="btn btn-danger w-100 btn-grande mb-2">💾 Guardar en Celular</button>
-                    </form>
-                </div>
-            </div>
-            <div class="col-12 col-md-8">
-                <div class="card p-2">
-                    <div class="d-flex justify-content-between align-items-center mb-1 px-1">
-                        <span class="small fw-bold text-muted">📍 Arrastra el pin o toca el mapa</span>
-                        <button type="button" class="btn btn-secondary btn-sm" onclick="recapturarGPSNativo()">🎯 Forzar GPS</button>
-                    </div>
-                    <div id="mapa"></div>
-                </div>
-            </div>
-        </div>
-    </div>
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script src="https://layerjs.org/libs/turf.min.js"></script>
-    <script>
-        const WEB_APP_URL = "https://script.google.com/macros/s/AKfycbwNKhNoX_Tq6IvOKP26jLuyIsyrfYuRnQum-5FDVhi6mHECriPiN65zC5tdrIXK7-nRgQ/exec";
-        let mapa, marcador, capaVeredas;
-        const LAT_DEFECTO = 1.9123; const LON_DEFECTO = -75.1842;
-        const datosVeredasGeoJSON = {"type": "FeatureCollection", "features": [{"type": "Feature", "properties": {"NOMBRE_VER": "Zona Rural General - Puerto Rico"}, "geometry": {"type": "Polygon", "coordinates": [[[-75.30, 2.05], [-75.00, 2.05], [-75.00, 1.80], [-75.30, 1.80], [-75.30, 2.05]]]}}]};
-        if(!localStorage.getItem("conflictos_offline")) { localStorage.setItem("conflictos_offline", JSON.stringify([])); }
-        function inicializarMapa() {
-            mapa = L.map('mapa', { center: [LAT_DEFECTO, LON_DEFECTO], zoom: 12, zoomControl: false });
-            L.control.zoom({ position: 'bottomright' }).addTo(mapa);
-            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(mapa);
-            try {
-                capaVeredas = L.geoJSON(datosVeredasGeoJSON, {
-                    style: function () { return { color: "#FFFF00", weight: 2, fillColor: "#FFFF00", fillOpacity: 0.05 }; },
-                    onEachFeature: function (feature, layer) {
-                        if (feature.properties && feature.properties.NOMBRE_VER) {
-                            layer.bindTooltip(feature.properties.NOMBRE_VER, { permanent: true, direction: "center", className: "leaflet-tooltip-own" });
-                        }
-                    }
-                }).addTo(mapa);
-            } catch(e) {}
-            marcador = L.circleMarker([LAT_DEFECTO, LON_DEFECTO], { radius: 10, fillColor: "#ff2a2a", color: "#fff", weight: 3, opacity: 1, fillOpacity: 0.9 }).addTo(mapa);
-            mapa.on('click', function (e) { marcador.setLatLng(e.latlng); actualizarInputsYVereda(e.latlng.lat, e.latlng.lng); });
-        }
-        function actualizarInputsYVereda(lat, lon) {
-            document.getElementById("lat").value = Number(lat).toFixed(6); document.getElementById("lon").value = Number(lon).toFixed(6);
-            document.getElementById("vereda").value = "Vereda Localizada";
-            if (capaVeredas) {
-                const puntoEval = turf.point([lon, lat]);
-                capaVeredas.eachLayer(function (layer) {
-                    try { if (turf.booleanPointInPolygon(puntoEval, layer.feature)) { document.getElementById("vereda").value = layer.feature.properties.NOMBRE_VER; } } catch(err) {}
-                });
-            }
-        }
-        function recapturarGPSNativo() {
-            if (navigator.geolocation) {
-                navigator.geolocation.getCurrentPosition((pos) => {
-                    const lat = pos.coords.latitude; const lon = pos.coords.longitude;
-                    actualizarInputsYVereda(lat, lon); marcador.setLatLng([lat, lon]); mapa.setView([lat, lon], 14);
-                }, null, { enableHighAccuracy: true, timeout: 8000 });
-            }
-        }
-        function actualizarEstadoRed() {
-            const bad = document.getElementById("estado-red"); const btnSincro = document.getElementById("btn-sincronizar");
-            const enCola = JSON.parse(localStorage.getItem("conflictos_offline")).length;
-            if (navigator.onLine) { bad.className = "status-badge bg-success text-white"; bad.innerText = "🟢 Con Internet"; if(enCola > 0) btnSincro.classList.remove("d-none"); }
-            else { bad.className = "status-badge bg-secondary text-white"; bad.innerText = "⚫ Sin Internet (Modo Rural)"; btnSincro.classList.add("d-none"); }
-            document.getElementById("contador-locales").innerText = `${enCola} Pendientes`;
-        }
-        window.addEventListener('online', actualizarEstadoRed); window.addEventListener('offline', actualizarEstadoRed);
-        window.onload = () => { inicializarMapa(); recapturarGPSNativo(); actualizarEstadoRed(); cargarPuntosGuardadosEnMapa(); }
-        document.getElementById("form-conflictos").addEventListener("submit", function(e) {
-            e.preventDefault();
-            const nuevoRegistro = {
-                id: Math.random().toString(36).substr(2, 5), tipo: document.getElementById("tipo").value,
-                vereda: document.getElementById("vereda").value, lat: document.getElementById("lat").value,
-                lon: document.getElementById("lon").value, desc: document.getElementById("desc").value,
-                quien: document.getElementById("quien").value, fecha: new Date().toISOString()
-            };
-            let cola = JSON.parse(localStorage.getItem("conflictos_offline")); cola.push(nuevoRegistro);
-            localStorage.setItem("conflictos_offline", JSON.stringify(cola));
-            alert("💾 Guardado localmente en el teléfono."); document.getElementById("desc").value = "";
-            actualizarEstadoRed(); cargarPuntosGuardadosEnMapa();
-        });
-        function cargarPuntosGuardadosEnMapa() {
-            let cola = JSON.parse(localStorage.getItem("conflictos_offline"));
-            cola.forEach(item => { L.circleMarker([item.lat, item.lon], { radius: 7, fillColor: "#ff9800", color: "#e65100", weight: 2, fillOpacity: 0.9 }).addTo(mapa); });
-        }
-        function sincronizarDatos() {
-            let cola = JSON.parse(localStorage.getItem("conflictos_offline")); 
-            if(cola.length === 0) return;
-            
-            document.getElementById("btn-sincronizar").innerText = "⏳ Conectando con la base de datos...";
-            
-            // Creamos un formulario real nativo en memoria
-            const form = document.createElement('form');
-            form.method = 'POST';
-            form.action = WEB_APP_URL; // Envía directamente al script de Google
-
-            // Añadimos el paquete de datos en el campo oculto "datos"
-            const hiddenField = document.createElement('input');
-            hiddenField.type = 'hidden';
-            hiddenField.name = 'datos';
-            hiddenField.value = JSON.stringify(cola);
-            form.appendChild(hiddenField);
-
-            // Adjuntamos al documento y enviamos
-            document.body.appendChild(form);
-            
-            // Borramos la cola local ANTES de salir para que no se dupliquen datos
-            localStorage.setItem("conflictos_offline", JSON.stringify([]));
-            
-            // Esto redirigirá al usuario a una pantalla blanca de Google que confirma el éxito
-            form.submit();
-        }
-    </script>
-</body>
-</html>"""
-
-# --- BOTÓN DE ENLACE EN LA BARRA LATERAL (SIDEBAR) ---
-with st.sidebar:
-    st.markdown("### 🛰️ Herramientas de Campo")
-    st.info("¿Vas a salir a zona rural sin señal? Descarga este formulario en tu teléfono antes de irte. Funciona 100% offline.")
-    st.download_button(
-        label="📲 Descargar Formulario Offline",
-        data=AUTOGENERADO_HTML,
-        file_name="captura_offline.html",
-        mime="text/html",
-        use_container_width=True
-    )
-    st.divider()
-
-st.title("🛰️ SIGOber-Rural: Puerto Rico (Caquetá)")
-st.markdown("### Gestión Territorial, Actores y Capacidad Institucional (SADCI)")
-st.divider()
-
-# 2. CONEXIÓN A DATOS
-conn = st.connection("gsheets", type=GSheetsConnection)
-
-def conectar_gspread():
-    scope = ["https://www.googleapis.com/auth/spreadsheets"]
-    creds_info = dict(st.secrets["connections"]["gsheets"])
-    if "private_key" in creds_info:
-        creds_info["private_key"] = creds_info["private_key"].replace("\\n", "\n")
-    creds = Credentials.from_service_account_info(creds_info, scopes=scope)
-    client = gspread.authorize(creds)
-    return client.open_by_key(creds_info["spreadsheet"])
-
-def cargar_json_local(nombre):
-    ruta = os.path.join('data', nombre)
-    if os.path.exists(ruta):
-        with open(ruta, encoding='utf-8') as f:
-            return json.load(f)
-    return None
-
-@st.cache_data(ttl=600)
-def cargar_datos_con_cache(nombre_hoja):
-    try:
-        sh = conectar_gspread()
-        ws = sh.worksheet(nombre_hoja)
-        return pd.DataFrame(ws.get_all_records())
-    except Exception as e:
-        st.error(f"Error al cargar la hoja {nombre_hoja}: {e}")
-        return pd.DataFrame()
-
-veredas_topo = cargar_json_local('veredas_puerto_rico.json')
-
-# 3. PANELES DE CONTROL
-tab_mapa, tab_sadci, tab_actores = st.tabs([
-    "🗺️ Mapa de Conflictos", 
-    "📊 Auditoría SADCI", 
-    "👥 Registro de Actores"
-])
-
-# --- TAB 1: MAPA ---
-with tab_mapa:
-    st.subheader("Visualizador de Tenencia y Conflictos")
-    
-    df_raw = cargar_datos_con_cache("Conflictos")
-    df_plot = pd.DataFrame()
-    
-    if df_raw is not None and not df_raw.empty:
-        df_plot = df_raw.copy()
-        
-        # 1. Estandarizar nombres de columnas a minúsculas
-        df_plot.columns = [str(c).strip().lower() for c in df_plot.columns]
-        
-        # 2. Asignar las columnas por su posición física real (Columna 3 y 4)
-        matriz_valores = df_plot.values
-        if df_plot.shape[1] >= 5:
-            df_plot['lat'] = matriz_valores[:, 3]
-            df_plot['lon'] = matriz_valores[:, 4]
-            df_plot['tipo_mapa'] = matriz_valores[:, 1]
-            df_plot['vereda_mapa'] = matriz_valores[:, 2]
-            df_plot['desc_mapa'] = matriz_valores[:, 5] if df_plot.shape[1] > 5 else "Sin descripción"
-
-        # 3. LIMPIEZA INTELIGENTE DE COORDENADAS (Corrige el error de múltiples puntos)
-        for col in ['lat', 'lon']:
-            if col in df_plot.columns:
-                # Convertimos a texto y quitamos espacios
-                val_str = df_plot[col].astype(str).str.strip().str.replace(',', '.')
-                
-                # REPARACIÓN: Si el texto tiene más de un punto (ej: 2.027.070), 
-                # dejamos solo el primer punto y eliminamos los siguientes.
-                def arreglar_puntos(texto):
-                    if texto.count('.') > 1:
-                        partes = texto.split('.')
-                        # Une la primera parte con el resto pegado (ej: "2" + "." + "027070")
-                        return partes[0] + '.' + ''.join(partes[1:])
-                    return texto
-                
-                df_plot[col] = val_str.apply(arreglar_puntos)
-                # Ahora que está limpio, lo convertimos a número real sin que falle
-                df_plot[col] = pd.to_numeric(df_plot[col], errors='coerce')
-        
-        # 4. Quitar del mapa solo lo que no sea numérico
-        df_plot = df_plot.dropna(subset=['lat', 'lon'])
-        
-    if "gps_capturado" not in st.session_state:
-        loc = get_geolocation()
-        if loc:
-            st.session_state.lat_click = loc['coords']['latitude']
-            st.session_state.lon_click = loc['coords']['longitude']
-            st.session_state.gps_capturado = True
-
-    if "lat_click" not in st.session_state:
-        st.session_state.lat_click = 1.9123
-    if "lon_click" not in st.session_state:
-        st.session_state.lon_click = -75.1842
-
-    def validar_punto_preciso(lat, lon, topo_data):
-        if topo_data is None: return True, "Capa no cargada"
+@st.cache_data(show_spinner=False)
+def cargar_json(nombre):
+    ruta=DATA_DIR/nombre
+    if not ruta.exists(): return None
+    with open(ruta,"r",encoding="utf-8") as f: return json.load(f)
+@st.cache_data(show_spinner=False)
+def cargar_pbot_capas():
+    capas=[]
+    for archivo,titulo,campos in PBOT_CAPAS:
+        ruta=PBOT_DIR/archivo
+        if not ruta.exists(): continue
         try:
-            punto_eval = Point(float(lon), float(lat))
-            from topojson import to_geojson
-            geojson_data = to_geojson(topo_data)
-            for feature in geojson_data['features']:
-                if shape(feature['geometry']).contains(punto_eval):
-                    return True, feature['properties'].get('NOMBRE_VER', 'Vereda Localizada')
-            return False, None
-        except: return True, "Error técnico de validación"
-
-    col_menu, col_mapa = st.columns([1, 3])
-
-    with col_menu:
-        st.markdown("### ⚠️ Registrar Conflicto")
-        with st.form("form_conflictos", clear_on_submit=True):
-            quien = st.text_input("Encuestador / Líder")
-            tipo = st.selectbox("Tipo", ["Linderos", "Uso de Suelo", "Ambiental", "Tenencia"])
-            vereda_manual = st.text_input("Vereda")
-            
-            c1, c2 = st.columns(2)
-            lat_i = c1.number_input("Latitud", value=float(st.session_state.lat_click), format="%.6f")
-            lon_i = c2.number_input("Longitud", value=float(st.session_state.lon_click), format="%.6f")
-            
-            desc = st.text_area("Descripción")
-            
-            if st.form_submit_button("📍 Guardar Registro"):
-                es_valido, vereda_detectada = validar_punto_preciso(lat_i, lon_i, veredas_topo)
-                if es_valido and quien:
-                    try:
-                        sh = conectar_gspread()
-                        ws = sh.worksheet("Conflictos")
-                        v_final = vereda_detectada if vereda_detectada else vereda_manual
-                        ws.append_row([str(uuid.uuid4())[:5], tipo, v_final, str(lat_i), str(lon_i), desc, quien])
-                        st.success(f"✅ Registrado en {v_final}")
-                        st.cache_data.clear()
-                        st.rerun()
-                    except Exception as e: st.error(f"Error: {e}")
-                elif not es_valido:
-                    st.error("📍 Ubicación fuera de los límites de Puerto Rico.")
-                else: st.warning("Completa el nombre del encuestador.")
-
-    with col_mapa:
-        m = folium.Map(
-            location=[st.session_state.lat_click, st.session_state.lon_click], 
-            zoom_start=14, tiles=None
-        )
-        folium.TileLayer('https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', 
-                         attr='Google', name='Satélite', overlay=False).add_to(m)
-        folium.TileLayer('openstreetmap', name='Vías', overlay=False).add_to(m)
-
-        if veredas_topo:
-            try:
-                obj_name = list(veredas_topo['objects'].keys())[0]
-                folium.TopoJson(
-                    veredas_topo, f"objects.{obj_name}", name="Veredas",
-                    style_function=lambda x: {'fillColor': 'transparent', 'color': '#FFFF00', 'weight': 2, 'fillOpacity': 0.1},
-                    tooltip=folium.GeoJsonTooltip(fields=['NOMBRE_VER'], aliases=['Vereda:'], sticky=True)
-                ).add_to(m)
-            except: pass
-
-        # Capa del Historial Remoto unificado (Online + Offline)
-        fg = folium.FeatureGroup(name="Historial Remoto")
-        if not df_plot.empty:
-            for idx, row in df_plot.iterrows():
-                try:
-                    lat_val = float(row['lat'])
-                    lon_val = float(row['lon'])
-                    
-                    # Usamos los textos extraídos por posición física que no fallan por nombres
-                    tipo_c = row.get('tipo_mapa', 'Conflicto')
-                    vereda_c = row.get('vereda_mapa', 'Territorio')
-                    desc_c = row.get('desc_mapa', 'Sin detalle')
-                    
-                    folium.CircleMarker(
-                        location=[lat_val, lon_val], 
-                        radius=6, 
-                        color="#FF0000", 
-                        fill=True, 
-                        fill_color="#FF0000",
-                        fill_opacity=0.7,
-                        popup=f"<b>Tipo:</b> {tipo_c}<br><b>Vereda:</b> {vereda_c}<br><b>Nota:</b> {desc_c}"
-                    ).add_to(fg)
-                except Exception:
-                    pass
-        fg.add_to(m)
-        
-        folium.LayerControl(collapsed=False).add_to(m)
-        
-        output = st_folium(m, width="100%", height=450, key="mapa_final")
-
-        if output and output.get("last_clicked"):
-            clic = output["last_clicked"]
-            if abs(st.session_state.lat_click - clic["lat"]) > 0.0001:
-                st.session_state.lat_click = clic["lat"]
-                st.session_state.lon_click = clic["lng"]
-                st.rerun()
-
-
-# --- TAB 2: AUDITORÍA SADCI (Basado en Oszlak y Orellana) ---
-with tab_sadci:
-    st.subheader("📊 Diagnóstico de Capacidad Institucional (SADCI)")
-    
+            with open(ruta,"r",encoding="utf-8") as f: geo=json.load(f)
+            if geo.get("type")=="FeatureCollection": capas.append((archivo,titulo,geo,campos))
+        except Exception: continue
+    return capas
+@st.cache_data(show_spinner=False)
+def cargar_eventos_locales():
+    for nombre in ("SITUACIONES_TERRITORIALES_eventos.csv",):
+        ruta=DATA_DIR/nombre
+        if ruta.exists(): return pd.read_csv(ruta,dtype=str).fillna("")
+    return pd.DataFrame()
+@st.cache_data(show_spinner=False)
+def cargar_veredas_topo():
+    topo=cargar_json("veredas_puerto_rico.json")
+    if not topo or topo.get("type")!="Topology" or "Veredas" not in topo.get("objects",{}): raise RuntimeError("No se encontró un TopoJSON válido con el objeto Veredas.")
+    return topo
+@st.cache_data(show_spinner=False)
+def propiedades_veredas(topo): return pd.DataFrame([g.get("properties",{}) or {} for g in topo.get("objects",{}).get("Veredas",{}).get("geometries",[])]).fillna("")
+@st.cache_data(show_spinner=False)
+def resumenes_por_vereda(eventos):
+    vacio=pd.DataFrame(columns=["codigo_ver_resuelto","SIGOber_situaciones","SIGOber_anios","SIGOber_tipos","SIGOber_confianza"])
+    if eventos is None or eventos.empty or "codigo_ver_resuelto" not in eventos.columns: return vacio
+    df=eventos.copy(); df["codigo_ver_resuelto"]=df["codigo_ver_resuelto"].astype(str).str.strip(); df=df[df["codigo_ver_resuelto"]!=""]
+    if df.empty: return vacio
+    def valores(col): return df[col].astype(str).str.strip() if col in df.columns else pd.Series("",index=df.index)
+    df["_anio"],df["_tipo"],df["_conf"]=valores("anio"),valores("tipo_conflicto"),valores("confianza")
+    def uniq(series): return ", ".join(sorted(x for x in series.unique() if x))
+    return df.groupby("codigo_ver_resuelto",sort=False).agg(SIGOber_situaciones=("codigo_ver_resuelto","size"),SIGOber_anios=("_anio",uniq),SIGOber_tipos=("_tipo",uniq),SIGOber_confianza=("_conf",uniq)).reset_index()
+def normalizar_conflictos(df):
+    if df is None or df.empty: return pd.DataFrame()
+    out=df.copy().fillna(""); out["lat_num"]=pd.to_numeric(out["lat"],errors="coerce") if "lat" in out.columns else pd.NA; out["lon_num"]=pd.to_numeric(out["lon"],errors="coerce") if "lon" in out.columns else pd.NA
+    out["precision_coordenada"]="VALIDA"; out.loc[out[["lat_num","lon_num"]].isna().any(axis=1),"precision_coordenada"]="SIN_COORDENADA"
+    inval=(out["lat_num"].abs()>90)|(out["lon_num"].abs()>180); out.loc[inval & out[["lat_num","lon_num"]].notna().all(axis=1),"precision_coordenada"]="REQUIERE_REVISION"; return out
+def config_gsheets():
     try:
-        df_sadci = cargar_datos_con_cache("SADCI")
-        if not df_sadci.empty:
-            # --- 1. PROCESAMIENTO DE LOS 6 DCI ---
-            # DCI-1: Reglas de Juego
-            df_sadci['dci_1_reglas'] = (df_sadci['calificacion_mepi'] * 0.7 + 
-                                       (df_sadci['protocolo'].map({"Sí": 100, "En proceso": 50, "No": 0}) * 0.3))
-            
-            # DCI-2: Relaciones Interinstitucionales
-            df_sadci['dci_2_interinst'] = df_sadci['rendicion'].map({"Anual": 100, "Semestral": 80, "Nunca": 20})
-            
-            # DCI-3: Estructura Organizativa (Mapeo Cualitativo)
-            map_est = {"Ágil/Coherente": 100, "Funciones Duplicadas": 60, "Rígida/Burocrática": 30, "Inexistente": 0}
-            df_sadci['dci_3_estructura'] = df_sadci['estructura'].map(map_est).fillna(50)
-            
-            # DCI-4: Disponibilidad de Recursos
-            dict_dig = {"Bajo": 25, "Medio": 50, "Alto": 75, "Excelente": 100}
-            df_sadci['puntos_digital'] = df_sadci['nivel_digitalizacion'].map(dict_dig)
-            df_sadci['dci_4_recursos'] = (df_sadci['ejecucion_presupuestal_pct'] + df_sadci['puntos_digital']) / 2
-            
-            # DCI-5: Políticas de Personal
-            df_sadci['dci_5_personal'] = (df_sadci['num_personal_planta'] / 
-                                         (df_sadci['num_personal_planta'] + df_sadci['num_personal_contratista']) * 100).fillna(0)
-            
-            # DCI-6: Capacidad Individual (Know-how)
-            map_cap = {"Especializado": 100, "Técnico Suficiente": 75, "Requiere Capacitación": 40, "Crítico/No Idóneo": 10}
-            df_sadci['dci_6_individual'] = df_sadci['capacitacion'].map(map_cap).fillna(50)
+        c=st.secrets.get("connections",{}); x=c.get("gsheets",{}) if hasattr(c,"get") else {}; return dict(x) if hasattr(x,"items") else {}
+    except Exception: return {}
+def spreadsheet_id_desde_config(cfg):
+    raw=str(cfg.get("spreadsheet","") or cfg.get("spreadsheet_url","")).strip(); m=re.search(r"/spreadsheets/d/([A-Za-z0-9_-]+)",raw); return m.group(1) if m else raw
+@st.cache_data(ttl=300,max_entries=4,show_spinner=False)
+def leer_google_hoja(nombre_hoja):
+    from streamlit_gsheets import GSheetsConnection
+    conn=st.connection("gsheets",type=GSheetsConnection); return conn.read(worksheet=nombre_hoja,ttl=300).fillna("")
+def leer_google_sheets():
+    resultado={}
+    for hoja in ("Conflictos","Actores","SADCI","Relación Interinstitucional"):
+        try: resultado[hoja]=leer_google_hoja(hoja)
+        except Exception as e: resultado[hoja]=e
+    return resultado
+def popup_conflicto(row):
+    v=lambda c: html.escape(str(row.get(c,"") or "")); return ("<div style='width:280px;font-family:Arial'><h4>Situación registrada</h4>" f"<b>ID:</b> {v('id_conflicto')}<br><b>Tipo:</b> {v('tipo_conflicto')}<br><b>Vereda:</b> {v('vereda')}<br><b>Descripción:</b> {v('descripcion')}<br><b>Registrado por:</b> {v('registrado_por')}<br><b>Estado coordenada:</b> {v('precision_coordenada')}<br><b>Lat/Lon fuente:</b> {v('lat')} / {v('lon')}</div>")
+@st.cache_data(show_spinner=False,max_entries=32)
+def preparar_topo_para_eventos(topo,resumen):
+    copia=json.loads(json.dumps(topo)); tabla=resumen.set_index("codigo_ver_resuelto") if not resumen.empty else pd.DataFrame()
+    for g in copia.get("objects",{}).get("Veredas",{}).get("geometries",[]):
+        p=g.setdefault("properties",{}); codigo=str(p.get("CODIGO_VER","")).strip()
+        if not tabla.empty and codigo in tabla.index:
+            r=tabla.loc[codigo]; p["SIGOber_situaciones"]=int(r["SIGOber_situaciones"]); p["SIGOber_anios"]=str(r["SIGOber_anios"]); p["SIGOber_tipos"]=str(r["SIGOber_tipos"]); p["SIGOber_confianza"]=str(r["SIGOber_confianza"])
+        else: p["SIGOber_situaciones"]=0; p["SIGOber_anios"]="Sin registros"; p["SIGOber_tipos"]="Sin registros"; p["SIGOber_confianza"]="Sin registros"
+    return copia
 
-            # --- 2. VISUALIZACIÓN DE INDICADORES SADCI (6 Columnas) ---
-            st.markdown("### Pilares de Capacidad Real")
-            cols = st.columns(6)
-            
-            indicadores = [
-                ("DCI-1: Reglas", 'dci_1_reglas'), ("DCI-2: Interinst.", 'dci_2_interinst'),
-                ("DCI-3: Estructura", 'dci_3_estructura'), ("DCI-4: Recursos", 'dci_4_recursos'),
-                ("DCI-5: Personal", 'dci_5_personal'), ("DCI-6: Individual", 'dci_6_individual')
-            ]
-            
-            for i, (label, col_name) in enumerate(indicadores):
-                with cols[i]:
-                    val = df_sadci[col_name].mean()
-                    st.metric(label, f"{val:.0f}%")
+def construir_mapa(topo,eventos_historicos,conflictos=None,codigo_seleccionado="",mostrar_conflictos=True,pbot_seleccionadas=(),perspectiva="Territorio"):
+    inicio=time.perf_counter(); resumen=resumenes_por_vereda(eventos_historicos); topo_mapa=preparar_topo_para_eventos(topo,resumen); conteo=resumen.set_index("codigo_ver_resuelto")["SIGOber_situaciones"].to_dict() if not resumen.empty else {}; perspectiva=perspectiva or "Territorio"
+    m=folium.Map(location=[1.9123,-75.1842],zoom_start=10,tiles="OpenStreetMap",prefer_canvas=True)
+    grupo_territorio=folium.FeatureGroup(name="Territorio — Veredas",show=True)
+    folium.Marker([1.9123,-75.1842],tooltip="Puerto Rico, Caquetá").add_to(grupo_territorio)
+    def estilo_territorio(feature):
+        p=feature.get("properties",{}); codigo=str(p.get("CODIGO_VER","")).strip(); sel=bool(codigo) and codigo==str(codigo_seleccionado).strip()
+        return {"fillColor":"#eeeeee","color":"#111111" if sel else "#555555","weight":2.8 if sel else .8,"fillOpacity":.22}
+    folium.TopoJson(data=topo_mapa,object_path="objects.Veredas",name="Veredas",style_function=estilo_territorio,tooltip=folium.GeoJsonTooltip(fields=["NOMBRE_VER","CODIGO_VER","AREA_HA","FUENTE"],aliases=["Vereda","Código","Área (ha)","Fuente cartográfica"],localize=True,sticky=True,labels=True,style="background-color:white;color:#222;font-family:Arial;font-size:12px;padding:8px;"),show=True).add_to(grupo_territorio)
+    grupo_territorio.add_to(m)
+    grupo_situaciones=folium.FeatureGroup(name="Situaciones — evidencia territorial",show=True)
+    def estilo_situaciones(feature):
+        p=feature.get("properties",{}); codigo=str(p.get("CODIGO_VER","")).strip(); n=int(conteo.get(codigo,0)); sel=bool(codigo) and codigo==str(codigo_seleccionado).strip()
+        fill="#d73027" if n>=2 else ("#fc8d59" if n==1 else "#eeeeee"); opacity=.72 if n else .10
+        return {"fillColor":fill,"color":"#111111" if sel else "#a94442","weight":2.8 if sel else (1.0 if n else .35),"fillOpacity":.78 if sel else opacity}
+    folium.TopoJson(data=topo_mapa,object_path="objects.Veredas",name="Situaciones",style_function=estilo_situaciones,tooltip=folium.GeoJsonTooltip(fields=["NOMBRE_VER","CODIGO_VER","SIGOber_situaciones","SIGOber_anios","SIGOber_tipos","SIGOber_confianza"],aliases=["Vereda","Código","Situaciones documentadas","Años","Tipos de situación","Confianza"],localize=True,sticky=True,labels=True,style="background-color:white;color:#222;font-family:Arial;font-size:12px;padding:8px;"),show=True).add_to(grupo_situaciones)
+    grupo_situaciones.add_to(m)
+    if mostrar_conflictos and conflictos is not None and not conflictos.empty:
+        validos=conflictos.loc[conflictos["precision_coordenada"].eq("VALIDA")]; grupo=folium.FeatureGroup(name="Conflictos — Google Sheets",show=True)
+        for row in validos.itertuples(index=False):
+            data=row._asdict(); folium.CircleMarker(location=[float(data["lat_num"]),float(data["lon_num"])],radius=7,weight=2,fill=True,fill_opacity=.85,tooltip=f"{data.get('tipo_conflicto','Situación')} — {data.get('vereda','')}",popup=folium.Popup(popup_conflicto(data),max_width=340)).add_to(grupo)
+        grupo.add_to(m)
+    aliases_pbot={"UGOT":"UGOT","Aptitud":"Aptitud","area_ha":"Área (ha)","Area_ha":"Área (ha)","Tipo":"Tipo","area_m2":"Área (m²)","Id":"ID","codigo":"Código","sector_cat":"Sector catastral","tipo_avalu":"Tipo avalúo","Reporte":"Reporte"}; disponibles={x[0]:x for x in cargar_pbot_capas()}
+    for archivo in pbot_seleccionadas:
+        capa=disponibles.get(archivo)
+        if not capa: continue
+        _,titulo,geo,campos_preferidos=capa; grupo_pbot=folium.FeatureGroup(name=f"{titulo} — PBOT 2015",show=True); features=geo.get("features",[]); props=(features[0].get("properties",{}) or {}) if features else {}; campos=[campo for campo in campos_preferidos if campo in props]; tooltip_pbot=folium.GeoJsonTooltip(fields=campos,aliases=[aliases_pbot.get(campo,campo) for campo in campos],localize=True,labels=True,sticky=True,style="background-color:white;color:#222;font-family:Arial;font-size:12px;padding:8px;") if campos else None; folium.GeoJson(geo,name=titulo,tooltip=tooltip_pbot).add_to(grupo_pbot); grupo_pbot.add_to(m)
+    folium.LayerControl(collapsed=False).add_to(m); return m,time.perf_counter()-inicio
 
-            st.divider()
-            st.write("**Análisis de Brecha: Aspiración vs. Realidad**")
-            st.line_chart(df_sadci.set_index('nombre_entidad')[['cumplimiento_pdt_pct', 'ejecucion_presupuestal_pct']])
+def resumen_sadci(sadci):
+    if not isinstance(sadci,pd.DataFrame) or sadci.empty: return None
+    out={}
+    for c in ("presupuesto_anual_rural","num_personal_planta","num_personal_contratista","ejecucion_presupuestal_pct","cumplimiento_pdt_pct","calificacion_mepi"):
+        if c in sadci.columns:
+            vals=pd.to_numeric(sadci[c],errors="coerce").dropna()
+            if not vals.empty: out[c]=float(vals.mean())
+    return out
 
-        # --- 4. FORMULARIO DE CAPTURA ACTUALIZADO ---
-        with st.expander("📝 Realizar Nueva Auditoría de Capacidad"):
-            with st.form("registro_sadci_full", clear_on_submit=True):
-                st.info("Esta encuesta identifica los obstáculos (DCI)")
-                c1, c2, c3 = st.columns(3)
-                with c1:
-                    nombre = st.text_input("Nombre Entidad")
-                    presupuesto = st.number_input("Presupuesto Rural ($)", min_value=0)
-                    planta = st.number_input("Personal de Planta (DCI-5)", min_value=0)
-                    contratos = st.number_input("Contratistas (DCI-5)", min_value=0)
-                with c2:
-                    ejecucion = st.slider("% Eficacia Gasto (DCI-4)", 0, 100, 70)
-                    pdt = st.slider("% Cumplimiento Metas", 0, 100, 50)
-                    mepi = st.number_input("Calificación MEPI (DCI-1)", 0, 100, 60)
-                with c3:
-                    digital = st.select_slider("Tecnología (DCI-4)", ["Bajo", "Medio", "Alto", "Excelente"])
-                    estructura = st.selectbox("Estructura (DCI-3)", ["Ágil/Coherente", "Funciones Duplicadas", "Rígida/Burocrática", "Inexistente"])
-                    capacitacion = st.selectbox("Personal (DCI-6)", ["Especializado", "Técnico Suficiente", "Requiere Capacitación", "Crítico/No Idóneo"])
-                    protocolo = st.selectbox("¿Protocolos? (DCI-1)", ["Sí", "No", "En proceso"])
-                    rendicion = st.selectbox("Rendición (DCI-2)", ["Anual", "Semestral", "Nunca"])
+def indicador_pct(valor): return "—" if valor is None or pd.isna(valor) else f"{float(valor):.0f}%"
 
-                if st.form_submit_button("🚀 Guardar Auditoría"):
-                    if nombre:
-                        sh_d = conectar_gspread()
-                        ws_d = sh_d.worksheet("SADCI")
-                        # Mapeo de 14 columnas
-                        ws_d.append_row([
-                            str(uuid.uuid4())[:8], nombre, presupuesto, planta, contratos,
-                            protocolo, estructura, rendicion, digital, ejecucion, 
-                            pdt, "Activas", mepi, capacitacion
-                        ])
-                        st.success("✅ Diagnóstico completo registrado.")
-                        st.cache_data.clear()
-                        st.rerun()
+def mostrar_indicadores_sadci(sadci):
+    r=resumen_sadci(sadci)
+    st.markdown("<div class='sigo-section'>Indicadores SADCI</div>",unsafe_allow_html=True)
+    if not r:
+        st.caption("Sin datos SADCI disponibles para mostrar indicadores.")
+        return
+    a,b,c,d,e,f=st.columns(6)
+    a.metric("Presupuesto rural",f"{r.get('presupuesto_anual_rural',0):,.0f}" if r.get("presupuesto_anual_rural") is not None else "—")
+    b.metric("Personal planta",f"{r.get('num_personal_planta',0):.0f}" if r.get("num_personal_planta") is not None else "—")
+    c.metric("Contratistas",f"{r.get('num_personal_contratista',0):.0f}" if r.get("num_personal_contratista") is not None else "—")
+    d.metric("Ejecución",indicador_pct(r.get("ejecucion_presupuestal_pct")))
+    e.metric("Cumplimiento PDT",indicador_pct(r.get("cumplimiento_pdt_pct")))
+    f.metric("MEPI",f"{r.get('calificacion_mepi',0):.1f}" if r.get("calificacion_mepi") is not None else "—")
 
-    except Exception as e: 
-        st.error(f"Error en el Sistema SADCI: {e}")
+def mostrar_contexto_gobernabilidad(actores,sadci,relacion):
+    st.markdown("<div class='sigo-section'>Gobernabilidad</div>",unsafe_allow_html=True)
+    st.markdown("<div class='sigo-note'><b>Actores</b> + <b>Capacidades</b> → interpretación institucional → <b>Decisiones</b><br><span style='opacity:.72'>Estas dimensiones permanecen como contexto de gobernabilidad y no se convierten en capas geográficas hasta disponer de datos espaciales propios.</span></div>",unsafe_allow_html=True)
+    a,b,c=st.columns(3); a.metric("Actores registrados",len(actores) if isinstance(actores,pd.DataFrame) else 0); r=resumen_sadci(sadci); b.metric("Ejecución",indicador_pct(r.get("ejecucion_presupuestal_pct")) if r else "—"); c.metric("Relaciones interinstitucionales",len(relacion) if isinstance(relacion,pd.DataFrame) else 0)
 
+def contexto_interpretacion_ia(historicos,codigo_sel,dimension,pbot_seleccionadas,sadci):
+    codigo=str(codigo_sel or "").strip()
+    df=historicos.copy() if isinstance(historicos,pd.DataFrame) else pd.DataFrame()
+    if codigo and "codigo_ver_resuelto" in df.columns:
+        df=df[df["codigo_ver_resuelto"].astype(str).str.strip()==codigo]
+    resumen={"dimension_seleccionada":dimension,"codigo_vereda":codigo or "Todas las veredas","situaciones":int(len(df)),"tipos":[],"anios":[],"fuente_situaciones":"SITUACIONES_TERRITORIALES_eventos.csv","pbot":[],"sadci":{}}
+    for col,key in (("tipo_conflicto","tipos"),("anio","anios")):
+        if col in df.columns: resumen[key]=sorted({str(x).strip() for x in df[col].tolist() if str(x).strip()})[:20]
+    titulos={archivo:titulo for archivo,titulo,_,_ in cargar_pbot_capas()}
+    resumen["pbot"]=[titulos.get(x,x) for x in pbot_seleccionadas]
+    r=resumen_sadci(sadci)
+    if r: resumen["sadci"]={k:round(v,2) for k,v in r.items()}
+    return resumen
 
-# --- TAB 3: ACTORES ---
-with tab_actores:
-    st.subheader("👥 Caracterización de Actores")
+def interpretar_localmente(contexto):
+    """Fallback determinista sin conexión ni API."""
+    n=int(contexto.get("situaciones",0) or 0)
+    vereda=str(contexto.get("codigo_vereda","Todas las veredas"))
+    tipos=[str(x) for x in contexto.get("tipos",[]) if str(x).strip()]
+    anios=[str(x) for x in contexto.get("anios",[]) if str(x).strip()]
+    pbot=[str(x) for x in contexto.get("pbot",[]) if str(x).strip()]
+    lineas=[f"Se registran {n} situaciones documentadas para {vereda}."]
+    if tipos:
+        lineas.append("Los tipos registrados incluyen: "+", ".join(tipos[:6])+".")
+    if anios:
+        lineas.append("La evidencia disponible comprende los años: "+", ".join(anios[:8])+".")
+    if pbot:
+        lineas.append("La lectura puede contrastarse con: "+", ".join(pbot[:4])+".")
+    if contexto.get("sadci"):
+        lineas.append("También hay indicadores institucionales SADCI disponibles como contexto de capacidad.")
+    relaciones=[]
+    if n and len(tipos)>1:
+        relaciones.append("La coexistencia de distintos tipos de situación sugiere investigar si comparten factores territoriales, institucionales o temporales.")
+    if n and len(anios)>1:
+        relaciones.append("Los registros de varios años permiten investigar persistencias, cambios de concentración o secuencias temporales.")
+    if n and pbot:
+        relaciones.append("La superposición con el PBOT puede orientar una hipótesis sobre posibles relaciones entre situaciones y condiciones previstas por el ordenamiento; no demuestra causalidad.")
+    if not relaciones:
+        relaciones.append("La evidencia disponible no permite establecer causalidad; conviene ampliar o contrastar los datos antes de afirmar un patrón.")
+    preguntas=[
+        "¿La relación observada se mantiene al comparar otras veredas o periodos?",
+        "¿Qué información adicional permitiría contrastar esta hipótesis?",
+        "¿Qué fuente independiente podría confirmarla o refutarla?"
+    ]
+    texto=("### Síntesis territorial\n"+" ".join(lineas)+
+           "\n\n### Relaciones e hipótesis para investigar\n"+
+           "\n".join("- "+x for x in relaciones)+
+           "\n\n### Preguntas para profundizar\n"+
+           "\n".join("- "+x for x in preguntas)+
+           "\n\n> **Interpretación local:** generada sin API y exclusivamente a partir de las evidencias estructuradas disponibles en SIGOber-Rural.")
+    return texto,None
+
+def interpretar_con_ia(contexto):
+    cfg=st.secrets.get("openai",{}) if hasattr(st.secrets,"get") else {}
+    api_key=str(cfg.get("api_key","") or st.secrets.get("OPENAI_API_KEY","")).strip()
+    if not api_key:
+        return interpretar_localmente(contexto)
+    modelo=str(cfg.get("model","gpt-5.6-luna")).strip() or "gpt-5.6-luna"
+    system=("Eres una capa de interpretación territorial de SIGOber-Rural. Usa EXCLUSIVAMENTE el JSON entregado. "
+            "No inventes hechos, ubicaciones ni causalidades. Distingue evidencia, interpretación e hipótesis. "
+            "Puedes proponer relaciones o hipótesis causales como líneas de investigación cuando surjan de patrones o coincidencias presentes en los datos, pero debes etiquetarlas claramente como hipótesis, no como hechos. "
+            "Para cada hipótesis, explica brevemente qué evidencia del contexto la motiva y qué información adicional ayudaría a contrastarla. "
+            "No conviertas correlación, coincidencia temporal o proximidad territorial en causalidad demostrada. "
+            "No hagas recomendaciones de política pública ni tomes decisiones por la institución. "
+            "Devuelve exactamente tres secciones breves en español: Síntesis territorial, Relaciones e hipótesis para investigar, Preguntas para profundizar. "
+            "Las preguntas deben orientar investigación y verificación, no ordenar acciones. No uses información externa.")
+    payload={"model":modelo,"input":[{"role":"system","content":system},{"role":"user","content":"Contexto controlado de SIGOber-Rural:\n"+json.dumps(contexto,ensure_ascii=False)}],"max_output_tokens":700}
+    req=urllib.request.Request("https://api.openai.com/v1/responses",data=json.dumps(payload).encode("utf-8"),headers={"Authorization":f"Bearer {api_key}","Content-Type":"application/json"},method="POST")
     try:
-        df_social = cargar_datos_con_cache("Actores")
-        if not df_social.empty:
-            m1, m2, m3 = st.columns(3)
-            m1.metric("Total Actores", len(df_social))
-            m2.metric("Veredas", df_social['Vereda'].nunique())
-            propiedad_total = len(df_social[df_social['Tenencia'] == 'Propiedad'])
-            m3.metric("Formalidad", f"{(propiedad_total/len(df_social))*100:.1f}%")
+        with urllib.request.urlopen(req,timeout=25) as response: data=json.loads(response.read().decode("utf-8"))
+        texto=data.get("output_text","")
+        if not texto:
+            partes=[]
+            for item in data.get("output",[]):
+                for content in item.get("content",[]):
+                    if content.get("type")=="output_text": partes.append(content.get("text",""))
+            texto="\n".join(partes).strip()
+        return texto or None,"La respuesta de IA no contenía texto utilizable."
+    except (urllib.error.HTTPError,urllib.error.URLError,TimeoutError):
+        return interpretar_localmente(contexto)
 
-        with st.expander("📝 Registrar Nuevo Actor"):
-            with st.form("registro_social", clear_on_submit=True):
-                c1, c2 = st.columns(2)
-                with c1:
-                    nombre_a = st.text_input("Nombre Actor/Líder")
-                    perfil_a = st.selectbox("Perfil", ["Pequeño Productor", "Poseedor", "JAC", "Mujer Rural", "Reclamante"])
-                with c2:
-                    vereda_a = st.text_input("Vereda")
-                    tenencia_a = st.selectbox("Tenencia", ["Propiedad", "Posesión", "Ocupación", "Baldío"])
-                
-                obs_a = st.text_area("Observaciones")
-                if st.form_submit_button("📤 Registrar"):
-                    if nombre_a and vereda_a:
-                        sh_act = conectar_gspread()
-                        ws_act = sh_act.worksheet("Actores")
-                        ws_act.append_row([str(uuid.uuid4())[:8], nombre_a, perfil_a, vereda_a, tenencia_a, obs_a])
-                        st.success(f"✅ {nombre_a} registrado.")
-                        st.cache_data.clear()
-                        st.rerun()
-    except Exception as e: st.error(f"Error actores: {e}")
+def panel_interpretacion_ia(historicos,codigo_sel,dimension,pbot_seleccionadas,sadci):
+    st.markdown("### Interpretación asistida por IA")
+    st.caption("La IA interpreta únicamente las evidencias que SIGOber-Rural le entrega; no agrega hechos externos.")
+    if st.button("Interpretar con IA",key="interpretar_ia",use_container_width=True):
+        contexto=contexto_interpretacion_ia(historicos,codigo_sel,dimension,pbot_seleccionadas,sadci)
+        with st.spinner("Interpretando las evidencias seleccionadas…"):
+            texto,error=interpretar_con_ia(contexto)
+        if texto:
+            st.session_state["ia_resultado"]={"texto":texto,"contexto":contexto}
+        else:
+            st.warning(error)
+    resultado=st.session_state.get("ia_resultado")
+    if resultado:
+        st.markdown(resultado["texto"])
+        st.caption("Fuentes utilizadas: situaciones territoriales locales, capas PBOT seleccionadas y/o indicadores SADCI disponibles. La interpretación no agrega hechos que no estén presentes en las fuentes.")
 
-# --- CRÉDITOS FINALES ---
-st.divider()
-col_f1, col_f2 = st.columns([1, 4])
+st.markdown("""<style>.sigo-hero{padding:.2rem 0 .6rem}.sigo-kicker{font-size:.72rem;font-weight:750;letter-spacing:.14em;text-transform:uppercase;opacity:.62}.sigo-title{font-size:2.25rem;font-weight:820;line-height:1.04;margin:.1rem 0 .25rem}.sigo-subtitle{font-size:.96rem;opacity:.72;max-width:920px}.sigo-section{margin-top:.55rem;margin-bottom:.15rem;font-size:1.1rem;font-weight:760}.sigo-note{padding:.75rem 1rem;border-radius:.75rem;border:1px solid rgba(128,128,128,.2);background:rgba(128,128,128,.045)}.gigapp-card{padding:.35rem .5rem;border:1px solid rgba(128,128,128,.18);border-radius:.55rem;background:rgba(128,128,128,.025);margin-bottom:.3rem}.gigapp-card h4{margin:0;font-size:.86rem}.gigapp-q{font-size:.72rem;opacity:.62}.gigapp-card p{margin:.12rem 0 0;font-size:.74rem;opacity:.7}.gigapp-caption{font-size:.82rem;opacity:.72;text-align:center;margin:.1rem auto .6rem;max-width:680px}div[data-testid="stMetric"]{padding:.4rem .65rem;border:1px solid rgba(128,128,128,.17);border-radius:.62rem;background:rgba(128,128,128,.03)}</style>""",unsafe_allow_html=True)
+with st.sidebar:
+    st.markdown("### SIGOber-Rural"); modo_presentacion=st.toggle("Modo exploración 2026",value=False,help="Presentación narrativa alrededor del territorio."); st.divider(); st.caption("Develope · prototipo de trabajo")
+st.markdown("<div class='sigo-hero'><div class='sigo-kicker'>Sistema de información territorial</div><div class='sigo-title'>SIGOber-Rural</div><div class='sigo-subtitle'>Una lectura territorial de la gobernabilidad rural · Puerto Rico, Caquetá</div></div>",unsafe_allow_html=True)
 
-with col_f1:
-    # Intenta cargar el logo de la ESAP si existe en la carpeta assets o data
-    logo_path = os.path.join('data', 'logo_esap.png')
-    if os.path.exists(logo_path):
-        st.image(logo_path, width=120)
+with st.expander("📡 Captura territorial offline", expanded=False):
+    st.markdown("**Capture evidencia directamente en el territorio, incluso con conectividad limitada.**")
+    st.caption("El formulario funciona desconectado, guarda los registros localmente en el dispositivo y permite sincronizarlos cuando se recupera la conexión.")
+    formulario_path=BASE_DIR/"app"/"captura_offline.html"
+    if formulario_path.exists():
+        with open(formulario_path,"rb") as f:
+            st.download_button("⬇️ Descargar formulario de captura offline",data=f.read(),file_name="captura_offline.html",mime="text/html",use_container_width=True)
     else:
-        st.markdown("**ESAP**")
+        st.caption("Formulario de captura no disponible.")
+topo=cargar_veredas_topo(); historicos=cargar_eventos_locales()
+if "google_data" not in st.session_state:
+    with st.spinner("Conectando con las fuentes territoriales…"): st.session_state["google_data"]=leer_google_sheets()
+gd=st.session_state["google_data"]
+if not modo_presentacion:
+    num_veredas_situacion=historicos["codigo_ver_resuelto"].nunique() if not historicos.empty and "codigo_ver_resuelto" in historicos.columns else 0; num_conflictos=len(gd["Conflictos"]) if isinstance(gd.get("Conflictos"),pd.DataFrame) else 0; num_actores=len(gd["Actores"]) if isinstance(gd.get("Actores"),pd.DataFrame) else 0
+    a,b,c,d=st.columns(4); a.metric("Situaciones históricas",len(historicos)); b.metric("Veredas con situaciones",num_veredas_situacion); c.metric("Conflictos en Sheets",num_conflictos if isinstance(gd.get("Conflictos"),pd.DataFrame) else "—"); d.metric("Actores",num_actores if isinstance(gd.get("Actores"),pd.DataFrame) else "—")
+    mostrar_indicadores_sadci(gd.get("SADCI"))
+    st.markdown("<div class='sigo-note'><b>Lectura de gobernabilidad:</b> SIGOber-Rural organiza el territorio alrededor de situaciones, ordenamiento y conocimiento comunitario, manteniendo actores y capacidades como información institucional separada.</div>",unsafe_allow_html=True)
+    with st.expander("🔧 Diagnóstico de fuentes y rendimiento"):
+        cfg=config_gsheets(); sid=spreadsheet_id_desde_config(cfg); st.write({"Cartografía":"Disponible" if topo else "No disponible","Eventos territoriales":f"{len(historicos)} registros","Google Sheets":"Conectado" if isinstance(gd,dict) else "No disponible","spreadsheet_id":(sid[:6]+"…"+sid[-4:]) if sid else "No configurado"})
+        if st.button("Actualizar fuentes",key="actualizar_fuentes"): leer_google_hoja.clear(); cargar_eventos_locales.clear(); cargar_veredas_topo.clear(); st.session_state["google_data"]=leer_google_sheets(); st.rerun()
+else:
+    mostrar_indicadores_sadci(gd.get("SADCI"))
+veredas_df=propiedades_veredas(topo); nombres=veredas_df[["CODIGO_VER","NOMBRE_VER"]].drop_duplicates().copy(); nombres["etiqueta"]=nombres["NOMBRE_VER"].astype(str)+" — "+nombres["CODIGO_VER"].astype(str); opciones=["Todas las veredas"]+sorted(nombres["etiqueta"].tolist())
 
-with col_f2:
-    st.markdown(
-        """
-        <div class="footer-text">
-            <strong>Investigación ESAP 2026</strong><br>
-            Desarrollado por el <strong>Colectivo de Estudios Sociales Guadalupe Salcedo</strong><br>
-            <em>Propiedad Intelectual y Académica Reservada</em>
-        </div>
-        """, 
-        unsafe_allow_html=True
-    )
+@st.fragment
+def render_mapa_interactivo():
+    if modo_presentacion:
+        if "gigapp_dimension" not in st.session_state or st.session_state["gigapp_dimension"] not in GIGAPP_DIMENSIONES: st.session_state["gigapp_dimension"]="Territorio"
+        left,center,right=st.columns([1.0,4.8,1.8],gap="medium")
+        with left:
+            st.markdown("### Selección")
+            st.caption("Partes y secciones")
+            dimension=st.selectbox("Perspectiva",list(GIGAPP_DIMENSIONES.keys()),index=list(GIGAPP_DIMENSIONES.keys()).index(st.session_state["gigapp_dimension"]),label_visibility="collapsed")
+            st.session_state["gigapp_dimension"]=dimension
+            st.caption(GIGAPP_DIMENSIONES[dimension]["pregunta"])
+            st.divider()
+            st.markdown("**Vereda**")
+            seleccion=st.selectbox("Vereda",opciones,label_visibility="collapsed")
+            codigo_sel="" if seleccion=="Todas las veredas" else seleccion.split(" — ")[-1]
+            st.divider()
+            st.markdown("**Capas PBOT 2015**")
+            pbot_opciones={archivo:titulo for archivo,titulo,_,_ in cargar_pbot_capas()}
+            pbot_seleccionadas=st.multiselect("Capas",options=list(pbot_opciones.keys()),format_func=lambda x:pbot_opciones[x],default=[],label_visibility="collapsed",help="Seleccione una o varias capas PBOT. Cada una queda disponible individualmente en el control del mapa.")
+        with center:
+            conflictos=normalizar_conflictos(gd["Conflictos"]) if isinstance(gd.get("Conflictos"),pd.DataFrame) else pd.DataFrame()
+            mapa,segundos_mapa=construir_mapa(topo,historicos,conflictos,codigo_sel,True,tuple(pbot_seleccionadas),perspectiva="Territorio")
+            st_folium(mapa,width="100%",height=720,returned_objects=["last_active_drawing"])
+        with right:
+            with st.container(height=500,border=True):
+                panel_interpretacion_ia(historicos,codigo_sel,dimension,tuple(pbot_seleccionadas),gd.get("SADCI"))
+    else:
+        st.markdown("<div class='sigo-section'>Explorar territorio</div>",unsafe_allow_html=True); st.caption("Seleccione una vereda y, si lo necesita, filtre las situaciones documentadas. Las capas PBOT se mantienen opcionales para conservar fluidez."); seleccion=st.selectbox("Vereda",opciones,label_visibility="collapsed"); codigo_sel="" if seleccion=="Todas las veredas" else seleccion.split(" — ")[-1]; f1,f2,f3,f4=st.columns(4); eventos_f=historicos.copy()
+        if not eventos_f.empty:
+            anios=sorted([x for x in eventos_f.get("anio",pd.Series(dtype=str)).astype(str).unique() if x],reverse=True); ys=f1.multiselect("Año",anios,default=[]); tipos=sorted([x for x in eventos_f.get("tipo_conflicto",pd.Series(dtype=str)).astype(str).unique() if x]); ts=f2.multiselect("Tipo de situación",tipos,default=[]); confs=sorted([x for x in eventos_f.get("confianza",pd.Series(dtype=str)).astype(str).unique() if x]); cs=f3.multiselect("Confianza",confs,default=[])
+            if ys: eventos_f=eventos_f[eventos_f["anio"].astype(str).isin(ys)]
+            if ts: eventos_f=eventos_f[eventos_f["tipo_conflicto"].astype(str).isin(ts)]
+            if cs: eventos_f=eventos_f[eventos_f["confianza"].astype(str).isin(cs)]
+        mostrar=f4.checkbox("Mostrar conflictos de Sheets",value=True); pbot_opciones={archivo:titulo for archivo,titulo,_,_ in cargar_pbot_capas()}; pbot_seleccionadas=st.multiselect("Capas PBOT 2015 (opcional)",options=list(pbot_opciones.keys()),format_func=lambda x:pbot_opciones[x],default=[],help="Las capas PBOT no se cargan al navegador hasta que se seleccionan."); st.caption("Capa histórica: SITUACIONES_TERRITORIALES. Puntos: registros operativos de la hoja Conflictos. Las fuentes se mantienen separadas."); st.caption("Ordenamiento Territorial — cartografía de formulación PBOT 2015. No implica actualización al PBOT 2023."); conflictos=normalizar_conflictos(gd["Conflictos"]) if isinstance(gd.get("Conflictos"),pd.DataFrame) else pd.DataFrame(); mapa,segundos_mapa=construir_mapa(topo,eventos_f,conflictos,codigo_sel,mostrar,tuple(pbot_seleccionadas),perspectiva="Territorio",mostrar_social_demo=False); st.caption(f"Generación del mapa en servidor: {segundos_mapa:.2f} s"); st_folium(mapa,width="100%",height=650,returned_objects=["last_active_drawing"])
+
+render_mapa_interactivo()
+st.caption("SIGOber-Rural · prototipo de trabajo para análisis y gobernabilidad territorial rural")
