@@ -98,7 +98,7 @@ def comprobar_servicio_cartografico(config):
                 "size": "512,512", "format": "png32", "transparent": "true", "f": "image",
                 "layers": "show:" + config["layers"].replace(",", ","),
             }
-            url_imagen = base.replace("/WMSServer", "/") + "export?" + urlencode(params)
+            url_imagen = base.rstrip("/") + "/export?" + urlencode(params)
             req = urllib.request.Request(url_imagen, headers={"User-Agent": "SIGOber-Rural/1.0"})
             with urllib.request.urlopen(req, timeout=15) as respuesta:
                 tipo = respuesta.headers.get("Content-Type", "")
