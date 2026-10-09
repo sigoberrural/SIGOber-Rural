@@ -26,12 +26,14 @@ GIGAPP_DIMENSIONES = {
 PBOT_PERSPECTIVA_DEFAULT = "PBOT2015_ZONIFICACION_USO_SUELO_RURAL.geojson"
 
 CARTOGRAFIA_OFICIAL = {
-    "IGAC — Vías, puentes y límites viales (1:10.000)": {"url": "https://mapas2.igac.gov.co/server3/rest/services/carto/carto10000puertorico18592/MapServer/WMSServer", "layers": "6,8,9,10", "attribution": "IGAC · Cartografía básica Puerto Rico, Caquetá · 1:10.000"},
-    "IGAC — Drenajes y cuerpos de agua (1:10.000)": {"url": "https://mapas2.igac.gov.co/server3/rest/services/carto/carto10000puertorico18592/MapServer/WMSServer", "layers": "13,14,17,18,20", "attribution": "IGAC · Cartografía básica Puerto Rico, Caquetá · 1:10.000"},
-    "IGAC — Construcciones y zonas duras (1:10.000)": {"url": "https://mapas2.igac.gov.co/server3/rest/services/carto/carto10000puertorico18592/MapServer/WMSServer", "layers": "0,15,16", "attribution": "IGAC · Cartografía básica Puerto Rico, Caquetá · 1:10.000"},
-    "IGAC — Curvas de nivel y bosque (1:10.000)": {"url": "https://mapas2.igac.gov.co/server3/rest/services/carto/carto10000puertorico18592/MapServer/WMSServer", "layers": "7,19", "attribution": "IGAC · Cartografía básica Puerto Rico, Caquetá · 1:10.000"},
-    "UPRA — Frontera agrícola nacional (1:100.000)": {"url": "https://geoservicios.upra.gov.co/arcgis/rest/services/ordenamiento_productivo/frontera_agricola/MapServer/WMSServer", "layers": "0", "attribution": "UPRA · Frontera agrícola nacional · 1:100.000"},
-    "UPRA — Frontera agrícola condicionada": {"url": "https://geoservicios.upra.gov.co/arcgis/services/ordenamiento_productivo/frontera_agricola_frontera_agricola_condicionada/MapServer/WMSServer", "layers": "0", "attribution": "UPRA · Frontera agrícola y frontera agrícola condicionada"},
+    # El servicio WMS de IGAC se publica bajo /server/services (no /server3/rest/services).
+    "IGAC — Vías, puentes y límites viales (1:10.000)": {"tipo": "wms", "url": "https://mapas2.igac.gov.co/server/services/carto/carto10000puertorico18592/MapServer/WMSServer", "layers": "6,8,9,10", "attribution": "IGAC · Cartografía básica Puerto Rico, Caquetá · 1:10.000"},
+    "IGAC — Drenajes y cuerpos de agua (1:10.000)": {"tipo": "wms", "url": "https://mapas2.igac.gov.co/server/services/carto/carto10000puertorico18592/MapServer/WMSServer", "layers": "13,14,17,18,20", "attribution": "IGAC · Cartografía básica Puerto Rico, Caquetá · 1:10.000"},
+    "IGAC — Construcciones y zonas duras (1:10.000)": {"tipo": "wms", "url": "https://mapas2.igac.gov.co/server/services/carto/carto10000puertorico18592/MapServer/WMSServer", "layers": "0,15,16", "attribution": "IGAC · Cartografía básica Puerto Rico, Caquetá · 1:10.000"},
+    "IGAC — Curvas de nivel y bosque (1:10.000)": {"tipo": "wms", "url": "https://mapas2.igac.gov.co/server/services/carto/carto10000puertorico18592/MapServer/WMSServer", "layers": "7,19", "attribution": "IGAC · Cartografía básica Puerto Rico, Caquetá · 1:10.000"},
+    # UPRA publica caché de teselas ArcGIS; se consume como /tile/{z}/{y}/{x}, no como WMS.
+    "UPRA — Frontera agrícola nacional (1:100.000)": {"tipo": "arcgis_tiles", "url": "https://geoservicios.upra.gov.co/arcgis/rest/services/ordenamiento_productivo/frontera_agricola/MapServer", "layers": "0", "attribution": "UPRA · Frontera agrícola nacional · 1:100.000"},
+    "UPRA — Frontera agrícola condicionada": {"tipo": "arcgis_tiles", "url": "https://geoservicios.upra.gov.co/arcgis/rest/services/ordenamiento_productivo/frontera_agricola_frontera_agricola_condicionada/MapServer", "layers": "0", "attribution": "UPRA · Frontera agrícola y frontera agrícola condicionada"},
 }
 
 
@@ -160,13 +162,23 @@ def construir_mapa(topo,eventos_historicos,conflictos=None,codigo_seleccionado="
         _,titulo,geo,campos_preferidos=capa; grupo_pbot=folium.FeatureGroup(name=f"{titulo} — PBOT 2015",show=True); features=geo.get("features",[]); props=(features[0].get("properties",{}) or {}) if features else {}; campos=[campo for campo in campos_preferidos if campo in props]; tooltip_pbot=folium.GeoJsonTooltip(fields=campos,aliases=[aliases_pbot.get(campo,campo) for campo in campos],localize=True,labels=True,sticky=True,style="background-color:white;color:#222;font-family:Arial;font-size:12px;padding:8px;") if campos else None; folium.GeoJson(geo,name=titulo,tooltip=tooltip_pbot).add_to(grupo_pbot); grupo_pbot.add_to(m)
 
     for nombre_capa in cartografia_oficial_seleccionada:
-        config=CARTOGRAFIA_OFICIAL.get(nombre_capa)
-        if not config: continue
-        folium.raster_layers.WmsTileLayer(
-            url=config["url"], name=nombre_capa, layers=config["layers"],
-            fmt="image/png", transparent=True, overlay=True, control=True,
-            version="1.1.1", attr=config["attribution"], show=False,
-        ).add_to(m)
+        config = CARTOGRAFIA_OFICIAL.get(nombre_capa)
+        if not config:
+            continue
+        if config.get("tipo") == "arcgis_tiles":
+            # Teselas nativas de ArcGIS REST: orden {nivel}/{fila}/{columna}.
+            folium.TileLayer(
+                tiles=config["url"] + "/tile/{z}/{y}/{x}",
+                name=nombre_capa, attr=config["attribution"],
+                overlay=True, control=True, show=False,
+                opacity=0.68, min_zoom=5, max_zoom=16,
+            ).add_to(m)
+        else:
+            folium.raster_layers.WmsTileLayer(
+                url=config["url"], name=nombre_capa, layers=config["layers"],
+                fmt="image/png", transparent=True, overlay=True, control=True,
+                version="1.1.1", attr=config["attribution"], show=False,
+            ).add_to(m)
     folium.LayerControl(collapsed=False).add_to(m); return m,time.perf_counter()-inicio
 
 def resumen_sadci(sadci):
