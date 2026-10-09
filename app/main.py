@@ -26,10 +26,10 @@ GIGAPP_DIMENSIONES = {
 PBOT_PERSPECTIVA_DEFAULT = "PBOT2015_ZONIFICACION_USO_SUELO_RURAL.geojson"
 
 CARTOGRAFIA_OFICIAL = {
-    "IGAC — Vías, puentes y límites viales (1:10.000)": {"url": "https://mapas2.igac.gov.co/server3/rest/services/carto/carto10000puertorico18592/MapServer/WMSServer", "layers": "8,9,10,6", "attribution": "IGAC · Cartografía básica Puerto Rico, Caquetá · 1:10.000"},
-    "IGAC — Drenajes y cuerpos de agua (1:10.000)": {"url": "https://mapas2.igac.gov.co/server3/rest/services/carto/carto10000puertorico18592/MapServer/WMSServer", "layers": "13,14,17,18,20", "attribution": "IGAC · Cartografía básica Puerto Rico, Caquetá · 1:10.000"},
-    "IGAC — Construcciones y zonas duras (1:10.000)": {"url": "https://mapas2.igac.gov.co/server3/rest/services/carto/carto10000puertorico18592/MapServer/WMSServer", "layers": "0,15,16", "attribution": "IGAC · Cartografía básica Puerto Rico, Caquetá · 1:10.000"},
-    "IGAC — Curvas de nivel y bosque (1:10.000)": {"url": "https://mapas2.igac.gov.co/server3/rest/services/carto/carto10000puertorico18592/MapServer/WMSServer", "layers": "7,19", "attribution": "IGAC · Cartografía básica Puerto Rico, Caquetá · 1:10.000"},
+    "IGAC — Vías, puentes y límites viales (1:10.000)": {"url": "https://mapas2.igac.gov.co/server3/rest/services/carto/carto10000puertorico18592/MapServer/WMSServer", "layers": "Via,Vias,Limite_Via,Puente_L", "attribution": "IGAC · Cartografía básica Puerto Rico, Caquetá · 1:10.000"},
+    "IGAC — Drenajes y cuerpos de agua (1:10.000)": {"url": "https://mapas2.igac.gov.co/server3/rest/services/carto/carto10000puertorico18592/MapServer/WMSServer", "layers": "Drenaje_L,Drenaje,Drenaje_R,Deposito_Agua_R,Bosque", "attribution": "IGAC · Cartografía básica Puerto Rico, Caquetá · 1:10.000"},
+    "IGAC — Construcciones y zonas duras (1:10.000)": {"url": "https://mapas2.igac.gov.co/server3/rest/services/carto/carto10000puertorico18592/MapServer/WMSServer", "layers": "Construccion_P,Construccion_R,Zona_Dura", "attribution": "IGAC · Cartografía básica Puerto Rico, Caquetá · 1:10.000"},
+    "IGAC — Curvas de nivel y bosque (1:10.000)": {"url": "https://mapas2.igac.gov.co/server3/rest/services/carto/carto10000puertorico18592/MapServer/WMSServer", "layers": "Curva_Nivel,Piscina", "attribution": "IGAC · Cartografía básica Puerto Rico, Caquetá · 1:10.000"},
     "UPRA — Frontera agrícola nacional (1:100.000)": {"url": "https://geoservicios.upra.gov.co/arcgis/services/ordenamiento_productivo/frontera_agricola/MapServer/WMSServer", "layers": "0", "attribution": "UPRA · Frontera agrícola nacional · 1:100.000"},
     "UPRA — Frontera agrícola condicionada": {"url": "https://geoservicios.upra.gov.co/arcgis/services/ordenamiento_productivo/frontera_agricola_frontera_agricola_condicionada/MapServer/WMSServer", "layers": "0", "attribution": "UPRA · Frontera agrícola y frontera agrícola condicionada"},
 }
