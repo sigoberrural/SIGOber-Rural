@@ -105,14 +105,14 @@ def construir_mapa(topo,eventos_historicos,conflictos=None,codigo_seleccionado="
     def estilo_territorio(feature):
         p=feature.get("properties",{}); codigo=str(p.get("CODIGO_VER","")).strip(); sel=bool(codigo) and codigo==str(codigo_seleccionado).strip()
         return {"fillColor":"#eeeeee","color":"#111111" if sel else "#555555","weight":2.8 if sel else .8,"fillOpacity":.22}
-    folium.TopoJson(data=topo_mapa,object_path="objects.Veredas",name="Veredas",style_function=estilo_territorio,tooltip=folium.GeoJsonTooltip(fields=["NOMBRE_VER","CODIGO_VER","AREA_HA","FUENTE"],aliases=["Vereda","Código","Área (ha)","Fuente cartográfica"],localize=True,sticky=True,labels=True,style="background-color:white;color:#222;font-family:Arial;font-size:12px;padding:8px;"),show=True).add_to(grupo_territorio)
+    folium.TopoJson(data=topo,object_path="objects.Veredas",name="Veredas",style_function=estilo_territorio,tooltip=folium.GeoJsonTooltip(fields=["NOMBRE_VER","CODIGO_VER","AREA_HA","FUENTE"],aliases=["Vereda","Código","Área (ha)","Fuente cartográfica"],localize=True,sticky=True,labels=True,style="background-color:white;color:#222;font-family:Arial;font-size:12px;padding:8px;"),show=True).add_to(grupo_territorio)
     grupo_territorio.add_to(m)
-    grupo_situaciones=folium.FeatureGroup(name="Situaciones — evidencia territorial",show=True)
+    grupo_situaciones=folium.FeatureGroup(name="Situaciones por vereda — capa temática",show=False)
     def estilo_situaciones(feature):
         p=feature.get("properties",{}); codigo=str(p.get("CODIGO_VER","")).strip(); n=int(conteo.get(codigo,0)); sel=bool(codigo) and codigo==str(codigo_seleccionado).strip()
         fill="#d73027" if n>=2 else ("#fc8d59" if n==1 else "#eeeeee"); opacity=.72 if n else .10
         return {"fillColor":fill,"color":"#111111" if sel else "#a94442","weight":2.8 if sel else (1.0 if n else .35),"fillOpacity":.78 if sel else opacity}
-    folium.TopoJson(data=topo_mapa,object_path="objects.Veredas",name="Situaciones",style_function=estilo_situaciones,tooltip=folium.GeoJsonTooltip(fields=["NOMBRE_VER","CODIGO_VER","SIGOber_situaciones","SIGOber_anios","SIGOber_tipos","SIGOber_confianza"],aliases=["Vereda","Código","Situaciones documentadas","Años","Tipos de situación","Confianza"],localize=True,sticky=True,labels=True,style="background-color:white;color:#222;font-family:Arial;font-size:12px;padding:8px;"),show=True).add_to(grupo_situaciones)
+    folium.TopoJson(data=topo_mapa,object_path="objects.Veredas",name="Situaciones documentadas por vereda",style_function=estilo_situaciones,tooltip=folium.GeoJsonTooltip(fields=["NOMBRE_VER","CODIGO_VER","SIGOber_situaciones","SIGOber_anios","SIGOber_tipos","SIGOber_confianza"],aliases=["Vereda","Código","Situaciones documentadas","Años","Tipos de situación","Confianza"],localize=True,sticky=True,labels=True,style="background-color:white;color:#222;font-family:Arial;font-size:12px;padding:8px;"),show=True).add_to(grupo_situaciones)
     grupo_situaciones.add_to(m)
     if mostrar_conflictos and conflictos is not None and not conflictos.empty:
         validos=conflictos.loc[conflictos["precision_coordenada"].eq("VALIDA")]; grupo=folium.FeatureGroup(name="Conflictos — Google Sheets",show=True)
