@@ -25,6 +25,15 @@ GIGAPP_DIMENSIONES = {
 }
 PBOT_PERSPECTIVA_DEFAULT = "PBOT2015_ZONIFICACION_USO_SUELO_RURAL.geojson"
 
+CARTOGRAFIA_OFICIAL = {
+    "IGAC — Vías, puentes y límites viales (1:10.000)": {"url": "https://mapas2.igac.gov.co/server3/rest/services/carto/carto10000puertorico18592/MapServer/WMSServer", "layers": "8,9,10,6", "attribution": "IGAC · Cartografía básica Puerto Rico, Caquetá · 1:10.000"},
+    "IGAC — Drenajes y cuerpos de agua (1:10.000)": {"url": "https://mapas2.igac.gov.co/server3/rest/services/carto/carto10000puertorico18592/MapServer/WMSServer", "layers": "13,14,17,18,20", "attribution": "IGAC · Cartografía básica Puerto Rico, Caquetá · 1:10.000"},
+    "IGAC — Construcciones y zonas duras (1:10.000)": {"url": "https://mapas2.igac.gov.co/server3/rest/services/carto/carto10000puertorico18592/MapServer/WMSServer", "layers": "0,15,16", "attribution": "IGAC · Cartografía básica Puerto Rico, Caquetá · 1:10.000"},
+    "IGAC — Curvas de nivel y bosque (1:10.000)": {"url": "https://mapas2.igac.gov.co/server3/rest/services/carto/carto10000puertorico18592/MapServer/WMSServer", "layers": "7,19", "attribution": "IGAC · Cartografía básica Puerto Rico, Caquetá · 1:10.000"},
+    "UPRA — Frontera agrícola nacional (1:100.000)": {"url": "https://geoservicios.upra.gov.co/arcgis/services/ordenamiento_productivo/frontera_agricola/MapServer/WMSServer", "layers": "0", "attribution": "UPRA · Frontera agrícola nacional · 1:100.000"},
+    "UPRA — Frontera agrícola condicionada": {"url": "https://geoservicios.upra.gov.co/arcgis/services/ordenamiento_productivo/frontera_agricola_frontera_agricola_condicionada/MapServer/WMSServer", "layers": "0", "attribution": "UPRA · Frontera agrícola y frontera agrícola condicionada"},
+}
+
 @st.cache_data(show_spinner=False)
 def cargar_json(nombre):
     ruta=DATA_DIR/nombre
@@ -97,7 +106,7 @@ def preparar_topo_para_eventos(topo,resumen):
         else: p["SIGOber_situaciones"]=0; p["SIGOber_anios"]="Sin registros"; p["SIGOber_tipos"]="Sin registros"; p["SIGOber_confianza"]="Sin registros"
     return copia
 
-def construir_mapa(topo,eventos_historicos,conflictos=None,codigo_seleccionado="",mostrar_conflictos=True,pbot_seleccionadas=(),perspectiva="Territorio"):
+def construir_mapa(topo,eventos_historicos,conflictos=None,codigo_seleccionado="",mostrar_conflictos=True,pbot_seleccionadas=(),perspectiva="Territorio",cartografia_oficial_seleccionada=()):
     inicio=time.perf_counter(); resumen=resumenes_por_vereda(eventos_historicos); topo_mapa=preparar_topo_para_eventos(topo,resumen); conteo=resumen.set_index("codigo_ver_resuelto")["SIGOber_situaciones"].to_dict() if not resumen.empty else {}; perspectiva=perspectiva or "Territorio"
     m=folium.Map(location=[1.9123,-75.1842],zoom_start=10,tiles="OpenStreetMap",prefer_canvas=True)
     grupo_territorio=folium.FeatureGroup(name="Territorio — Veredas",show=True)
@@ -124,6 +133,15 @@ def construir_mapa(topo,eventos_historicos,conflictos=None,codigo_seleccionado="
         capa=disponibles.get(archivo)
         if not capa: continue
         _,titulo,geo,campos_preferidos=capa; grupo_pbot=folium.FeatureGroup(name=f"{titulo} — PBOT 2015",show=True); features=geo.get("features",[]); props=(features[0].get("properties",{}) or {}) if features else {}; campos=[campo for campo in campos_preferidos if campo in props]; tooltip_pbot=folium.GeoJsonTooltip(fields=campos,aliases=[aliases_pbot.get(campo,campo) for campo in campos],localize=True,labels=True,sticky=True,style="background-color:white;color:#222;font-family:Arial;font-size:12px;padding:8px;") if campos else None; folium.GeoJson(geo,name=titulo,tooltip=tooltip_pbot).add_to(grupo_pbot); grupo_pbot.add_to(m)
+
+    for nombre_capa in cartografia_oficial_seleccionada:
+        config=CARTOGRAFIA_OFICIAL.get(nombre_capa)
+        if not config: continue
+        folium.raster_layers.WmsTileLayer(
+            url=config["url"], name=nombre_capa, layers=config["layers"],
+            fmt="image/png", transparent=True, overlay=True, control=True,
+            version="1.3.0", attr=config["attribution"], show=False,
+        ).add_to(m)
     folium.LayerControl(collapsed=False).add_to(m); return m,time.perf_counter()-inicio
 
 def resumen_sadci(sadci):
@@ -300,11 +318,12 @@ def render_mapa_interactivo():
             codigo_sel="" if seleccion=="Todas las veredas" else seleccion.split(" — ")[-1]
             st.divider()
             st.markdown("**Capas PBOT 2015**")
+            cartografia_oficial_seleccionada=st.multiselect("Cartografía oficial remota",options=list(CARTOGRAFIA_OFICIAL.keys()),default=[],key="cartografia_oficial_presentacion",help="Servicios remotos IGAC/UPRA; requieren conectividad y WMS disponible.")
             pbot_opciones={archivo:titulo for archivo,titulo,_,_ in cargar_pbot_capas()}
             pbot_seleccionadas=st.multiselect("Capas",options=list(pbot_opciones.keys()),format_func=lambda x:pbot_opciones[x],default=[],label_visibility="collapsed",help="Seleccione una o varias capas PBOT. Cada una queda disponible individualmente en el control del mapa.")
         with center:
             conflictos=normalizar_conflictos(gd["Conflictos"]) if isinstance(gd.get("Conflictos"),pd.DataFrame) else pd.DataFrame()
-            mapa,segundos_mapa=construir_mapa(topo,historicos,conflictos,codigo_sel,True,tuple(pbot_seleccionadas),perspectiva="Territorio")
+            mapa,segundos_mapa=construir_mapa(topo,historicos,conflictos,codigo_sel,True,tuple(pbot_seleccionadas),perspectiva="Territorio",cartografia_oficial_seleccionada=tuple(cartografia_oficial_seleccionada))
             st_folium(mapa,width="100%",height=720,returned_objects=["last_active_drawing"])
         with right:
             with st.container(height=500,border=True):
@@ -316,7 +335,7 @@ def render_mapa_interactivo():
             if ys: eventos_f=eventos_f[eventos_f["anio"].astype(str).isin(ys)]
             if ts: eventos_f=eventos_f[eventos_f["tipo_conflicto"].astype(str).isin(ts)]
             if cs: eventos_f=eventos_f[eventos_f["confianza"].astype(str).isin(cs)]
-        mostrar=f4.checkbox("Mostrar conflictos de Sheets",value=True); pbot_opciones={archivo:titulo for archivo,titulo,_,_ in cargar_pbot_capas()}; pbot_seleccionadas=st.multiselect("Capas PBOT 2015 (opcional)",options=list(pbot_opciones.keys()),format_func=lambda x:pbot_opciones[x],default=[],help="Las capas PBOT no se cargan al navegador hasta que se seleccionan."); st.caption("Capa histórica: SITUACIONES_TERRITORIALES. Puntos: registros operativos de la hoja Conflictos. Las fuentes se mantienen separadas."); st.caption("Ordenamiento Territorial — cartografía de formulación PBOT 2015. No implica actualización al PBOT 2023."); conflictos=normalizar_conflictos(gd["Conflictos"]) if isinstance(gd.get("Conflictos"),pd.DataFrame) else pd.DataFrame(); mapa,segundos_mapa=construir_mapa(topo,eventos_f,conflictos,codigo_sel,mostrar,tuple(pbot_seleccionadas),perspectiva="Territorio",mostrar_social_demo=False); st.caption(f"Generación del mapa en servidor: {segundos_mapa:.2f} s"); st_folium(mapa,width="100%",height=650,returned_objects=["last_active_drawing"])
+        mostrar=f4.checkbox("Mostrar conflictos de Sheets",value=True); pbot_opciones={archivo:titulo for archivo,titulo,_,_ in cargar_pbot_capas()}; pbot_seleccionadas=st.multiselect("Capas PBOT 2015 (opcional)",options=list(pbot_opciones.keys()),format_func=lambda x:pbot_opciones[x],default=[],help="Las capas PBOT no se cargan al navegador hasta que se seleccionan."); cartografia_oficial_seleccionada=st.multiselect("Cartografía oficial remota (opcional)",options=list(CARTOGRAFIA_OFICIAL.keys()),default=[],key="cartografia_oficial_exploracion",help="Servicios remotos IGAC/UPRA; requieren conectividad y WMS disponible."); st.caption("Capa histórica: SITUACIONES_TERRITORIALES. Puntos: registros operativos de la hoja Conflictos. Las fuentes se mantienen separadas."); st.caption("Ordenamiento Territorial — cartografía de formulación PBOT 2015. No implica actualización al PBOT 2023."); conflictos=normalizar_conflictos(gd["Conflictos"]) if isinstance(gd.get("Conflictos"),pd.DataFrame) else pd.DataFrame(); mapa,segundos_mapa=construir_mapa(topo,eventos_f,conflictos,codigo_sel,mostrar,tuple(pbot_seleccionadas),perspectiva="Territorio",cartografia_oficial_seleccionada=tuple(cartografia_oficial_seleccionada)); st.caption(f"Generación del mapa en servidor: {segundos_mapa:.2f} s"); st_folium(mapa,width="100%",height=650,returned_objects=["last_active_drawing"])
 
 render_mapa_interactivo()
 st.caption("SIGOber-Rural · prototipo de trabajo para análisis y gobernabilidad territorial rural")
