@@ -61,6 +61,60 @@ def comprobar_wms(url):
     except Exception as exc:
         return {"disponible": False, "capas": [], "error": f"{type(exc).__name__}: {exc}"}
 
+
+def comprobar_servicio_cartografico(config):
+    """Prueba el servicio real (metadatos y una imagen/tesela), no solo su URL."""
+    from urllib.parse import urlencode
+    resultado = {"metadatos": "sin comprobar", "imagen": "sin comprobar", "detalle": ""}
+    try:
+        if config.get("tipo") == "arcgis_tiles":
+            base = config["url"].rstrip("/")
+            req = urllib.request.Request(base + "?f=pjson", headers={"User-Agent": "SIGOber-Rural/1.0"})
+            with urllib.request.urlopen(req, timeout=10) as respuesta:
+                datos = json.loads(respuesta.read(1_500_000).decode("utf-8"))
+            if datos.get("error"):
+                raise RuntimeError(datos["error"].get("message", "Error REST ArcGIS"))
+            resultado["metadatos"] = "OK"
+            # Puerto Rico, Caquetá, aproximadamente zoom 10 / fila 507 / columna 298.
+            req = urllib.request.Request(base + "/tile/10/507/298", headers={"User-Agent": "SIGOber-Rural/1.0"})
+            with urllib.request.urlopen(req, timeout=10) as respuesta:
+                tipo = respuesta.headers.get("Content-Type", "")
+                contenido = respuesta.read(64)
+            if not tipo.lower().startswith("image/"):
+                raise RuntimeError("La tesela no devolvió una imagen; Content-Type=" + tipo)
+            resultado["imagen"] = "OK (" + tipo + ")"
+            resultado["detalle"] = "Tesela de prueba recibida (" + str(len(contenido)) + " bytes iniciales)."
+        else:
+            base = config["url"].rsplit("/WMSServer", 1)[0]
+            rest = base.replace("/services/", "/rest/services/") + "?f=pjson"
+            req = urllib.request.Request(rest, headers={"User-Agent": "SIGOber-Rural/1.0"})
+            with urllib.request.urlopen(req, timeout=10) as respuesta:
+                datos = json.loads(respuesta.read(1_500_000).decode("utf-8"))
+            if datos.get("error"):
+                raise RuntimeError(datos["error"].get("message", "Error REST ArcGIS"))
+            resultado["metadatos"] = "OK"
+            params = {
+                "bbox": "-75.65,1.35,-74.75,2.35", "bboxSR": "4326", "imageSR": "4326",
+                "size": "512,512", "format": "png32", "transparent": "true", "f": "image",
+                "layers": "show:" + config["layers"].replace(",", ","),
+            }
+            url_imagen = base.replace("/WMSServer", "/") + "export?" + urlencode(params)
+            req = urllib.request.Request(url_imagen, headers={"User-Agent": "SIGOber-Rural/1.0"})
+            with urllib.request.urlopen(req, timeout=15) as respuesta:
+                tipo = respuesta.headers.get("Content-Type", "")
+                contenido = respuesta.read(64)
+            if not tipo.lower().startswith("image/"):
+                raise RuntimeError("La petición de mapa no devolvió una imagen; Content-Type=" + tipo + "; respuesta=" + repr(contenido[:50]))
+            resultado["imagen"] = "OK (" + tipo + ")"
+            resultado["detalle"] = "Imagen de mapa generada por el servicio REST de IGAC."
+    except Exception as exc:
+        resultado["detalle"] = type(exc).__name__ + ": " + str(exc)
+        if resultado["metadatos"] == "sin comprobar":
+            resultado["metadatos"] = "FALLÓ"
+        else:
+            resultado["imagen"] = "FALLÓ"
+    return resultado
+
 @st.cache_data(show_spinner=False)
 def cargar_json(nombre):
     ruta=DATA_DIR/nombre
@@ -373,15 +427,13 @@ def render_mapa_interactivo():
             if ts: eventos_f=eventos_f[eventos_f["tipo_conflicto"].astype(str).isin(ts)]
             if cs: eventos_f=eventos_f[eventos_f["confianza"].astype(str).isin(cs)]
         mostrar=f4.checkbox("Mostrar conflictos de Sheets",value=True); pbot_opciones={archivo:titulo for archivo,titulo,_,_ in cargar_pbot_capas()}; pbot_seleccionadas=st.multiselect("Capas PBOT 2015 (opcional)",options=list(pbot_opciones.keys()),format_func=lambda x:pbot_opciones[x],default=[],help="Las capas PBOT no se cargan al navegador hasta que se seleccionan."); cartografia_oficial_seleccionada=st.multiselect("Cartografía oficial remota (opcional)",options=list(CARTOGRAFIA_OFICIAL.keys()),default=[],key="cartografia_oficial_exploracion",help="Servicios remotos IGAC/UPRA; requieren conectividad y WMS disponible."); st.caption("Capa histórica: SITUACIONES_TERRITORIALES. Puntos: registros operativos de la hoja Conflictos. Las fuentes se mantienen separadas.");
-        with st.expander("Estado de servicios cartográficos oficiales"):
-            st.caption("La comprobación consulta GetCapabilities bajo demanda; no se ejecuta al abrir la aplicación.")
-            if st.button("Comprobar disponibilidad de servicios WMS", key="comprobar_wms_oficial"):
-                urls = {config["url"] for config in CARTOGRAFIA_OFICIAL.values()}
-                for url in sorted(urls):
-                    resultado = comprobar_wms(url)
-                    st.write({"servicio": url, "disponible": resultado["disponible"], "capas_publicadas": len(resultado["capas"]), "error": resultado["error"]})
-                    if resultado["disponible"]:
-                        st.caption("Capas publicadas: " + ", ".join(resultado["capas"][:80]))
+        with st.expander("Diagnóstico de servicios cartográficos oficiales"):
+            st.caption("Prueba metadatos y una imagen/tesela real desde el entorno donde se ejecuta SIGOber-Rural.")
+            if st.button("Probar cada servicio cartográfico", key="comprobar_wms_oficial"):
+                for nombre, config in CARTOGRAFIA_OFICIAL.items():
+                    resultado = comprobar_servicio_cartografico(config)
+                    st.markdown("**" + nombre + "**")
+                    st.write({"metadatos": resultado["metadatos"], "imagen/tesela": resultado["imagen"], "detalle": resultado["detalle"]})
 
         st.caption("Ordenamiento Territorial — cartografía de formulación PBOT 2015. No implica actualización al PBOT 2023."); conflictos=normalizar_conflictos(gd["Conflictos"]) if isinstance(gd.get("Conflictos"),pd.DataFrame) else pd.DataFrame(); mapa,segundos_mapa=construir_mapa(topo,eventos_f,conflictos,codigo_sel,mostrar,tuple(pbot_seleccionadas),perspectiva="Territorio",cartografia_oficial_seleccionada=tuple(cartografia_oficial_seleccionada)); st.caption(f"Generación del mapa en servidor: {segundos_mapa:.2f} s"); st_folium(mapa,width="100%",height=650,returned_objects=["last_active_drawing"])
 render_mapa_interactivo()
