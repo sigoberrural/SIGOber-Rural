@@ -34,6 +34,31 @@ CARTOGRAFIA_OFICIAL = {
     "UPRA — Frontera agrícola condicionada": {"url": "https://geoservicios.upra.gov.co/arcgis/services/ordenamiento_productivo/frontera_agricola_frontera_agricola_condicionada/MapServer/WMSServer", "layers": "0", "attribution": "UPRA · Frontera agrícola y frontera agrícola condicionada"},
 }
 
+
+def comprobar_wms(url):
+    """Comprueba capacidades WMS sin bloquear el mapa si falla el proveedor."""
+    from urllib.parse import urlencode
+    import xml.etree.ElementTree as ET
+    separador = "&" if "?" in url else "?"
+    consulta = urlencode({"service": "WMS", "request": "GetCapabilities", "version": "1.3.0"})
+    req = urllib.request.Request(
+        url + separador + consulta,
+        headers={"User-Agent": "SIGOber-Rural/1.0 (catalogo cartografico)"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=8) as respuesta:
+            contenido = respuesta.read(2_000_000)
+        raiz = ET.fromstring(contenido)
+        nombres = []
+        for nodo in raiz.iter():
+            if nodo.tag.endswith("}Layer") or nodo.tag == "Layer":
+                nombre = next((h.text for h in nodo if h.tag.endswith("}Name") or h.tag == "Name"), None)
+                if nombre:
+                    nombres.append(nombre)
+        return {"disponible": True, "capas": sorted(set(nombres)), "error": ""}
+    except Exception as exc:
+        return {"disponible": False, "capas": [], "error": f"{type(exc).__name__}: {exc}"}
+
 @st.cache_data(show_spinner=False)
 def cargar_json(nombre):
     ruta=DATA_DIR/nombre
@@ -335,7 +360,17 @@ def render_mapa_interactivo():
             if ys: eventos_f=eventos_f[eventos_f["anio"].astype(str).isin(ys)]
             if ts: eventos_f=eventos_f[eventos_f["tipo_conflicto"].astype(str).isin(ts)]
             if cs: eventos_f=eventos_f[eventos_f["confianza"].astype(str).isin(cs)]
-        mostrar=f4.checkbox("Mostrar conflictos de Sheets",value=True); pbot_opciones={archivo:titulo for archivo,titulo,_,_ in cargar_pbot_capas()}; pbot_seleccionadas=st.multiselect("Capas PBOT 2015 (opcional)",options=list(pbot_opciones.keys()),format_func=lambda x:pbot_opciones[x],default=[],help="Las capas PBOT no se cargan al navegador hasta que se seleccionan."); cartografia_oficial_seleccionada=st.multiselect("Cartografía oficial remota (opcional)",options=list(CARTOGRAFIA_OFICIAL.keys()),default=[],key="cartografia_oficial_exploracion",help="Servicios remotos IGAC/UPRA; requieren conectividad y WMS disponible."); st.caption("Capa histórica: SITUACIONES_TERRITORIALES. Puntos: registros operativos de la hoja Conflictos. Las fuentes se mantienen separadas."); st.caption("Ordenamiento Territorial — cartografía de formulación PBOT 2015. No implica actualización al PBOT 2023."); conflictos=normalizar_conflictos(gd["Conflictos"]) if isinstance(gd.get("Conflictos"),pd.DataFrame) else pd.DataFrame(); mapa,segundos_mapa=construir_mapa(topo,eventos_f,conflictos,codigo_sel,mostrar,tuple(pbot_seleccionadas),perspectiva="Territorio",cartografia_oficial_seleccionada=tuple(cartografia_oficial_seleccionada)); st.caption(f"Generación del mapa en servidor: {segundos_mapa:.2f} s"); st_folium(mapa,width="100%",height=650,returned_objects=["last_active_drawing"])
+        mostrar=f4.checkbox("Mostrar conflictos de Sheets",value=True); pbot_opciones={archivo:titulo for archivo,titulo,_,_ in cargar_pbot_capas()}; pbot_seleccionadas=st.multiselect("Capas PBOT 2015 (opcional)",options=list(pbot_opciones.keys()),format_func=lambda x:pbot_opciones[x],default=[],help="Las capas PBOT no se cargan al navegador hasta que se seleccionan."); cartografia_oficial_seleccionada=st.multiselect("Cartografía oficial remota (opcional)",options=list(CARTOGRAFIA_OFICIAL.keys()),default=[],key="cartografia_oficial_exploracion",help="Servicios remotos IGAC/UPRA; requieren conectividad y WMS disponible."); st.caption("Capa histórica: SITUACIONES_TERRITORIALES. Puntos: registros operativos de la hoja Conflictos. Las fuentes se mantienen separadas.");
+    with st.expander("Estado de servicios cartográficos oficiales"):
+        st.caption("La comprobación consulta GetCapabilities bajo demanda; no se ejecuta al abrir la aplicación.")
+        if st.button("Comprobar disponibilidad de servicios WMS", key="comprobar_wms_oficial"):
+            urls = {config["url"] for config in CARTOGRAFIA_OFICIAL.values()}
+            for url in sorted(urls):
+                resultado = comprobar_wms(url)
+                st.write({"servicio": url, "disponible": resultado["disponible"], "capas_publicadas": len(resultado["capas"]), "error": resultado["error"]})
+                if resultado["disponible"]:
+                    st.caption("Capas publicadas: " + ", ".join(resultado["capas"][:80]))
+ st.caption("Ordenamiento Territorial — cartografía de formulación PBOT 2015. No implica actualización al PBOT 2023."); conflictos=normalizar_conflictos(gd["Conflictos"]) if isinstance(gd.get("Conflictos"),pd.DataFrame) else pd.DataFrame(); mapa,segundos_mapa=construir_mapa(topo,eventos_f,conflictos,codigo_sel,mostrar,tuple(pbot_seleccionadas),perspectiva="Territorio",cartografia_oficial_seleccionada=tuple(cartografia_oficial_seleccionada)); st.caption(f"Generación del mapa en servidor: {segundos_mapa:.2f} s"); st_folium(mapa,width="100%",height=650,returned_objects=["last_active_drawing"])
 
 render_mapa_interactivo()
 st.caption("SIGOber-Rural · prototipo de trabajo para análisis y gobernabilidad territorial rural")
