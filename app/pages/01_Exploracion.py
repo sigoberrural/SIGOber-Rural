@@ -11,6 +11,19 @@ import pandas as pd
 import streamlit as st
 from streamlit_folium import st_folium
 
+st.set_page_config(page_title="Exploración de resultados · SIGOber-Rural", page_icon="🗺️", layout="wide")
+modo_presentacion = False
+with st.sidebar:
+    st.markdown("### SIGOber-Rural")
+    st.caption("Sistema de información territorial")
+    st.divider()
+    st.markdown("**Espacios de trabajo**")
+    st.page_link("main.py", label="Ingesta y gestión de datos", icon="📥")
+    st.markdown("🗺️ **Exploración de resultados**")
+    st.divider()
+    st.caption("Puerto Rico · Caquetá")
+    st.caption("Versión 1.0 en preparación")
+
 BASE_DIR = Path(__file__).resolve().parents[2]
 DATA_DIR = BASE_DIR / "data"
 PBOT_DIR = DATA_DIR / "PBOT2015"
@@ -428,6 +441,14 @@ div[data-testid="stMetric"]{padding:.55rem .7rem;border:1px solid rgba(128,128,1
 div[data-testid="stMetricLabel"]{font-size:.83rem}
 </style>""",unsafe_allow_html=True)
 st.markdown("<div class='sigo-hero'><div class='sigo-kicker'>Sistema de información territorial · versión en preparación</div><div class='sigo-title'>SIGOber-Rural</div><div class='sigo-subtitle'>Una lectura integrada de la gobernabilidad rural de Puerto Rico, Caquetá: territorio, situaciones documentadas, ordenamiento y capacidades institucionales.</div></div>",unsafe_allow_html=True)
+
+st.markdown("### Consultas especializadas")
+st.caption("Estas herramientas forman parte de la exploración de resultados; el menú lateral conserva solo los dos espacios principales.")
+special1, special2 = st.columns(2, gap="medium")
+with special1:
+    st.page_link("pages/02_Ordenamiento_PBOT2015.py", label="Consultar ordenamiento PBOT 2015", icon="🧭")
+with special2:
+    st.page_link("pages/04_Indicadores_SADCI.py", label="Consultar indicadores SADCI", icon="📊")
 
 st.markdown("### Panorama territorial")
 st.caption(
