@@ -23,6 +23,12 @@ div[data-testid="stMetric"]{padding:.55rem .7rem;border:1px solid rgba(128,128,1
 </div>
 """, unsafe_allow_html=True)
 
+st.info(
+    "**Uso recomendado:** 1) descarga la plantilla, 2) completa una fila por observación, "
+    "3) carga el CSV para revisar errores, 4) corrige y vuelve a cargar, y 5) conserva la fuente "
+    "y el acta o taller que respalda cada registro."
+)
+
 st.warning(
     "La revisión automática detecta problemas de estructura, categorías, coordenadas y GeoJSON. "
     "No valida la veracidad de una observación ni sustituye la revisión metodológica comunitaria."
