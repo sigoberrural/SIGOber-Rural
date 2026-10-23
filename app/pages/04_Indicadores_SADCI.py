@@ -1,8 +1,19 @@
 """Tablero SADCI v1.0: resultados, trazabilidad y disponibilidad territorial."""
 import json
+import sys
+from pathlib import Path
+
 import pandas as pd
 import plotly.express as px
 import streamlit as st
+
+# Streamlit Cloud puede ejecutar una página multipágina con un directorio
+# de trabajo distinto de la raíz del repositorio. Aseguramos la raíz en
+# sys.path antes de importar el paquete local.
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
 from app.sadci import cargar_catalogo, evaluar_catalogo
 
 st.set_page_config(page_title="SADCI · SIGOber-Rural", page_icon="📊", layout="wide")
