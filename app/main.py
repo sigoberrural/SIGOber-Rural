@@ -474,7 +474,11 @@ if "google_data" not in st.session_state:
 gd=st.session_state["google_data"]
 if not modo_presentacion:
     num_veredas_situacion=historicos["codigo_ver_resuelto"].nunique() if not historicos.empty and "codigo_ver_resuelto" in historicos.columns else 0; num_conflictos=len(gd["Conflictos"]) if isinstance(gd.get("Conflictos"),pd.DataFrame) else 0; num_actores=len(gd["Actores"]) if isinstance(gd.get("Actores"),pd.DataFrame) else 0
-    a,b,c,d=st.columns(4); a.metric("Situaciones históricas",len(historicos)); b.metric("Veredas con situaciones",num_veredas_situacion); c.metric("Conflictos en Sheets",num_conflictos if isinstance(gd.get("Conflictos"),pd.DataFrame) else "—"); d.metric("Actores",num_actores if isinstance(gd.get("Actores"),pd.DataFrame) else "—")
+    a,b,c,d=st.columns(4)
+    a.metric("Situaciones históricas",len(historicos),help="Registros del archivo territorial local; no equivale necesariamente al total de hechos ocurridos.")
+    b.metric("Veredas con registros",num_veredas_situacion,help="Veredas con al menos un registro asociado en la base territorial local.")
+    c.metric("Conflictos en Sheets",num_conflictos if isinstance(gd.get("Conflictos"),pd.DataFrame) else "—",help="Guion significa que la hoja no pudo consultarse; no representa cero registros.")
+    d.metric("Actores registrados",num_actores if isinstance(gd.get("Actores"),pd.DataFrame) else "—",help="Guion significa que la hoja no pudo consultarse; no representa cero actores.")
     mostrar_indicadores_sadci(gd.get("SADCI"))
     st.markdown("<div class='sigo-note'><b>Lectura de gobernabilidad:</b> SIGOber-Rural organiza el territorio alrededor de situaciones, ordenamiento y conocimiento comunitario, manteniendo actores y capacidades como información institucional separada.</div>",unsafe_allow_html=True)
     with st.expander("🔧 Diagnóstico de fuentes y rendimiento"):
@@ -555,4 +559,13 @@ def render_mapa_interactivo():
 
         st.caption("Ordenamiento Territorial — cartografía de formulación PBOT 2015. No implica actualización al PBOT 2023."); conflictos=normalizar_conflictos(gd["Conflictos"]) if isinstance(gd.get("Conflictos"),pd.DataFrame) else pd.DataFrame(); mapa,segundos_mapa=construir_mapa(topo,eventos_f,conflictos,codigo_sel,mostrar,tuple(pbot_seleccionadas),perspectiva="Territorio",cartografia_oficial_seleccionada=tuple(cartografia_oficial_seleccionada),cartografia_local_seleccionada=tuple(cartografia_local_seleccionada)); st.caption(f"Generación del mapa en servidor: {segundos_mapa:.2f} s"); st_folium(mapa,width="100%",height=650,returned_objects=["last_active_drawing"])
 render_mapa_interactivo()
-st.caption("SIGOber-Rural · prototipo de trabajo para análisis y gobernabilidad territorial rural")
+st.markdown("### Cómo leer el mapa")
+leyenda1,leyenda2,leyenda3=st.columns(3)
+with leyenda1:
+    st.markdown("<div class='sigo-nav-card'><div class='sigo-nav-title'>🗺️ Territorio</div><div class='sigo-nav-desc'>Límites y atributos de veredas según la cartografía base disponible.</div></div>",unsafe_allow_html=True)
+with leyenda2:
+    st.markdown("<div class='sigo-nav-card'><div class='sigo-nav-title'>🟠🔴 Situaciones documentadas</div><div class='sigo-nav-desc'>En la capa temática: naranja = un registro; rojo = dos o más registros asociados a la vereda.</div></div>",unsafe_allow_html=True)
+with leyenda3:
+    st.markdown("<div class='sigo-nav-card'><div class='sigo-nav-title'>🧭 Capas de referencia</div><div class='sigo-nav-desc'>Las capas PBOT 2015 e IGAC/UPRA se activan por separado y conservan su procedencia.</div></div>",unsafe_allow_html=True)
+st.info("Un polígono sin registros asociados solo indica que la base consultada no contiene registros enlazados a esa vereda. No demuestra que allí no ocurran situaciones. Las capas PBOT corresponden a cartografía de formulación de 2015; las capas oficiales remotas requieren conexión y disponibilidad del proveedor.")
+st.caption("SIGOber-Rural · versión 1.0 en preparación · Puerto Rico, Caquetá")
