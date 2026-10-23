@@ -25,6 +25,14 @@ GIGAPP_DIMENSIONES = {
 }
 PBOT_PERSPECTIVA_DEFAULT = "PBOT2015_ZONIFICACION_USO_SUELO_RURAL.geojson"
 
+CARTOGRAFIA_LOCAL = {
+    "IGAC local — Vías y puentes": ("igac_vias.geojson", "#1769aa", 2.4),
+    "IGAC local — Drenajes": ("igac_drenajes.geojson", "#168aad", 1.8),
+    "IGAC local — Construcciones": ("igac_construcciones.geojson", "#9c2f2f", 1.2),
+    "IGAC local — Curvas y piscinas": ("igac_curvas_piscinas.geojson", "#8c6d31", 1.0),
+    "IGAC local — Bosque": ("igac_bosque.geojson", "#2e7d32", 1.0),
+}
+
 CARTOGRAFIA_OFICIAL = {
     # El servicio WMS de IGAC se publica bajo /server/services (no /server3/rest/services).
     "IGAC — Vías, puentes y límites viales (1:10.000)": {"tipo": "wms", "url": "https://mapas2.igac.gov.co/server3/services/carto/carto10000puertorico18592/MapServer/WMSServer", "layers": "6,8,9,10", "attribution": "IGAC · Cartografía básica Puerto Rico, Caquetá · 1:10.000"},
@@ -187,7 +195,7 @@ def preparar_topo_para_eventos(topo,resumen):
         else: p["SIGOber_situaciones"]=0; p["SIGOber_anios"]="Sin registros"; p["SIGOber_tipos"]="Sin registros"; p["SIGOber_confianza"]="Sin registros"
     return copia
 
-def construir_mapa(topo,eventos_historicos,conflictos=None,codigo_seleccionado="",mostrar_conflictos=True,pbot_seleccionadas=(),perspectiva="Territorio",cartografia_oficial_seleccionada=()):
+def construir_mapa(topo,eventos_historicos,conflictos=None,codigo_seleccionado="",mostrar_conflictos=True,pbot_seleccionadas=(),perspectiva="Territorio",cartografia_oficial_seleccionada=(),cartografia_local_seleccionada=()):
     inicio=time.perf_counter(); resumen=resumenes_por_vereda(eventos_historicos); topo_mapa=preparar_topo_para_eventos(topo,resumen); conteo=resumen.set_index("codigo_ver_resuelto")["SIGOber_situaciones"].to_dict() if not resumen.empty else {}; perspectiva=perspectiva or "Territorio"
     m=folium.Map(location=[1.9123,-75.1842],zoom_start=10,tiles="OpenStreetMap",prefer_canvas=True)
     grupo_territorio=folium.FeatureGroup(name="Territorio — Veredas",show=True)
@@ -214,6 +222,38 @@ def construir_mapa(topo,eventos_historicos,conflictos=None,codigo_seleccionado="
         capa=disponibles.get(archivo)
         if not capa: continue
         _,titulo,geo,campos_preferidos=capa; grupo_pbot=folium.FeatureGroup(name=f"{titulo} — PBOT 2015",show=True); features=geo.get("features",[]); props=(features[0].get("properties",{}) or {}) if features else {}; campos=[campo for campo in campos_preferidos if campo in props]; tooltip_pbot=folium.GeoJsonTooltip(fields=campos,aliases=[aliases_pbot.get(campo,campo) for campo in campos],localize=True,labels=True,sticky=True,style="background-color:white;color:#222;font-family:Arial;font-size:12px;padding:8px;") if campos else None; folium.GeoJson(geo,name=titulo,tooltip=tooltip_pbot).add_to(grupo_pbot); grupo_pbot.add_to(m)
+
+    # Capas IGAC descargadas: el mapa puede seguir funcionando sin el servicio remoto.
+    for nombre_capa in cartografia_local_seleccionada:
+        config_local = CARTOGRAFIA_LOCAL.get(nombre_capa)
+        if not config_local:
+            continue
+        archivo_local, color_local, grosor_local = config_local
+        ruta_local = DATA_DIR / "cartografia_oficial" / "igac" / archivo_local
+        if not ruta_local.exists():
+            continue
+        try:
+            with open(ruta_local, "r", encoding="utf-8") as f:
+                geo_local = json.load(f)
+            if geo_local.get("type") != "FeatureCollection" or not geo_local.get("features"):
+                continue
+            grupo_local = folium.FeatureGroup(name=nombre_capa, show=True)
+            folium.GeoJson(
+                geo_local, name=nombre_capa,
+                style_function=lambda feature, color=color_local, weight=grosor_local: {
+                    "color": color, "weight": weight, "opacity": 0.9,
+                    "fillColor": color, "fillOpacity": 0.18,
+                },
+                tooltip=folium.GeoJsonTooltip(
+                    fields=["_igac_layer_name"] if "_igac_layer_name" in (geo_local["features"][0].get("properties") or {}) else [],
+                    aliases=["Capa IGAC"] if "_igac_layer_name" in (geo_local["features"][0].get("properties") or {}) else [],
+                    sticky=True,
+                ) if "_igac_layer_name" in (geo_local["features"][0].get("properties") or {}) else None,
+            ).add_to(grupo_local)
+            grupo_local.add_to(m)
+        except (OSError, ValueError, TypeError):
+            # Una capa local corrupta no debe impedir cargar el resto del mapa.
+            continue
 
     for nombre_capa in cartografia_oficial_seleccionada:
         config = CARTOGRAFIA_OFICIAL.get(nombre_capa)
@@ -410,11 +450,12 @@ def render_mapa_interactivo():
             st.divider()
             st.markdown("**Capas PBOT 2015**")
             cartografia_oficial_seleccionada=st.multiselect("Cartografía oficial remota",options=list(CARTOGRAFIA_OFICIAL.keys()),default=[],key="cartografia_oficial_presentacion",help="Servicios remotos IGAC/UPRA; requieren conectividad y WMS disponible.")
+            cartografia_local_seleccionada=st.multiselect("Cartografía IGAC descargada (funciona sin servicio remoto)",options=list(CARTOGRAFIA_LOCAL.keys()),default=[],key="cartografia_local_presentacion",help="Se activa después de ejecutar scripts/descargar_cartografia_igac.py y guardar los GeoJSON en data/cartografia_oficial/igac/.")
             pbot_opciones={archivo:titulo for archivo,titulo,_,_ in cargar_pbot_capas()}
             pbot_seleccionadas=st.multiselect("Capas",options=list(pbot_opciones.keys()),format_func=lambda x:pbot_opciones[x],default=[],label_visibility="collapsed",help="Seleccione una o varias capas PBOT. Cada una queda disponible individualmente en el control del mapa.")
         with center:
             conflictos=normalizar_conflictos(gd["Conflictos"]) if isinstance(gd.get("Conflictos"),pd.DataFrame) else pd.DataFrame()
-            mapa,segundos_mapa=construir_mapa(topo,historicos,conflictos,codigo_sel,True,tuple(pbot_seleccionadas),perspectiva="Territorio",cartografia_oficial_seleccionada=tuple(cartografia_oficial_seleccionada))
+            mapa,segundos_mapa=construir_mapa(topo,historicos,conflictos,codigo_sel,True,tuple(pbot_seleccionadas),perspectiva="Territorio",cartografia_oficial_seleccionada=tuple(cartografia_oficial_seleccionada),cartografia_local_seleccionada=tuple(cartografia_local_seleccionada))
             st_folium(mapa,width="100%",height=720,returned_objects=["last_active_drawing"])
         with right:
             with st.container(height=500,border=True):
@@ -426,7 +467,7 @@ def render_mapa_interactivo():
             if ys: eventos_f=eventos_f[eventos_f["anio"].astype(str).isin(ys)]
             if ts: eventos_f=eventos_f[eventos_f["tipo_conflicto"].astype(str).isin(ts)]
             if cs: eventos_f=eventos_f[eventos_f["confianza"].astype(str).isin(cs)]
-        mostrar=f4.checkbox("Mostrar conflictos de Sheets",value=True); pbot_opciones={archivo:titulo for archivo,titulo,_,_ in cargar_pbot_capas()}; pbot_seleccionadas=st.multiselect("Capas PBOT 2015 (opcional)",options=list(pbot_opciones.keys()),format_func=lambda x:pbot_opciones[x],default=[],help="Las capas PBOT no se cargan al navegador hasta que se seleccionan."); cartografia_oficial_seleccionada=st.multiselect("Cartografía oficial remota (opcional)",options=list(CARTOGRAFIA_OFICIAL.keys()),default=[],key="cartografia_oficial_exploracion",help="Servicios remotos IGAC/UPRA; requieren conectividad y WMS disponible."); st.caption("Capa histórica: SITUACIONES_TERRITORIALES. Puntos: registros operativos de la hoja Conflictos. Las fuentes se mantienen separadas.");
+        mostrar=f4.checkbox("Mostrar conflictos de Sheets",value=True); pbot_opciones={archivo:titulo for archivo,titulo,_,_ in cargar_pbot_capas()}; pbot_seleccionadas=st.multiselect("Capas PBOT 2015 (opcional)",options=list(pbot_opciones.keys()),format_func=lambda x:pbot_opciones[x],default=[],help="Las capas PBOT no se cargan al navegador hasta que se seleccionan."); cartografia_oficial_seleccionada=st.multiselect("Cartografía oficial remota (opcional)",options=list(CARTOGRAFIA_OFICIAL.keys()),default=[],key="cartografia_oficial_exploracion",help="Servicios remotos IGAC/UPRA; requieren conectividad y WMS disponible."); cartografia_local_seleccionada=st.multiselect("Cartografía IGAC descargada (local)",options=list(CARTOGRAFIA_LOCAL.keys()),default=[],key="cartografia_local_exploracion",help="Ejecute scripts/descargar_cartografia_igac.py para obtener las capas locales."); st.caption("Capa histórica: SITUACIONES_TERRITORIALES. Puntos: registros operativos de la hoja Conflictos. Las fuentes se mantienen separadas.");
         with st.expander("Diagnóstico de servicios cartográficos oficiales"):
             st.caption("Prueba metadatos y una imagen/tesela real desde el entorno donde se ejecuta SIGOber-Rural.")
             if st.button("Probar cada servicio cartográfico", key="comprobar_wms_oficial"):
@@ -435,6 +476,6 @@ def render_mapa_interactivo():
                     st.markdown("**" + nombre + "**")
                     st.write({"metadatos": resultado["metadatos"], "imagen/tesela": resultado["imagen"], "detalle": resultado["detalle"]})
 
-        st.caption("Ordenamiento Territorial — cartografía de formulación PBOT 2015. No implica actualización al PBOT 2023."); conflictos=normalizar_conflictos(gd["Conflictos"]) if isinstance(gd.get("Conflictos"),pd.DataFrame) else pd.DataFrame(); mapa,segundos_mapa=construir_mapa(topo,eventos_f,conflictos,codigo_sel,mostrar,tuple(pbot_seleccionadas),perspectiva="Territorio",cartografia_oficial_seleccionada=tuple(cartografia_oficial_seleccionada)); st.caption(f"Generación del mapa en servidor: {segundos_mapa:.2f} s"); st_folium(mapa,width="100%",height=650,returned_objects=["last_active_drawing"])
+        st.caption("Ordenamiento Territorial — cartografía de formulación PBOT 2015. No implica actualización al PBOT 2023."); conflictos=normalizar_conflictos(gd["Conflictos"]) if isinstance(gd.get("Conflictos"),pd.DataFrame) else pd.DataFrame(); mapa,segundos_mapa=construir_mapa(topo,eventos_f,conflictos,codigo_sel,mostrar,tuple(pbot_seleccionadas),perspectiva="Territorio",cartografia_oficial_seleccionada=tuple(cartografia_oficial_seleccionada),cartografia_local_seleccionada=tuple(cartografia_local_seleccionada)); st.caption(f"Generación del mapa en servidor: {segundos_mapa:.2f} s"); st_folium(mapa,width="100%",height=650,returned_objects=["last_active_drawing"])
 render_mapa_interactivo()
 st.caption("SIGOber-Rural · prototipo de trabajo para análisis y gobernabilidad territorial rural")
