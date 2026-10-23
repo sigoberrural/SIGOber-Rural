@@ -23,5 +23,5 @@ jobs:
           pip install -r requirements.txt
       - name: Verificar sintaxis Python
         run: python -m compileall -q app tests
-      - name: Ejecutar pruebas SADCI
-        run: python -m unittest discover -s tests -p "test_sadci.py" -v
+      - name: Ejecutar pruebas automatizadas
+        run: python -m unittest discover -s tests -v
