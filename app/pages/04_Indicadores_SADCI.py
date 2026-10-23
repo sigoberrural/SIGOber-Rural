@@ -41,6 +41,15 @@ except (OSError, ValueError, json.JSONDecodeError) as exc:
 
 evaluados = evaluar_catalogo(catalogo)
 df = pd.DataFrame(evaluados)
+
+with st.expander("Cómo usar este tablero", expanded=False):
+    st.markdown(
+        "1. **Empieza por el resumen municipal** para ver los diez indicadores y sus resultados calculados.\n"
+        "2. **Filtra** por dimensión, código, nombre o cumplimiento de meta para encontrar un indicador.\n"
+        "3. **Abre su ficha** para consultar fórmula, valores, fuente, responsable y periodicidad.\n"
+        "4. **Descarga los resultados** si necesitas analizarlos o incorporarlos a un informe."
+    )
+    st.caption("La pestaña veredal informa qué datos faltan para una desagregación válida; no reparte automáticamente los valores municipales entre veredas.")
 df["resultado_mostrar"] = df["resultado_calculado_pct"].map(lambda x: round(float(x), 2) if pd.notna(x) else None)
 df["estado_meta"] = df["estado_meta"].fillna("SIN DATOS")
 
