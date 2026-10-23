@@ -443,7 +443,8 @@ with st.sidebar:
 modo_presentacion = False
 st.markdown("<div class='sigo-hero'><div class='sigo-kicker'>Sistema de información territorial · versión en preparación</div><div class='sigo-title'>SIGOber-Rural</div><div class='sigo-subtitle'>Una lectura integrada de la gobernabilidad rural de Puerto Rico, Caquetá: territorio, situaciones documentadas, ordenamiento y capacidades institucionales.</div></div>",unsafe_allow_html=True)
 
-st.markdown("### Explora los módulos")
+st.markdown("### ¿Por dónde empezar?")
+st.caption("Elige una de las consultas del mapa. No necesitas activar capas para empezar; los filtros y las fuentes adicionales están disponibles solo si los necesitas.")
 nav1, nav2, nav3 = st.columns(3, gap="medium")
 with nav1:
     st.markdown("<div class='sigo-nav-card'><div class='sigo-nav-title'>🗺️ Ordenamiento territorial</div><div class='sigo-nav-desc'>Consulta capas de formulación del PBOT 2015, manteniendo su fecha y procedencia.</div></div>", unsafe_allow_html=True)
@@ -599,13 +600,26 @@ def render_mapa_interactivo():
             st.markdown("**Vista de ordenamiento territorial**")
             st.write("Selecciona una capa PBOT 2015 para consultar sus geometrías y atributos. La superposición espacial orienta la consulta, pero no demuestra por sí sola relaciones causales.")
         m1, m2, m3 = st.columns(3)
-        m1.metric("Registros en la consulta", len(eventos_f))
-        m2.metric("Veredas con registros", eventos_f["codigo_ver_resuelto"].nunique() if not eventos_f.empty and "codigo_ver_resuelto" in eventos_f.columns else 0)
-        if codigo_sel and not eventos_f.empty and "codigo_ver_resuelto" in eventos_f.columns:
-            n_vereda = int(eventos_f["codigo_ver_resuelto"].astype(str).str.strip().eq(codigo_sel).sum())
+        total_veredas = len(topo.get("objects", {}).get("Veredas", {}).get("geometries", []))
+        if vista == "Veredas y territorio":
+            m1.metric("Veredas en el mapa", total_veredas)
+            m2.metric("Selección", "Una vereda" if codigo_sel else "Municipio")
+            m3.metric("Fuente territorial", "Cargada" if total_veredas else "No disponible")
+        elif vista == "Ordenamiento PBOT 2015":
+            m1.metric("Capas PBOT disponibles", len(pbot_opciones))
+            m2.metric("Capa seleccionada", "Sí" if pbot_seleccionada else "Pendiente")
+            m3.metric("Vereda resaltada", "Sí" if codigo_sel else "No")
         else:
-            n_vereda = 0 if not codigo_sel else "—"
-        m3.metric("Registros de la vereda", n_vereda if codigo_sel else "Todas")
+            veredas_con_registros = eventos_f["codigo_ver_resuelto"].nunique() if not eventos_f.empty and "codigo_ver_resuelto" in eventos_f.columns else 0
+            if codigo_sel and not eventos_f.empty and "codigo_ver_resuelto" in eventos_f.columns:
+                registros_vereda = int(eventos_f["codigo_ver_resuelto"].astype(str).str.strip().eq(codigo_sel).sum())
+            else:
+                registros_vereda = len(eventos_f)
+            m1.metric("Registros en la consulta", len(eventos_f))
+            m2.metric("Veredas con registros", veredas_con_registros)
+            m3.metric("Registros de la selección", registros_vereda if codigo_sel else "Todas")
+            if eventos_f.empty:
+                st.info("No hay registros en esta consulta con los filtros actuales. Esto no demuestra ausencia de situaciones en el territorio.")
 
     conflictos = normalizar_conflictos(gd["Conflictos"]) if isinstance(gd.get("Conflictos"), pd.DataFrame) else pd.DataFrame()
     capas_pbot = (pbot_seleccionada,) if vista == "Ordenamiento PBOT 2015" and pbot_seleccionada else ()
