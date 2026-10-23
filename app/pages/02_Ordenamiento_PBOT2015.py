@@ -8,6 +8,18 @@ import streamlit as st
 from streamlit_folium import st_folium
 
 st.set_page_config(page_title="PBOT 2015 — SIGOber-Rural", page_icon="🗺️", layout="wide")
+
+
+with st.sidebar:
+    st.markdown("### SIGOber-Rural")
+    st.caption("Sistema de información territorial")
+    st.divider()
+    st.markdown("**Espacios de trabajo**")
+    st.page_link("main.py", label="Ingesta y gestión de datos", icon="📥")
+    st.page_link("pages/01_Exploracion.py", label="Exploración de resultados", icon="🗺️")
+    st.divider()
+    st.caption("Puerto Rico · Caquetá")
+    st.caption("Versión 1.0 en preparación")
 BASE_DIR = Path(__file__).resolve().parents[2]
 DATA_DIR = BASE_DIR / "data" / "PBOT2015"
 
