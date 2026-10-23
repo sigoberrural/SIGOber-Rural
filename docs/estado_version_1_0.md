@@ -7,6 +7,9 @@
 ## Cambios de interfaz incorporados
 
 - Portada con identidad visual consistente y enlaces directos a PBOT 2015, cartografía social e indicadores SADCI.
+- Página PBOT 2015 con inventario de capas, conteo de geometrías y manejo aislado de archivos ausentes o corruptos.
+- Página de cartografía social con revisión por filas, filtro de errores, resumen por categoría y descargas separadas de revisión completa y pendientes.
+- Flujo de CI ampliado para ejecutar todas las pruebas unitarias del repositorio.
 - Contexto territorial visible: Puerto Rico, Caquetá; enfoque de gobernabilidad rural.
 - Métricas con ayudas contextuales para distinguir conteos observados de ausencia de datos.
 - Diagnóstico de disponibilidad de las hojas institucionales con detalle por fuente y opción de actualización.
@@ -26,7 +29,7 @@
 | Indicadores SADCI | Catálogo, cálculos, fichas y exportación | Validación institucional de valores, metas, fuentes y semáforos |
 | Escala veredal SADCI | Control de disponibilidad y plantilla | Activar solo cuando existan observaciones válidas territorializadas |
 | Captura offline | Formulario descargable | Verificar sincronización; no anunciar sincronización operativa hasta probarla |
-| Pruebas automáticas | Workflow de sintaxis y pruebas SADCI | Esperar resultado exitoso de CI y añadir pruebas de los flujos críticos |
+| Pruebas automáticas | Sintaxis y pruebas unitarias del repositorio ejecutadas correctamente en CI para el commit de interfaz actual | Mantener pruebas y añadir cobertura de flujos críticos |
 
 ## Reglas de calidad y publicación
 
@@ -52,7 +55,7 @@
 - [ ] La importación CSV de cartografía social valida casos correctos e incorrectos.
 - [ ] El tablero SADCI permite filtrar y descargar resultados.
 - [ ] La aplicación mantiene avisos sobre procedencia, calidad y limitaciones de los datos.
-- [ ] GitHub Actions finaliza en verde.
+- [x] GitHub Actions finaliza en verde para los cambios actuales de interfaz y las pruebas unitarias.
 - [ ] Se confirma que todos los cambios siguen en `Develope` y `main` no fue modificado.
 
 ## Siguiente prioridad técnica
