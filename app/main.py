@@ -411,10 +411,43 @@ def panel_interpretacion_ia(historicos,codigo_sel,dimension,pbot_seleccionadas,s
         st.markdown(resultado["texto"])
         st.caption("Fuentes utilizadas: situaciones territoriales locales, capas PBOT seleccionadas y/o indicadores SADCI disponibles. La interpretación no agrega hechos que no estén presentes en las fuentes.")
 
-st.markdown("""<style>.sigo-hero{padding:.2rem 0 .6rem}.sigo-kicker{font-size:.72rem;font-weight:750;letter-spacing:.14em;text-transform:uppercase;opacity:.62}.sigo-title{font-size:2.25rem;font-weight:820;line-height:1.04;margin:.1rem 0 .25rem}.sigo-subtitle{font-size:.96rem;opacity:.72;max-width:920px}.sigo-section{margin-top:.55rem;margin-bottom:.15rem;font-size:1.1rem;font-weight:760}.sigo-note{padding:.75rem 1rem;border-radius:.75rem;border:1px solid rgba(128,128,128,.2);background:rgba(128,128,128,.045)}.gigapp-card{padding:.35rem .5rem;border:1px solid rgba(128,128,128,.18);border-radius:.55rem;background:rgba(128,128,128,.025);margin-bottom:.3rem}.gigapp-card h4{margin:0;font-size:.86rem}.gigapp-q{font-size:.72rem;opacity:.62}.gigapp-card p{margin:.12rem 0 0;font-size:.74rem;opacity:.7}.gigapp-caption{font-size:.82rem;opacity:.72;text-align:center;margin:.1rem auto .6rem;max-width:680px}div[data-testid="stMetric"]{padding:.4rem .65rem;border:1px solid rgba(128,128,128,.17);border-radius:.62rem;background:rgba(128,128,128,.03)}</style>""",unsafe_allow_html=True)
+st.markdown("""<style>
+.sigo-hero{padding:1.05rem 1.25rem 1.15rem;border:1px solid rgba(128,128,128,.22);border-radius:1.05rem;background:linear-gradient(118deg,rgba(31,91,75,.13),rgba(91,128,108,.025));margin:.2rem 0 1rem}
+.sigo-kicker{font-size:.72rem;font-weight:760;letter-spacing:.14em;text-transform:uppercase;opacity:.65}
+.sigo-title{font-size:2.45rem;font-weight:830;line-height:1.04;margin:.18rem 0 .4rem}
+.sigo-subtitle{font-size:1rem;opacity:.78;max-width:920px}
+.sigo-section{margin-top:.75rem;margin-bottom:.25rem;font-size:1.12rem;font-weight:760}
+.sigo-note{padding:.8rem 1rem;border-radius:.8rem;border:1px solid rgba(128,128,128,.2);background:rgba(128,128,128,.045)}
+.sigo-nav-card{padding:.8rem .9rem;border:1px solid rgba(128,128,128,.2);border-radius:.8rem;background:rgba(128,128,128,.025);min-height:94px}
+.sigo-nav-title{font-weight:750;font-size:1rem;margin-bottom:.2rem}
+.sigo-nav-desc{font-size:.82rem;opacity:.72}
+.gigapp-card{padding:.35rem .5rem;border:1px solid rgba(128,128,128,.18);border-radius:.55rem;background:rgba(128,128,128,.025);margin-bottom:.3rem}
+.gigapp-card h4{margin:0;font-size:.86rem}.gigapp-q{font-size:.72rem;opacity:.62}
+.gigapp-card p{margin:.12rem 0 0;font-size:.74rem;opacity:.7}
+.gigapp-caption{font-size:.82rem;opacity:.72;text-align:center;margin:.1rem auto .6rem;max-width:680px}
+div[data-testid="stMetric"]{padding:.55rem .7rem;border:1px solid rgba(128,128,128,.17);border-radius:.72rem;background:rgba(128,128,128,.03)}
+div[data-testid="stMetricLabel"]{font-size:.83rem}
+</style>""",unsafe_allow_html=True)
 with st.sidebar:
-    st.markdown("### SIGOber-Rural"); modo_presentacion=st.toggle("Modo exploración 2026",value=False,help="Presentación narrativa alrededor del territorio."); st.divider(); st.caption("Develope · prototipo de trabajo")
-st.markdown("<div class='sigo-hero'><div class='sigo-kicker'>Sistema de información territorial</div><div class='sigo-title'>SIGOber-Rural</div><div class='sigo-subtitle'>Una lectura territorial de la gobernabilidad rural · Puerto Rico, Caquetá</div></div>",unsafe_allow_html=True)
+    st.markdown("### SIGOber-Rural")
+    modo_presentacion=st.toggle("Modo exploración 2026",value=False,help="Presentación narrativa alrededor del territorio.")
+    st.divider()
+    st.caption("Puerto Rico · Caquetá")
+    st.caption("Rama de desarrollo: Develope")
+st.markdown("<div class='sigo-hero'><div class='sigo-kicker'>Sistema de información territorial · versión en preparación</div><div class='sigo-title'>SIGOber-Rural</div><div class='sigo-subtitle'>Una lectura integrada de la gobernabilidad rural de Puerto Rico, Caquetá: territorio, situaciones documentadas, ordenamiento y capacidades institucionales.</div></div>",unsafe_allow_html=True)
+
+st.markdown("### Explora los módulos")
+nav1, nav2, nav3 = st.columns(3, gap="medium")
+with nav1:
+    st.markdown("<div class='sigo-nav-card'><div class='sigo-nav-title'>🗺️ Ordenamiento territorial</div><div class='sigo-nav-desc'>Consulta capas de formulación del PBOT 2015, manteniendo su fecha y procedencia.</div></div>", unsafe_allow_html=True)
+    st.page_link("pages/02_Ordenamiento_PBOT2015.py", label="Abrir PBOT 2015", icon="🧭")
+with nav2:
+    st.markdown("<div class='sigo-nav-card'><div class='sigo-nav-title'>🧩 Cartografía social</div><div class='sigo-nav-desc'>Importa registros participativos y revisa su calidad técnica antes de validarlos.</div></div>", unsafe_allow_html=True)
+    st.page_link("pages/03_Cartografia_Social.py", label="Abrir cartografía social", icon="📍")
+with nav3:
+    st.markdown("<div class='sigo-nav-card'><div class='sigo-nav-title'>📊 Indicadores SADCI</div><div class='sigo-nav-desc'>Explora metas, resultados reproducidos, fichas metodológicas y disponibilidad veredal.</div></div>", unsafe_allow_html=True)
+    st.page_link("pages/04_Indicadores_SADCI.py", label="Abrir indicadores SADCI", icon="📈")
+st.caption("La vista principal está dedicada a la exploración territorial. Los datos se muestran según su fuente y disponibilidad; no se completan vacíos mediante estimaciones no documentadas.")
 
 with st.expander("📡 Captura territorial offline", expanded=False):
     st.markdown("**Capture evidencia directamente en el territorio, incluso con conectividad limitada.**")
@@ -425,7 +458,17 @@ with st.expander("📡 Captura territorial offline", expanded=False):
             st.download_button("⬇️ Descargar formulario de captura offline",data=f.read(),file_name="captura_offline.html",mime="text/html",use_container_width=True)
     else:
         st.caption("Formulario de captura no disponible.")
-topo=cargar_veredas_topo(); historicos=cargar_eventos_locales()
+try:
+    topo=cargar_veredas_topo()
+except (OSError, ValueError, RuntimeError, KeyError) as exc:
+    st.error("No fue posible cargar la cartografía base de veredas.")
+    st.caption("La exploración del mapa necesita un TopoJSON válido con el objeto Veredas.")
+    with st.expander("Detalle técnico"):
+        st.code(str(exc))
+    st.stop()
+historicos=cargar_eventos_locales()
+if historicos is None:
+    historicos=pd.DataFrame()
 if "google_data" not in st.session_state:
     with st.spinner("Conectando con las fuentes territoriales…"): st.session_state["google_data"]=leer_google_sheets()
 gd=st.session_state["google_data"]
@@ -435,8 +478,30 @@ if not modo_presentacion:
     mostrar_indicadores_sadci(gd.get("SADCI"))
     st.markdown("<div class='sigo-note'><b>Lectura de gobernabilidad:</b> SIGOber-Rural organiza el territorio alrededor de situaciones, ordenamiento y conocimiento comunitario, manteniendo actores y capacidades como información institucional separada.</div>",unsafe_allow_html=True)
     with st.expander("🔧 Diagnóstico de fuentes y rendimiento"):
-        cfg=config_gsheets(); sid=spreadsheet_id_desde_config(cfg); st.write({"Cartografía":"Disponible" if topo else "No disponible","Eventos territoriales":f"{len(historicos)} registros","Google Sheets":"Conectado" if isinstance(gd,dict) else "No disponible","spreadsheet_id":(sid[:6]+"…"+sid[-4:]) if sid else "No configurado"})
-        if st.button("Actualizar fuentes",key="actualizar_fuentes"): leer_google_hoja.clear(); cargar_eventos_locales.clear(); cargar_veredas_topo.clear(); st.session_state["google_data"]=leer_google_sheets(); st.rerun()
+        cfg=config_gsheets()
+        sid=spreadsheet_id_desde_config(cfg)
+        hojas=("Conflictos","Actores","SADCI","Relación Interinstitucional")
+        hojas_ok=[nombre for nombre in hojas if isinstance(gd.get(nombre),pd.DataFrame)]
+        st.write({
+            "Cartografía base":"Disponible",
+            "Eventos territoriales":f"{len(historicos)} registros",
+            "Hojas institucionales disponibles":f"{len(hojas_ok)} de {len(hojas)}",
+            "Identificador de hoja":(sid[:6]+"…"+sid[-4:]) if sid else "No configurado",
+        })
+        for nombre in hojas:
+            valor=gd.get(nombre)
+            if isinstance(valor,pd.DataFrame):
+                st.success(f"{nombre}: disponible ({len(valor)} registros)")
+            else:
+                st.warning(f"{nombre}: no disponible en esta sesión")
+                if isinstance(valor,Exception):
+                    st.caption(f"Detalle: {type(valor).__name__}: {valor}")
+        if st.button("Actualizar fuentes",key="actualizar_fuentes"):
+            leer_google_hoja.clear()
+            cargar_eventos_locales.clear()
+            cargar_veredas_topo.clear()
+            st.session_state["google_data"]=leer_google_sheets()
+            st.rerun()
 else:
     mostrar_indicadores_sadci(gd.get("SADCI"))
 veredas_df=propiedades_veredas(topo); nombres=veredas_df[["CODIGO_VER","NOMBRE_VER"]].drop_duplicates().copy(); nombres["etiqueta"]=nombres["NOMBRE_VER"].astype(str)+" — "+nombres["CODIGO_VER"].astype(str); opciones=["Todas las veredas"]+sorted(nombres["etiqueta"].tolist())
