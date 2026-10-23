@@ -6,13 +6,14 @@ Sistema de Información Geográfica y Gobernanza Rural para el municipio de Puer
 
 SIGOber-Rural integra exploración cartográfica, situaciones territoriales, referencias de ordenamiento y herramientas de lectura institucional para apoyar el análisis de la gobernanza rural. Los datos deben interpretarse según su procedencia, fecha, cobertura y nivel territorial; la visualización no implica por sí sola validación oficial ni causalidad.
 
-## Módulos principales
+## Espacios principales de trabajo
 
-- **Territorio:** exploración del municipio y sus veredas.
-- **Situaciones territoriales:** consulta de registros disponibles y sus atributos.
-- **Ordenamiento PBOT 2015:** visualización separada de capas asociadas al instrumento de 2015, sin presentarlo como una actualización del PBOT.
-- **Cartografía social:** gestión de registros participativos y estado de validación.
-- **Indicadores SADCI:** tablero de diez indicadores, evaluación de metas, fichas metodológicas, exportación CSV/JSON y control de disponibilidad para análisis veredal.
+La interfaz se organiza en solo dos alternativas en el menú izquierdo:
+
+- **Ingesta y gestión de datos:** carga temporal de CSV, Excel, JSON y GeoJSON, vista previa, retirada de archivos de la sesión y acceso a la revisión técnica de cartografía social.
+- **Exploración de resultados:** mapa territorial guiado y accesos a las consultas especializadas de PBOT 2015 e indicadores SADCI.
+
+Los archivos cargados en el espacio de ingesta se mantienen en la sesión de la aplicación. Retirarlos desde allí no borra fuentes persistentes como archivos del repositorio o Google Sheets. La revisión de cartografía social tampoco sincroniza automáticamente los cambios.
 
 ## Requisitos y ejecución local
 
