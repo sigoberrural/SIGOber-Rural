@@ -17,6 +17,18 @@ if str(PROJECT_ROOT) not in sys.path:
 from app.sadci import cargar_catalogo, evaluar_catalogo
 
 st.set_page_config(page_title="SADCI · SIGOber-Rural", page_icon="📊", layout="wide")
+
+
+with st.sidebar:
+    st.markdown("### SIGOber-Rural")
+    st.caption("Sistema de información territorial")
+    st.divider()
+    st.markdown("**Espacios de trabajo**")
+    st.page_link("main.py", label="Ingesta y gestión de datos", icon="📥")
+    st.page_link("pages/01_Exploracion.py", label="Exploración de resultados", icon="🗺️")
+    st.divider()
+    st.caption("Puerto Rico · Caquetá")
+    st.caption("Versión 1.0 en preparación")
 st.markdown("""
 <style>
 .sadci-hero{padding:1.2rem 1.3rem;border:1px solid rgba(128,128,128,.22);border-radius:1rem;background:linear-gradient(115deg,rgba(31,91,75,.12),rgba(91,128,108,.025));margin:.2rem 0 1rem}
