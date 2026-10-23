@@ -38,7 +38,7 @@ streamlit run app/pages/04_Indicadores_SADCI.py
 
 Algunas fuentes externas, como las hojas de cálculo conectadas, requieren secretos y permisos configurados en el entorno de ejecución. Si la conexión no está disponible, no debe interpretarse la ausencia de datos como ausencia del fenómeno.
 
-El catálogo SADCI se mantiene en `data/indicadores_sadci.json`; su lógica de cálculo, en `app/sadci.py`; su interfaz, en `app/pages/04_Indicadores_SADCI.py`. La guía de uso y los criterios pendientes están en `docs/guia_uso_indicadores_sadci_v1.md` y `docs/validacion_indicadores_sadci.md`.
+El catálogo SADCI se mantiene en `data/indicadores_sadci.json`; su lógica de cálculo, en `app/sadci.py`; su interfaz, en `app/pages/04_Indicadores_SADCI.py`. La guía de uso y los criterios pendientes están en `docs/guia_uso_indicadores_sadci_v1.md` y `docs/validacion_indicadores_sadci.md`. El estado de preparación y la lista de aceptación de la versión 1.0 están en `docs/estado_version_1_0.md`.
 
 ## Validación y límites
 
