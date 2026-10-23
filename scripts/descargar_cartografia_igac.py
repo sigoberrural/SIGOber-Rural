@@ -95,7 +95,7 @@ def consultar_capa(layer_id: int) -> tuple[list[dict], dict]:
             properties["_igac_layer_name"] = NOMBRES_CAPA.get(layer_id, str(layer_id))
         acumuladas.extend(features)
         print(f"  Capa {layer_id} ({NOMBRES_CAPA.get(layer_id, 'sin nombre')}): {len(acumuladas)} entidades", flush=True)
-        if not features or len(features) < TAMANO_PAGINA or not pagina.get("exceededTransferLimit", False):
+        if not features or len(features) < TAMANO_PAGINA:
             break
         offset += len(features)
         time.sleep(0.15)
