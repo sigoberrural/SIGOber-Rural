@@ -72,6 +72,9 @@ else:
             with right:
                 if st.button("Retirar", key=f"remove_upload_{idx}", use_container_width=True):
                     del st.session_state.sigo_uploads[file_id]
+                    # Cambiar la clave limpia el widget y evita que el archivo
+                    # recién retirado vuelva a importarse en el siguiente rerun.
+                    st.session_state.sigo_upload_widget_version += 1
                     st.rerun()
 
             try:
