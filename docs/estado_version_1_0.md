@@ -7,6 +7,9 @@
 ## Cambios de interfaz incorporados
 
 - Portada con identidad visual consistente y enlaces directos a PBOT 2015, cartografía social e indicadores SADCI.
+- Consulta cartográfica guiada por tarea (territorio, situaciones documentadas o PBOT), sin selector de modo de exploración.
+- Métricas contextuales que cambian según la vista elegida, para evitar mezclar conteos de situaciones con la consulta de límites o de ordenamiento.
+- Guías de inicio rápido para el tablero SADCI y el flujo de revisión de cartografía social.
 - Página PBOT 2015 con inventario de capas, conteo de geometrías y manejo aislado de archivos ausentes o corruptos.
 - Página de cartografía social con revisión por filas, filtro de errores, resumen por categoría y descargas separadas de revisión completa y pendientes.
 - Flujo de CI ampliado para ejecutar todas las pruebas unitarias del repositorio.
