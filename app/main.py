@@ -214,7 +214,7 @@ def construir_mapa(topo,eventos_historicos,conflictos=None,codigo_seleccionado="
         return {"fillColor":"#eeeeee","color":"#111111" if sel else "#555555","weight":2.8 if sel else .8,"fillOpacity":.22}
     folium.TopoJson(data=topo,object_path="objects.Veredas",name="Veredas",style_function=estilo_territorio,tooltip=folium.GeoJsonTooltip(fields=["NOMBRE_VER","CODIGO_VER","AREA_HA","FUENTE"],aliases=["Vereda","Código","Área (ha)","Fuente cartográfica"],localize=True,sticky=True,labels=True,style="background-color:white;color:#222;font-family:Arial;font-size:12px;padding:8px;"),show=True).add_to(grupo_territorio)
     grupo_territorio.add_to(m)
-    grupo_situaciones=folium.FeatureGroup(name="Situaciones por vereda — capa temática",show=False)
+    grupo_situaciones=folium.FeatureGroup(name="Situaciones por vereda — capa temática",show=(perspectiva=="Situaciones"))
     def estilo_situaciones(feature):
         p=feature.get("properties",{}); codigo=str(p.get("CODIGO_VER","")).strip(); n=int(conteo.get(codigo,0)); sel=bool(codigo) and codigo==str(codigo_seleccionado).strip()
         fill="#d73027" if n>=2 else ("#fc8d59" if n==1 else "#eeeeee"); opacity=.72 if n else .10
@@ -222,7 +222,7 @@ def construir_mapa(topo,eventos_historicos,conflictos=None,codigo_seleccionado="
     folium.TopoJson(data=topo_mapa,object_path="objects.Veredas",name="Situaciones documentadas por vereda",style_function=estilo_situaciones,tooltip=folium.GeoJsonTooltip(fields=["NOMBRE_VER","CODIGO_VER","SIGOber_situaciones","SIGOber_anios","SIGOber_tipos","SIGOber_confianza"],aliases=["Vereda","Código","Situaciones documentadas","Años","Tipos de situación","Confianza"],localize=True,sticky=True,labels=True,style="background-color:white;color:#222;font-family:Arial;font-size:12px;padding:8px;"),show=True).add_to(grupo_situaciones)
     grupo_situaciones.add_to(m)
     if mostrar_conflictos and conflictos is not None and not conflictos.empty:
-        validos=conflictos.loc[conflictos["precision_coordenada"].eq("VALIDA")]; grupo=folium.FeatureGroup(name="Conflictos — Google Sheets",show=True)
+        validos=conflictos.loc[conflictos["precision_coordenada"].eq("VALIDA")]; grupo=folium.FeatureGroup(name="Conflictos — Google Sheets",show=(perspectiva=="Situaciones"))
         for row in validos.itertuples(index=False):
             data=row._asdict(); folium.CircleMarker(location=[float(data["lat_num"]),float(data["lon_num"])],radius=7,weight=2,fill=True,fill_opacity=.85,tooltip=f"{data.get('tipo_conflicto','Situación')} — {data.get('vereda','')}",popup=folium.Popup(popup_conflicto(data),max_width=340)).add_to(grupo)
         grupo.add_to(m)
@@ -430,10 +430,17 @@ div[data-testid="stMetricLabel"]{font-size:.83rem}
 </style>""",unsafe_allow_html=True)
 with st.sidebar:
     st.markdown("### SIGOber-Rural")
-    modo_presentacion=st.toggle("Modo exploración 2026",value=False,help="Presentación narrativa alrededor del territorio.")
+    st.caption("Sistema de información territorial")
+    st.divider()
+    st.markdown("**Acceso rápido**")
+    st.page_link("app/main.py", label="Mapa territorial", icon="🗺️")
+    st.page_link("pages/02_Ordenamiento_PBOT2015.py", label="Ordenamiento PBOT", icon="🧭")
+    st.page_link("pages/03_Cartografia_Social.py", label="Cartografía social", icon="📍")
+    st.page_link("pages/04_Indicadores_SADCI.py", label="Indicadores SADCI", icon="📊")
     st.divider()
     st.caption("Puerto Rico · Caquetá")
-    st.caption("Rama de desarrollo: Develope")
+    st.caption("Versión 1.0 en preparación")
+modo_presentacion = False
 st.markdown("<div class='sigo-hero'><div class='sigo-kicker'>Sistema de información territorial · versión en preparación</div><div class='sigo-title'>SIGOber-Rural</div><div class='sigo-subtitle'>Una lectura integrada de la gobernabilidad rural de Puerto Rico, Caquetá: territorio, situaciones documentadas, ordenamiento y capacidades institucionales.</div></div>",unsafe_allow_html=True)
 
 st.markdown("### Explora los módulos")
@@ -510,55 +517,113 @@ else:
     mostrar_indicadores_sadci(gd.get("SADCI"))
 veredas_df=propiedades_veredas(topo); nombres=veredas_df[["CODIGO_VER","NOMBRE_VER"]].drop_duplicates().copy(); nombres["etiqueta"]=nombres["NOMBRE_VER"].astype(str)+" — "+nombres["CODIGO_VER"].astype(str); opciones=["Todas las veredas"]+sorted(nombres["etiqueta"].tolist())
 
-@st.fragment
 def render_mapa_interactivo():
-    if modo_presentacion:
-        if "gigapp_dimension" not in st.session_state or st.session_state["gigapp_dimension"] not in GIGAPP_DIMENSIONES: st.session_state["gigapp_dimension"]="Territorio"
-        left,center,right=st.columns([1.0,4.8,1.8],gap="medium")
-        with left:
-            st.markdown("### Selección")
-            st.caption("Partes y secciones")
-            dimension=st.selectbox("Perspectiva",list(GIGAPP_DIMENSIONES.keys()),index=list(GIGAPP_DIMENSIONES.keys()).index(st.session_state["gigapp_dimension"]),label_visibility="collapsed")
-            st.session_state["gigapp_dimension"]=dimension
-            st.caption(GIGAPP_DIMENSIONES[dimension]["pregunta"])
-            st.divider()
-            st.markdown("**Vereda**")
-            seleccion=st.selectbox("Vereda",opciones,label_visibility="collapsed")
-            codigo_sel="" if seleccion=="Todas las veredas" else seleccion.split(" — ")[-1]
-            st.caption("La selección resalta la vereda en el mapa; la capa temática conserva el conjunto de registros disponible.")
-            st.divider()
-            st.markdown("**Capas PBOT 2015**")
-            cartografia_oficial_seleccionada=st.multiselect("Cartografía oficial remota",options=list(CARTOGRAFIA_OFICIAL.keys()),default=[],key="cartografia_oficial_presentacion",help="Servicios remotos IGAC/UPRA; requieren conectividad y WMS disponible.")
-            cartografia_local_disponible=nombres_cartografia_local_disponible(); cartografia_local_seleccionada=st.multiselect("Cartografía IGAC descargada (local)",options=cartografia_local_disponible,default=[],key="cartografia_local_presentacion",help="Solo aparecen archivos GeoJSON locales que existen en data/cartografia_oficial/igac/.")
-            if not cartografia_local_disponible: st.caption("Aún no hay capas IGAC locales. Consulta docs/descarga_cartografia_igac.md para descargarlas.")
-            pbot_opciones={archivo:titulo for archivo,titulo,_,_ in cargar_pbot_capas()}
-            pbot_seleccionadas=st.multiselect("Capas",options=list(pbot_opciones.keys()),format_func=lambda x:pbot_opciones[x],default=[],label_visibility="collapsed",help="Seleccione una o varias capas PBOT. Cada una queda disponible individualmente en el control del mapa.")
-        with center:
-            conflictos=normalizar_conflictos(gd["Conflictos"]) if isinstance(gd.get("Conflictos"),pd.DataFrame) else pd.DataFrame()
-            mapa,segundos_mapa=construir_mapa(topo,historicos,conflictos,codigo_sel,True,tuple(pbot_seleccionadas),perspectiva="Territorio",cartografia_oficial_seleccionada=tuple(cartografia_oficial_seleccionada),cartografia_local_seleccionada=tuple(cartografia_local_seleccionada))
-            st_folium(mapa,width="100%",height=720,returned_objects=["last_active_drawing"])
-        with right:
-            with st.container(height=500,border=True):
-                panel_interpretacion_ia(historicos,codigo_sel,dimension,tuple(pbot_seleccionadas),gd.get("SADCI"))
-    else:
-        st.markdown("<div class='sigo-section'>Explorar territorio</div>",unsafe_allow_html=True); st.caption("Seleccione una vereda y, si lo necesita, filtre las situaciones documentadas. Las capas PBOT se mantienen opcionales para conservar fluidez."); seleccion=st.selectbox("Vereda",opciones,label_visibility="collapsed"); codigo_sel="" if seleccion=="Todas las veredas" else seleccion.split(" — ")[-1]; st.caption("La selección resalta la vereda; los filtros de año, tipo y confianza sí restringen los registros usados para la capa temática."); f1,f2,f3,f4=st.columns(4); eventos_f=historicos.copy()
-        if not eventos_f.empty:
-            anios=sorted([x for x in eventos_f.get("anio",pd.Series(dtype=str)).astype(str).unique() if x],reverse=True); ys=f1.multiselect("Año",anios,default=[]); tipos=sorted([x for x in eventos_f.get("tipo_conflicto",pd.Series(dtype=str)).astype(str).unique() if x]); ts=f2.multiselect("Tipo de situación",tipos,default=[]); confs=sorted([x for x in eventos_f.get("confianza",pd.Series(dtype=str)).astype(str).unique() if x]); cs=f3.multiselect("Confianza",confs,default=[])
-            if ys: eventos_f=eventos_f[eventos_f["anio"].astype(str).isin(ys)]
-            if ts: eventos_f=eventos_f[eventos_f["tipo_conflicto"].astype(str).isin(ts)]
-            if cs: eventos_f=eventos_f[eventos_f["confianza"].astype(str).isin(cs)]
-        mostrar=f4.checkbox("Mostrar conflictos de Sheets",value=True); pbot_opciones={archivo:titulo for archivo,titulo,_,_ in cargar_pbot_capas()}; pbot_seleccionadas=st.multiselect("Capas PBOT 2015 (opcional)",options=list(pbot_opciones.keys()),format_func=lambda x:pbot_opciones[x],default=[],help="Las capas PBOT no se cargan al navegador hasta que se seleccionan."); cartografia_oficial_seleccionada=st.multiselect("Cartografía oficial remota (opcional)",options=list(CARTOGRAFIA_OFICIAL.keys()),default=[],key="cartografia_oficial_exploracion",help="Servicios remotos IGAC/UPRA; requieren conectividad y WMS disponible."); cartografia_local_disponible=nombres_cartografia_local_disponible(); cartografia_local_seleccionada=st.multiselect("Cartografía IGAC descargada (local)",options=cartografia_local_disponible,default=[],key="cartografia_local_exploracion",help="Solo aparecen archivos GeoJSON locales que existen en data/cartografia_oficial/igac/.");
-        if not cartografia_local_disponible: st.caption("Aún no hay capas IGAC locales. Consulta docs/descarga_cartografia_igac.md para descargarlas.")
-        st.caption("Capa histórica: SITUACIONES_TERRITORIALES. Puntos: registros operativos de la hoja Conflictos. Las fuentes se mantienen separadas.")
-        with st.expander("Diagnóstico de servicios cartográficos oficiales"):
-            st.caption("Prueba metadatos y una imagen/tesela real desde el entorno donde se ejecuta SIGOber-Rural.")
-            if st.button("Probar cada servicio cartográfico", key="comprobar_wms_oficial"):
-                for nombre, config in CARTOGRAFIA_OFICIAL.items():
-                    resultado = comprobar_servicio_cartografico(config)
-                    st.markdown("**" + nombre + "**")
-                    st.write({"metadatos": resultado["metadatos"], "imagen/tesela": resultado["imagen"], "detalle": resultado["detalle"]})
+    st.markdown("<div class='sigo-section'>Mapa territorial</div>", unsafe_allow_html=True)
+    st.write("Empieza por elegir una consulta. Puedes usar el mapa sin configurar capas.")
+    vista = st.radio(
+        "¿Qué quieres consultar?",
+        ["Veredas y territorio", "Situaciones documentadas", "Ordenamiento PBOT 2015"],
+        horizontal=True,
+        key="vista_principal_mapa",
+        help="Cada opción prepara el mapa para una tarea habitual.",
+    )
 
-        st.caption("Ordenamiento Territorial — cartografía de formulación PBOT 2015. No implica actualización al PBOT 2023."); conflictos=normalizar_conflictos(gd["Conflictos"]) if isinstance(gd.get("Conflictos"),pd.DataFrame) else pd.DataFrame(); mapa,segundos_mapa=construir_mapa(topo,eventos_f,conflictos,codigo_sel,mostrar,tuple(pbot_seleccionadas),perspectiva="Territorio",cartografia_oficial_seleccionada=tuple(cartografia_oficial_seleccionada),cartografia_local_seleccionada=tuple(cartografia_local_seleccionada)); st.caption(f"Generación del mapa en servidor: {segundos_mapa:.2f} s"); st_folium(mapa,width="100%",height=650,returned_objects=["last_active_drawing"])
+    controles, detalle = st.columns([1.25, 2.75], gap="medium")
+    with controles:
+        seleccion = st.selectbox("Vereda", opciones, index=0, key="vereda_principal")
+        codigo_sel = "" if seleccion == "Todas las veredas" else seleccion.split(" — ")[-1]
+        st.caption("Elige una vereda para resaltarla en el mapa. También puedes dejar todas las veredas.")
+        pbot_opciones = {archivo: titulo for archivo, titulo, _, _ in cargar_pbot_capas()}
+        pbot_seleccionada = None
+        if vista == "Ordenamiento PBOT 2015":
+            opciones_pbot = {"": "Selecciona una capa…"}
+            opciones_pbot.update({archivo: titulo for archivo, titulo in pbot_opciones.items()})
+            pbot_seleccionada = st.selectbox(
+                "Capa de ordenamiento",
+                options=list(opciones_pbot.keys()),
+                format_func=lambda x: opciones_pbot[x],
+                key="pbot_principal",
+                help="Las capas disponibles corresponden al PBOT 2015; no representan una actualización del instrumento.",
+            )
+            if not pbot_opciones:
+                st.warning("No hay capas PBOT locales disponibles en esta versión.")
+        with st.expander("Afinar la consulta (opcional)", expanded=False):
+            eventos_f = historicos.copy()
+            if not eventos_f.empty:
+                anios = sorted([x for x in eventos_f.get("anio", pd.Series(dtype=str)).astype(str).unique() if x], reverse=True)
+                tipos = sorted([x for x in eventos_f.get("tipo_conflicto", pd.Series(dtype=str)).astype(str).unique() if x])
+                confs = sorted([x for x in eventos_f.get("confianza", pd.Series(dtype=str)).astype(str).unique() if x])
+                ys = st.multiselect("Año", anios, default=[], key="filtro_anio_principal")
+                ts = st.multiselect("Tipo de situación", tipos, default=[], key="filtro_tipo_principal")
+                cs = st.multiselect("Confianza del registro", confs, default=[], key="filtro_confianza_principal")
+                if ys and "anio" in eventos_f.columns:
+                    eventos_f = eventos_f[eventos_f["anio"].astype(str).isin(ys)]
+                if ts and "tipo_conflicto" in eventos_f.columns:
+                    eventos_f = eventos_f[eventos_f["tipo_conflicto"].astype(str).isin(ts)]
+                if cs and "confianza" in eventos_f.columns:
+                    eventos_f = eventos_f[eventos_f["confianza"].astype(str).isin(cs)]
+            else:
+                st.info("La fuente local de situaciones no contiene registros disponibles.")
+            mostrar_conflictos = st.checkbox(
+                "Mostrar puntos de la hoja institucional Conflictos",
+                value=True,
+                disabled=vista != "Situaciones documentadas",
+                help="Los puntos proceden de una fuente institucional separada del archivo histórico local.",
+                key="mostrar_puntos_conflictos",
+            )
+            st.caption("Las capas oficiales IGAC/UPRA dependen de conexión a internet.")
+            cartografia_oficial_seleccionada = st.multiselect(
+                "Capas oficiales remotas",
+                options=list(CARTOGRAFIA_OFICIAL.keys()),
+                default=[],
+                key="capas_remotas_principal",
+                help="Actívalas solo si necesitas información cartográfica adicional.",
+            )
+            cartografia_local_disponible = nombres_cartografia_local_disponible()
+            cartografia_local_seleccionada = st.multiselect(
+                "Capas IGAC descargadas",
+                options=cartografia_local_disponible,
+                default=[],
+                key="capas_locales_principal",
+                help="Solo aparecen archivos locales que existen en el repositorio.",
+            )
+
+    with detalle:
+        if vista == "Veredas y territorio":
+            st.markdown("**Vista del territorio**")
+            st.write("Consulta los límites y atributos de las veredas. Pasa el cursor sobre una vereda para ver su nombre, código, área y fuente cartográfica.")
+        elif vista == "Situaciones documentadas":
+            st.markdown("**Vista de situaciones registradas**")
+            st.write("El color de cada vereda resume los registros históricos enlazados a ella. Los puntos institucionales, cuando están disponibles, aparecen como una capa independiente.")
+        else:
+            st.markdown("**Vista de ordenamiento territorial**")
+            st.write("Selecciona una capa PBOT 2015 para consultar sus geometrías y atributos. La superposición espacial orienta la consulta, pero no demuestra por sí sola relaciones causales.")
+        m1, m2, m3 = st.columns(3)
+        m1.metric("Registros en la consulta", len(eventos_f))
+        m2.metric("Veredas con registros", eventos_f["codigo_ver_resuelto"].nunique() if not eventos_f.empty and "codigo_ver_resuelto" in eventos_f.columns else 0)
+        if codigo_sel and not eventos_f.empty and "codigo_ver_resuelto" in eventos_f.columns:
+            n_vereda = int(eventos_f["codigo_ver_resuelto"].astype(str).str.strip().eq(codigo_sel).sum())
+        else:
+            n_vereda = 0 if not codigo_sel else "—"
+        m3.metric("Registros de la vereda", n_vereda if codigo_sel else "Todas")
+
+    conflictos = normalizar_conflictos(gd["Conflictos"]) if isinstance(gd.get("Conflictos"), pd.DataFrame) else pd.DataFrame()
+    capas_pbot = (pbot_seleccionada,) if vista == "Ordenamiento PBOT 2015" and pbot_seleccionada else ()
+    perspectiva_mapa = "Situaciones" if vista == "Situaciones documentadas" else "Territorio"
+    mapa, segundos_mapa = construir_mapa(
+        topo,
+        eventos_f,
+        conflictos,
+        codigo_sel,
+        vista == "Situaciones documentadas" and mostrar_conflictos,
+        capas_pbot,
+        perspectiva=perspectiva_mapa,
+        cartografia_oficial_seleccionada=tuple(cartografia_oficial_seleccionada),
+        cartografia_local_seleccionada=tuple(cartografia_local_seleccionada),
+    )
+    st_folium(mapa, width="100%", height=650, returned_objects=["last_active_drawing"])
+    st.caption(f"Mapa generado en {segundos_mapa:.2f} s. Las capas de ordenamiento corresponden a PBOT 2015; los datos ausentes no se interpretan como ausencia del fenómeno.")
+
 render_mapa_interactivo()
 st.markdown("### Cómo leer el mapa")
 leyenda1,leyenda2,leyenda3=st.columns(3)
