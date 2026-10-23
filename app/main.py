@@ -439,19 +439,16 @@ with st.sidebar:
 modo_presentacion = False
 st.markdown("<div class='sigo-hero'><div class='sigo-kicker'>Sistema de información territorial · versión en preparación</div><div class='sigo-title'>SIGOber-Rural</div><div class='sigo-subtitle'>Una lectura integrada de la gobernabilidad rural de Puerto Rico, Caquetá: territorio, situaciones documentadas, ordenamiento y capacidades institucionales.</div></div>",unsafe_allow_html=True)
 
-st.markdown("### ¿Por dónde empezar?")
-st.caption("Elige una de las consultas del mapa. No necesitas activar capas para empezar; los filtros y las fuentes adicionales están disponibles solo si los necesitas.")
-nav1, nav2, nav3 = st.columns(3, gap="medium")
-with nav1:
-    st.markdown("<div class='sigo-nav-card'><div class='sigo-nav-title'>🗺️ Ordenamiento territorial</div><div class='sigo-nav-desc'>Consulta capas de formulación del PBOT 2015, manteniendo su fecha y procedencia.</div></div>", unsafe_allow_html=True)
-    st.page_link("pages/02_Ordenamiento_PBOT2015.py", label="Abrir PBOT 2015", icon="🧭")
-with nav2:
-    st.markdown("<div class='sigo-nav-card'><div class='sigo-nav-title'>🧩 Cartografía social</div><div class='sigo-nav-desc'>Importa registros participativos y revisa su calidad técnica antes de validarlos.</div></div>", unsafe_allow_html=True)
-    st.page_link("pages/03_Cartografia_Social.py", label="Abrir cartografía social", icon="📍")
-with nav3:
-    st.markdown("<div class='sigo-nav-card'><div class='sigo-nav-title'>📊 Indicadores SADCI</div><div class='sigo-nav-desc'>Explora metas, resultados reproducidos, fichas metodológicas y disponibilidad veredal.</div></div>", unsafe_allow_html=True)
-    st.page_link("pages/04_Indicadores_SADCI.py", label="Abrir indicadores SADCI", icon="📈")
-st.caption("La vista principal está dedicada a la exploración territorial. Los datos se muestran según su fuente y disponibilidad; no se completan vacíos mediante estimaciones no documentadas.")
+st.markdown("### Panorama territorial")
+st.caption(
+    "Esta página reúne el mapa municipal y un resumen de los registros disponibles. "
+    "Usa el menú lateral para cambiar de módulo; aquí no repetimos esos accesos."
+)
+st.markdown(
+    "<div class='sigo-note'><b>Cómo empezar:</b> elige una consulta en el mapa, selecciona una vereda si lo necesitas "
+    "y revisa los datos y su fuente. Los registros faltantes no se interpretan como ausencia de situaciones.</div>",
+    unsafe_allow_html=True,
+)
 
 with st.expander("📡 Captura territorial offline", expanded=False):
     st.markdown("**Capture evidencia directamente en el territorio, incluso con conectividad limitada.**")
