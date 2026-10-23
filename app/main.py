@@ -432,12 +432,8 @@ with st.sidebar:
     st.markdown("### SIGOber-Rural")
     st.caption("Sistema de información territorial")
     st.divider()
-    st.markdown("**Acceso rápido**")
-    st.markdown("**🗺️ Mapa territorial**")
-    st.page_link("pages/02_Ordenamiento_PBOT2015.py", label="Ordenamiento PBOT", icon="🧭")
-    st.page_link("pages/03_Cartografia_Social.py", label="Cartografía social", icon="📍")
-    st.page_link("pages/04_Indicadores_SADCI.py", label="Indicadores SADCI", icon="📊")
-    st.divider()
+    # La navegación multipágina nativa de Streamlit ya lista las páginas
+    # disponibles. No duplicar esos enlaces con una segunda lista manual.
     st.caption("Puerto Rico · Caquetá")
     st.caption("Versión 1.0 en preparación")
 modo_presentacion = False
