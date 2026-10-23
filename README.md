@@ -10,10 +10,10 @@ SIGOber-Rural integra exploración cartográfica, situaciones territoriales, ref
 
 La interfaz se organiza en solo dos alternativas en el menú izquierdo:
 
-- **Ingesta y gestión de datos:** carga temporal de CSV, Excel, JSON y GeoJSON, vista previa, retirada de archivos de la sesión y acceso a la revisión técnica de cartografía social.
+- **Ingesta y gestión de datos:** plantillas Excel descargables para problemáticas por vereda y actualizaciones SADCI; importación CSV/Excel con validación por fila, informe descargable, confirmación y vista temporal de los datos en la sesión. También permite inspeccionar CSV, Excel, JSON y GeoJSON.
 - **Exploración de resultados:** mapa territorial guiado y accesos a las consultas especializadas de PBOT 2015 e indicadores SADCI.
 
-Los archivos cargados en el espacio de ingesta se mantienen en la sesión de la aplicación. Retirarlos desde allí no borra fuentes persistentes como archivos del repositorio o Google Sheets. La revisión de cartografía social tampoco sincroniza automáticamente los cambios.
+Las importaciones de problemáticas y SADCI se mantienen en la sesión de la aplicación; no se escriben automáticamente en Google Sheets, el repositorio ni una base de datos compartida. Los valores SADCI importados se recalculan desde numerador y denominador y quedan pendientes de verificación documental. Retirar datos desde la interfaz no borra fuentes persistentes. Para operación multiusuario se requiere completar y configurar un backend persistente con permisos y auditoría.
 
 ## Requisitos y ejecución local
 
@@ -39,7 +39,7 @@ streamlit run app/pages/04_Indicadores_SADCI.py
 
 Algunas fuentes externas, como las hojas de cálculo conectadas, requieren secretos y permisos configurados en el entorno de ejecución. Si la conexión no está disponible, no debe interpretarse la ausencia de datos como ausencia del fenómeno.
 
-El catálogo SADCI se mantiene en `data/indicadores_sadci.json`; su lógica de cálculo, en `app/sadci.py`; su interfaz, en `app/pages/04_Indicadores_SADCI.py`. La guía de uso y los criterios pendientes están en `docs/guia_uso_indicadores_sadci_v1.md` y `docs/validacion_indicadores_sadci.md`. El estado de preparación y la lista de aceptación de la versión 1.0 están en `docs/estado_version_1_0.md`.
+El catálogo SADCI se mantiene en `data/indicadores_sadci.json`; su lógica de cálculo, en `app/sadci.py`; la interfaz de resultados, en `app/pages/04_Indicadores_SADCI.py`; y las plantillas y validaciones de importación, en `app/ingesta.py`. La guía de uso y los criterios pendientes están en `docs/guia_uso_indicadores_sadci_v1.md` y `docs/validacion_indicadores_sadci.md`. El estado de preparación y la lista de aceptación de la versión 1.0 están en `docs/estado_version_1_0.md`.
 
 ## Validación y límites
 
@@ -51,7 +51,7 @@ El catálogo SADCI se mantiene en `data/indicadores_sadci.json`; su lógica de c
 
 ## Pruebas
 
-Las pruebas SADCI están en `tests/test_sadci.py`. El workflow `.github/workflows/validacion-sadci.yml` comprueba la sintaxis Python y ejecuta las pruebas del módulo cuando se envían cambios a `Develope` o una solicitud de integración dirigida a esa rama.
+Las pruebas SADCI están en `tests/test_sadci.py` y las de plantillas e importación en `tests/test_ingesta.py`. El workflow `.github/workflows/validacion-sadci.yml` comprueba la sintaxis Python y ejecuta las pruebas del módulo cuando se envían cambios a `Develope` o una solicitud de integración dirigida a esa rama.
 
 ## Rama de trabajo
 
