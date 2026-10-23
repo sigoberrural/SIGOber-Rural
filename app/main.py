@@ -433,7 +433,7 @@ with st.sidebar:
     st.caption("Sistema de información territorial")
     st.divider()
     st.markdown("**Acceso rápido**")
-    st.page_link("app/main.py", label="Mapa territorial", icon="🗺️")
+    st.markdown("**🗺️ Mapa territorial**")
     st.page_link("pages/02_Ordenamiento_PBOT2015.py", label="Ordenamiento PBOT", icon="🧭")
     st.page_link("pages/03_Cartografia_Social.py", label="Cartografía social", icon="📍")
     st.page_link("pages/04_Indicadores_SADCI.py", label="Indicadores SADCI", icon="📊")
