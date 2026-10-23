@@ -123,6 +123,15 @@ def comprobar_servicio_cartografico(config):
             resultado["imagen"] = "FALLÓ"
     return resultado
 
+def nombres_cartografia_local_disponible():
+    """Solo ofrece en el selector las capas locales cuyos archivos existen."""
+    carpeta = DATA_DIR / "cartografia_oficial" / "igac"
+    return [
+        nombre for nombre, (archivo, _, _) in CARTOGRAFIA_LOCAL.items()
+        if (carpeta / archivo).is_file()
+    ]
+
+
 @st.cache_data(show_spinner=False)
 def cargar_json(nombre):
     ruta=DATA_DIR/nombre
@@ -450,7 +459,8 @@ def render_mapa_interactivo():
             st.divider()
             st.markdown("**Capas PBOT 2015**")
             cartografia_oficial_seleccionada=st.multiselect("Cartografía oficial remota",options=list(CARTOGRAFIA_OFICIAL.keys()),default=[],key="cartografia_oficial_presentacion",help="Servicios remotos IGAC/UPRA; requieren conectividad y WMS disponible.")
-            cartografia_local_seleccionada=st.multiselect("Cartografía IGAC descargada (funciona sin servicio remoto)",options=list(CARTOGRAFIA_LOCAL.keys()),default=[],key="cartografia_local_presentacion",help="Se activa después de ejecutar scripts/descargar_cartografia_igac.py y guardar los GeoJSON en data/cartografia_oficial/igac/.")
+            cartografia_local_disponible=nombres_cartografia_local_disponible(); cartografia_local_seleccionada=st.multiselect("Cartografía IGAC descargada (local)",options=cartografia_local_disponible,default=[],key="cartografia_local_presentacion",help="Solo aparecen archivos GeoJSON locales que existen en data/cartografia_oficial/igac/.")
+            if not cartografia_local_disponible: st.caption("Aún no hay capas IGAC locales. Consulta docs/descarga_cartografia_igac.md para descargarlas.")
             pbot_opciones={archivo:titulo for archivo,titulo,_,_ in cargar_pbot_capas()}
             pbot_seleccionadas=st.multiselect("Capas",options=list(pbot_opciones.keys()),format_func=lambda x:pbot_opciones[x],default=[],label_visibility="collapsed",help="Seleccione una o varias capas PBOT. Cada una queda disponible individualmente en el control del mapa.")
         with center:
@@ -467,7 +477,8 @@ def render_mapa_interactivo():
             if ys: eventos_f=eventos_f[eventos_f["anio"].astype(str).isin(ys)]
             if ts: eventos_f=eventos_f[eventos_f["tipo_conflicto"].astype(str).isin(ts)]
             if cs: eventos_f=eventos_f[eventos_f["confianza"].astype(str).isin(cs)]
-        mostrar=f4.checkbox("Mostrar conflictos de Sheets",value=True); pbot_opciones={archivo:titulo for archivo,titulo,_,_ in cargar_pbot_capas()}; pbot_seleccionadas=st.multiselect("Capas PBOT 2015 (opcional)",options=list(pbot_opciones.keys()),format_func=lambda x:pbot_opciones[x],default=[],help="Las capas PBOT no se cargan al navegador hasta que se seleccionan."); cartografia_oficial_seleccionada=st.multiselect("Cartografía oficial remota (opcional)",options=list(CARTOGRAFIA_OFICIAL.keys()),default=[],key="cartografia_oficial_exploracion",help="Servicios remotos IGAC/UPRA; requieren conectividad y WMS disponible."); cartografia_local_seleccionada=st.multiselect("Cartografía IGAC descargada (local)",options=list(CARTOGRAFIA_LOCAL.keys()),default=[],key="cartografia_local_exploracion",help="Ejecute scripts/descargar_cartografia_igac.py para obtener las capas locales."); st.caption("Capa histórica: SITUACIONES_TERRITORIALES. Puntos: registros operativos de la hoja Conflictos. Las fuentes se mantienen separadas.");
+        mostrar=f4.checkbox("Mostrar conflictos de Sheets",value=True); pbot_opciones={archivo:titulo for archivo,titulo,_,_ in cargar_pbot_capas()}; pbot_seleccionadas=st.multiselect("Capas PBOT 2015 (opcional)",options=list(pbot_opciones.keys()),format_func=lambda x:pbot_opciones[x],default=[],help="Las capas PBOT no se cargan al navegador hasta que se seleccionan."); cartografia_oficial_seleccionada=st.multiselect("Cartografía oficial remota (opcional)",options=list(CARTOGRAFIA_OFICIAL.keys()),default=[],key="cartografia_oficial_exploracion",help="Servicios remotos IGAC/UPRA; requieren conectividad y WMS disponible."); cartografia_local_disponible=nombres_cartografia_local_disponible(); cartografia_local_seleccionada=st.multiselect("Cartografía IGAC descargada (local)",options=cartografia_local_disponible,default=[],key="cartografia_local_exploracion",help="Solo aparecen archivos GeoJSON locales que existen en data/cartografia_oficial/igac/.");
+        if not cartografia_local_disponible: st.caption("Aún no hay capas IGAC locales. Consulta docs/descarga_cartografia_igac.md para descargarlas."); st.caption("Capa histórica: SITUACIONES_TERRITORIALES. Puntos: registros operativos de la hoja Conflictos. Las fuentes se mantienen separadas.");
         with st.expander("Diagnóstico de servicios cartográficos oficiales"):
             st.caption("Prueba metadatos y una imagen/tesela real desde el entorno donde se ejecuta SIGOber-Rural.")
             if st.button("Probar cada servicio cartográfico", key="comprobar_wms_oficial"):
