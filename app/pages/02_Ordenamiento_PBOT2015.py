@@ -39,13 +39,19 @@ st.warning("Estas capas corresponden a la cartografía de formulación del PBOT 
 
 @st.cache_data(show_spinner=False)
 def cargar_geojson(nombre):
+    """Carga una capa local; un archivo ausente o corrupto no debe tumbar toda la página."""
     ruta = DATA_DIR / nombre
-    if ruta.exists():
-        return json.loads(ruta.read_text(encoding="utf-8"))
-    comprimido = DATA_DIR / (ruta.stem + ".geojson.gz.b64")
-    if comprimido.exists():
-        texto = comprimido.read_text(encoding="utf-8").strip()
-        return json.loads(gzip.decompress(base64.b64decode(texto)).decode("utf-8"))
+    try:
+        if ruta.exists():
+            geo = json.loads(ruta.read_text(encoding="utf-8"))
+            return geo if isinstance(geo, dict) and geo.get("type") == "FeatureCollection" else None
+        comprimido = DATA_DIR / (ruta.stem + ".geojson.gz.b64")
+        if comprimido.exists():
+            texto = comprimido.read_text(encoding="utf-8").strip()
+            geo = json.loads(gzip.decompress(base64.b64decode(texto)).decode("utf-8"))
+            return geo if isinstance(geo, dict) and geo.get("type") == "FeatureCollection" else None
+    except (OSError, ValueError, EOFError, gzip.BadGzipFile):
+        return None
     return None
 
 capas_disponibles = []
