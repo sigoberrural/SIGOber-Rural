@@ -525,6 +525,7 @@ def render_mapa_interactivo():
             st.markdown("**Vereda**")
             seleccion=st.selectbox("Vereda",opciones,label_visibility="collapsed")
             codigo_sel="" if seleccion=="Todas las veredas" else seleccion.split(" — ")[-1]
+            st.caption("La selección resalta la vereda en el mapa; la capa temática conserva el conjunto de registros disponible.")
             st.divider()
             st.markdown("**Capas PBOT 2015**")
             cartografia_oficial_seleccionada=st.multiselect("Cartografía oficial remota",options=list(CARTOGRAFIA_OFICIAL.keys()),default=[],key="cartografia_oficial_presentacion",help="Servicios remotos IGAC/UPRA; requieren conectividad y WMS disponible.")
@@ -540,7 +541,7 @@ def render_mapa_interactivo():
             with st.container(height=500,border=True):
                 panel_interpretacion_ia(historicos,codigo_sel,dimension,tuple(pbot_seleccionadas),gd.get("SADCI"))
     else:
-        st.markdown("<div class='sigo-section'>Explorar territorio</div>",unsafe_allow_html=True); st.caption("Seleccione una vereda y, si lo necesita, filtre las situaciones documentadas. Las capas PBOT se mantienen opcionales para conservar fluidez."); seleccion=st.selectbox("Vereda",opciones,label_visibility="collapsed"); codigo_sel="" if seleccion=="Todas las veredas" else seleccion.split(" — ")[-1]; f1,f2,f3,f4=st.columns(4); eventos_f=historicos.copy()
+        st.markdown("<div class='sigo-section'>Explorar territorio</div>",unsafe_allow_html=True); st.caption("Seleccione una vereda y, si lo necesita, filtre las situaciones documentadas. Las capas PBOT se mantienen opcionales para conservar fluidez."); seleccion=st.selectbox("Vereda",opciones,label_visibility="collapsed"); codigo_sel="" if seleccion=="Todas las veredas" else seleccion.split(" — ")[-1]; st.caption("La selección resalta la vereda; los filtros de año, tipo y confianza sí restringen los registros usados para la capa temática."); f1,f2,f3,f4=st.columns(4); eventos_f=historicos.copy()
         if not eventos_f.empty:
             anios=sorted([x for x in eventos_f.get("anio",pd.Series(dtype=str)).astype(str).unique() if x],reverse=True); ys=f1.multiselect("Año",anios,default=[]); tipos=sorted([x for x in eventos_f.get("tipo_conflicto",pd.Series(dtype=str)).astype(str).unique() if x]); ts=f2.multiselect("Tipo de situación",tipos,default=[]); confs=sorted([x for x in eventos_f.get("confianza",pd.Series(dtype=str)).astype(str).unique() if x]); cs=f3.multiselect("Confianza",confs,default=[])
             if ys: eventos_f=eventos_f[eventos_f["anio"].astype(str).isin(ys)]
