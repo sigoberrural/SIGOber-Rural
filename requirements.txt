@@ -10,3 +10,5 @@ shapely
 topojson
 plotly
 openpyxl
+fpdf
+altair
