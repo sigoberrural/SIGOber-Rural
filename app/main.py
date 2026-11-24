@@ -128,10 +128,6 @@ CARTOGRAFIA_ARCGIS = {
         "url": "https://sig.upra.gov.co/server/rest/services/ordenamiento_productivo/frontera_agricola_condicionada/MapServer",
         "attribution": "UPRA · Frontera agrícola y frontera agrícola condicionada", "modo": "teselas"
     },
-    "SGC — Amenaza sísmica nacional (PGA 475 años)": {
-        "url": "https://srvags.sgc.gov.co/arcgis/rest/services/Amenaza_Sismica/Mapa_Amenaza_Sismica_Nacional_PGA475/MapServer",
-        "layers": "10", "attribution": "Servicio Geológico Colombiano · PGA 475 años", "modo": "export"
-    },
     "Parques Nacionales — Áreas protegidas RUNAP": {
         "url": "https://mapas.parquesnacionales.gov.co/arcgis/rest/services/pnn/runap/MapServer",
         "layers": "0", "attribution": "Parques Nacionales Naturales · Registro Único Nacional de Áreas Protegidas", "modo": "export"
