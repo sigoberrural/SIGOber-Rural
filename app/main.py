@@ -2,9 +2,9 @@
 =============================================================================
 PROYECTO: SIGOber-Rural
 ARCHIVO: main.py (Rama Develope - Módulo de Ingesta y Gestión de Datos)
-DESCRIPCIÓN: Aplicación principal de Streamlit para la incorporación, validación 
-             y gestión temporal de datos territoriales, organizada con un diseño 
-             de controles a la izquierda y resultados a la derecha.
+DESCRIPCIÓN: Aplicación principal de Streamlit organizada con navegación por 
+             botones de estado en la barra lateral (Exploración / SADCI) y 
+             separación estricta de controles a la izquierda y resultados a la derecha.
 =============================================================================
 """
 
@@ -30,7 +30,7 @@ from app.ingesta import (
 )
 from app.sadci import cargar_catalogo
 
-st.set_page_config(page_title="Ingesta de datos · SIGOber-Rural", page_icon="📥", layout="wide")
+st.set_page_config(page_title="SIGOber-Rural", page_icon="🗺️", layout="wide")
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
@@ -39,10 +39,11 @@ st.session_state.setdefault("sigo_uploads", {})
 st.session_state.setdefault("sigo_upload_widget_version", 0)
 st.session_state.setdefault("sigo_problematicas_validadas", None)
 st.session_state.setdefault("sigo_sadci_importado", None)
+st.session_state.setdefault("sidebar_seccion_activa", "SADCI")
 
 
 # =============================================================================
-# 2. BARRA LATERAL (SIDEBAR) - ESPACIOS FIJOS Y PANEL INFERIOR DESPLEGABLE
+# 2. BARRA LATERAL (SIDEBAR) - NAVEGACIÓN Y CONFIGURACIÓN DINÁMICA
 # =============================================================================
 
 with st.sidebar:
@@ -51,14 +52,31 @@ with st.sidebar:
     st.divider()
     
     st.markdown("**Espacios de trabajo**")
-    st.markdown("📥 **Ingesta y gestión de datos** *(Activo)*")
-    st.page_link("pages/01_Exploracion.py", label="Visualización de resultados", icon="🗺️")
     
+    # Botones superiores para alternar la sección activa (mantienen estado visual)
+    col_b1, col_b2 = st.columns(2)
+    with col_b1:
+        if st.button("🗺️ Exploración", use_container_width=True, type="primary" if st.session_state["sidebar_seccion_activa"] == "Exploración" else "secondary"):
+            st.session_state["sidebar_seccion_activa"] = "Exploración"
+            st.rerun()
+    with col_b2:
+        if st.button("🏛️ SADCI", use_container_width=True, type="primary" if st.session_state["sidebar_seccion_activa"] == "SADCI" else "secondary"):
+            st.session_state["sidebar_seccion_activa"] = "SADCI"
+            st.rerun()
+            
     st.divider()
     
-    with st.expander("⚙️ Opciones y configuración", expanded=True):
-        st.markdown("**Módulo de Ingesta**")
-        st.caption("Herramientas activas en esta vista:")
+    # Panel inferior dinámico según la sección seleccionada arriba
+    if st.session_state["sidebar_seccion_activa"] == "Exploración":
+        st.markdown("### 🔍 Herramientas de Consulta")
+        st.caption("Filtros y parámetros espaciales:")
+        vereda_filtro = st.selectbox("Filtrar por Vereda", ["Todas las veredas", "Vereda Centro", "Vereda Rural Norte"], key="filtro_vereda_sb")
+        anio_filtro = st.multiselect("Año de análisis", ["2024", "2025", "2026"], default=["2025", "2026"])
+        st.page_link("pages/01_Exploracion.py", label="Abrir visor cartográfico completo", icon="🚀")
+        
+    else:
+        st.markdown("### 📥 Ingesta y Gestión SADCI")
+        st.caption("Herramientas activas de gestión institucional:")
         st.markdown("• Plantilla de problemáticas")
         st.markdown("• Actualización institucional SADCI")
         st.markdown("• Gestión de archivos temporales")
@@ -78,9 +96,6 @@ st.markdown("""
 .ingesta-kicker{font-size:.72rem;letter-spacing:.13em;text-transform:uppercase;font-weight:750;opacity:.65}
 .ingesta-hero h1{font-size:2.15rem;line-height:1.15;margin:.25rem 0 .4rem}
 .ingesta-hero p{max-width:850px;margin:0;opacity:.8}
-.ingesta-step{padding:.75rem .85rem;border:1px solid rgba(128,128,128,.2);border-radius:.8rem;background:rgba(128,128,128,.025);min-height:94px}
-.ingesta-step strong{display:block;margin-bottom:.2rem}
-.ingesta-step span{font-size:.84rem;opacity:.75}
 </style>
 <div class="ingesta-hero">
   <div class="ingesta-kicker">SIGOber-Rural · Puerto Rico, Caquetá</div>
@@ -121,7 +136,6 @@ with tab_social:
         st.divider()
         social_file = st.file_uploader("Carga tu plantilla completada (CSV o Excel)", type=["csv", "xlsx", "xls"], key="sigo_social_template")
         
-        # Lógica de procesamiento de archivo subido
         social_df = None
         reviewed = None
         valid_count = 0
