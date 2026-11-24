@@ -263,6 +263,45 @@ def resumen_sadci(sadci):
 def indicador_pct(valor):
     return "—" if valor is None or pd.isna(valor) else f"{float(valor):.0f}%"
 
+def generar_descripcion_dinamica_sadci(r_sadci):
+    """
+    Genera una descripción narrativa y dinámica basada en los valores 
+    actuales de los indicadores SADCI y métricas institucionales.
+    """
+    if not r_sadci:
+        return "No hay datos institucionales suficientes en la sesión actual para generar una síntesis dinámica de capacidad institucional."
+    
+    presupuesto = r_sadci.get("presupuesto_anual_rural", 0) or 0
+    planta = r_sadci.get("num_personal_planta", 0) or 0
+    contratistas = r_sadci.get("num_personal_contratista", 0) or 0
+    ejecucion = r_sadci.get("ejecucion_presupuestal_pct")
+    cumplimiento = r_sadci.get("cumplimiento_pdt_pct")
+    mepi = r_sadci.get("calificacion_mepi")
+    
+    parrafos = []
+    
+    presupuesto_str = f"{presupuesto:,.0f} COP" if presupuesto > 0 else "sin asignación registrada"
+    ejecucion_str = f"{ejecucion:.0f}%" if ejecucion is not None and not pd.isna(ejecucion) else "pendiente de medición"
+    parrafos.append(
+        f"En el componente financiero, se observa un presupuesto anual rural de **{presupuesto_str}** "
+        f"con un nivel de ejecución presupuestal del **{ejecucion_str}**."
+    )
+    
+    total_personal = planta + contratistas
+    parrafos.append(
+        f"La capacidad operativa cuenta con un total de **{int(total_personal)} colaboradores** "
+        f"({int(planta)} en planta y {int(contratistas)} bajo modalidad de contratación temporal) orientados a la gestión territorial."
+    )
+    
+    cumplimiento_str = f"{cumplimiento:.0f}%" if cumplimiento is not None and not pd.isna(cumplimiento) else "sin consolidar"
+    mepi_str = f"{mepi:.1f} puntos" if mepi is not None and not pd.isna(mepi) else "por evaluar"
+    parrafos.append(
+        f"Respecto al cumplimiento de metas del Plan de Desarrollo Territorial (PDT), el avance se sitúa en **{cumplimiento_str}**, "
+        f"acompañado de una calificación MEPI de **{mepi_str}**, reflejando el estado actual de gobernabilidad y gestión fiscal."
+    )
+    
+    return " ".join(parrafos)
+
 # =============================================================================
 # 3. BARRA LATERAL (SIDEBAR) - CONTROLES Y PARÁMETROS DE INTERACCIÓN
 # =============================================================================
@@ -429,6 +468,13 @@ else:
     
     st.divider()
     
+    # NUEVO: Bloque de Descripción Dinámica basada en los indicadores actuales
+    st.markdown("### 🤖 Síntesis y Análisis Dinámico Institucional")
+    descripcion_ia = generar_descripcion_dinamica_sadci(r_sadci)
+    st.info(descripcion_ia)
+    
+    st.divider()
+    
     # Gestión de archivos cargados desde el panel izquierdo (Controles)
     sadci_file = st.session_state.get("sb_sadci_file_obj")
     catalogo_sadci = st.session_state.get("sb_catalogo_sadci")
@@ -450,24 +496,4 @@ else:
             st.download_button("Descargar informe de validación SADCI", sadci_review.to_csv(index=False).encode("utf-8-sig"), "revision_sadci.csv", "text/csv")
             
             if valid_count != len(sadci_review) or sadci_review.empty:
-                st.error("Corrige los códigos, periodos y valores numéricos indicados en el informe antes de confirmar.")
-            else:
-                st.info("Los valores importados están listos para ser incorporados.")
-                if st.button("Confirmar actualización SADCI en esta sesión", key="confirm_sadci_import", type="primary"):
-                    st.session_state.sigo_sadci_importado = sadci_review.drop(columns=["errores_validacion", "valido_revision_tecnica"]).copy()
-                    st.success(f"Se incorporaron {len(sadci_review)} filas SADCI a la sesión actual.")
-                    st.rerun()
-                    
-        except (ValueError, UnicodeDecodeError, pd.errors.ParserError) as exc:
-            st.error(f"No se pudo leer la plantilla cargada: {exc}")
-    else:
-        st.info("👈 Selecciona y carga tu plantilla completada en el panel izquierdo (Controles SADCI) para visualizar aquí los resultados detallados e informe de validación técnica.")
-        
-    if st.session_state.sigo_sadci_importado is not None:
-        st.divider()
-        st.subheader("Registros SADCI activos en la sesión actual")
-        current = st.session_state.sigo_sadci_importado
-        st.dataframe(current, use_container_width=True, hide_index=True)
-        if st.button("Retirar actualización SADCI de esta sesión", key="clear_sadci_import"):
-            st.session_state.sigo_sadci_importado = None
-            st.rerun()
+                st.error("Corrige los códigos, periodos y valores numéricos
