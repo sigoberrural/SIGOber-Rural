@@ -15,6 +15,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from app.sadci import cargar_catalogo, evaluar_catalogo
+from app.ingesta import aplicar_actualizacion_sadci
 
 st.set_page_config(page_title="SADCI · SIGOber-Rural", page_icon="📊", layout="wide")
 
@@ -51,7 +52,17 @@ except (OSError, ValueError, json.JSONDecodeError) as exc:
     st.error(f"No fue posible cargar el catálogo SADCI: {exc}")
     st.stop()
 
-evaluados = evaluar_catalogo(catalogo)
+# La importación confirmada en Ingesta se aplica como una superposición temporal
+# sobre una copia del catálogo; no modifica el archivo fuente ni persiste entre sesiones.
+catalogo_visualizacion = [dict(item) for item in catalogo]
+importacion = st.session_state.get("sigo_sadci_importado")
+if importacion is not None and not importacion.empty:
+    periodos = sorted(importacion["periodo"].astype(str).str.strip().unique().tolist())
+    periodo_activo = st.selectbox("Periodo de la actualización cargada", periodos, key="sadci_periodo_importado")
+    filas_periodo = importacion[importacion["periodo"].astype(str).str.strip() == periodo_activo]
+    catalogo_visualizacion = aplicar_actualizacion_sadci(catalogo_visualizacion, filas_periodo, periodo_activo)
+    st.info(f"Vista temporal con {len(filas_periodo)} actualización(es) del periodo {periodo_activo}. El catálogo original permanece intacto y los datos siguen pendientes de verificación.")
+evaluados = evaluar_catalogo(catalogo_visualizacion)
 df = pd.DataFrame(evaluados)
 
 with st.expander("Cómo usar este tablero", expanded=False):
