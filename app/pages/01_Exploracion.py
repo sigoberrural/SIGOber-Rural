@@ -604,38 +604,6 @@ def render_mapa_interactivo():
                 help="Solo aparecen archivos que existen en el repositorio.",
             )
 
-    st.markdown("<div class='sigo-section'>Resultados de la consulta</div>", unsafe_allow_html=True)
-    if vista == "Veredas y territorio":
-        st.markdown("**Veredas y territorio**")
-        st.write("Consulta los límites y atributos de las veredas. Pasa el cursor sobre una vereda para ver su nombre, código, área y fuente cartográfica.")
-    elif vista == "Situaciones documentadas":
-        st.markdown("**Situaciones documentadas**")
-        st.write("El color de cada vereda resume los registros históricos enlazados a ella. Los puntos institucionales, cuando están disponibles, aparecen como una capa independiente.")
-    else:
-        st.markdown("**Ordenamiento territorial · PBOT 2015**")
-        st.write("Consulta las geometrías y atributos de la capa seleccionada. La superposición espacial orienta la lectura, pero no demuestra por sí sola relaciones causales.")
-    m1, m2, m3 = st.columns(3)
-    total_veredas = len(topo.get("objects", {}).get("Veredas", {}).get("geometries", []))
-    if vista == "Veredas y territorio":
-        m1.metric("Veredas en el mapa", total_veredas)
-        m2.metric("Selección", "Una vereda" if codigo_sel else "Municipio")
-        m3.metric("Fuente territorial", "Cargada" if total_veredas else "No disponible")
-    elif vista == "Ordenamiento PBOT 2015":
-        m1.metric("Capas PBOT disponibles", len(pbot_opciones))
-        m2.metric("Capa seleccionada", "Sí" if pbot_seleccionada else "Pendiente")
-        m3.metric("Vereda resaltada", "Sí" if codigo_sel else "No")
-    else:
-        veredas_con_registros = eventos_f["codigo_ver_resuelto"].nunique() if not eventos_f.empty and "codigo_ver_resuelto" in eventos_f.columns else 0
-        if codigo_sel and not eventos_f.empty and "codigo_ver_resuelto" in eventos_f.columns:
-            registros_vereda = int(eventos_f["codigo_ver_resuelto"].astype(str).str.strip().eq(codigo_sel).sum())
-        else:
-            registros_vereda = len(eventos_f)
-        m1.metric("Registros en la consulta", len(eventos_f))
-        m2.metric("Veredas con registros", veredas_con_registros)
-        m3.metric("Registros de la selección", registros_vereda if codigo_sel else "Todas")
-        if eventos_f.empty:
-            st.info("No hay registros en esta consulta con los filtros actuales. Esto no demuestra ausencia de situaciones en el territorio.")
-
     conflictos = normalizar_conflictos(gd["Conflictos"]) if isinstance(gd.get("Conflictos"), pd.DataFrame) else pd.DataFrame()
     capas_pbot = (pbot_seleccionada,) if vista == "Ordenamiento PBOT 2015" and pbot_seleccionada else ()
     perspectiva_mapa = "Situaciones" if vista == "Situaciones documentadas" else "Territorio"
@@ -650,17 +618,7 @@ def render_mapa_interactivo():
         cartografia_oficial_seleccionada=tuple(cartografia_oficial_seleccionada),
         cartografia_local_seleccionada=tuple(cartografia_local_seleccionada),
     )
-    st_folium(mapa, width="100%", height=700, returned_objects=["last_active_drawing"])
-    st.caption(f"Mapa generado en {segundos_mapa:.2f} s. Las capas de ordenamiento corresponden a PBOT 2015; los datos ausentes no se interpretan como ausencia del fenómeno.")
+    st_folium(mapa, width="100%", height=780, returned_objects=["last_active_drawing"])
+
 
 render_mapa_interactivo()
-st.markdown("### Cómo leer el mapa")
-leyenda1,leyenda2,leyenda3=st.columns(3)
-with leyenda1:
-    st.markdown("<div class='sigo-nav-card'><div class='sigo-nav-title'>🗺️ Territorio</div><div class='sigo-nav-desc'>Límites y atributos de veredas según la cartografía base disponible.</div></div>",unsafe_allow_html=True)
-with leyenda2:
-    st.markdown("<div class='sigo-nav-card'><div class='sigo-nav-title'>🟠🔴 Situaciones documentadas</div><div class='sigo-nav-desc'>En la capa temática: naranja = un registro; rojo = dos o más registros asociados a la vereda.</div></div>",unsafe_allow_html=True)
-with leyenda3:
-    st.markdown("<div class='sigo-nav-card'><div class='sigo-nav-title'>🧭 Capas de referencia</div><div class='sigo-nav-desc'>Las capas PBOT 2015 e IGAC/UPRA se activan por separado y conservan su procedencia.</div></div>",unsafe_allow_html=True)
-st.info("Un polígono sin registros asociados solo indica que la base consultada no contiene registros enlazados a esa vereda. No demuestra que allí no ocurran situaciones. Las capas PBOT corresponden a cartografía de formulación de 2015; las capas oficiales remotas requieren conexión y disponibilidad del proveedor.")
-st.caption("SIGOber-Rural · versión 1.0 en preparación · Puerto Rico, Caquetá")
