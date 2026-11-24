@@ -255,22 +255,22 @@ def construir_mapa(topo, eventos_historicos, conflictos=None, codigo_seleccionad
         },
         "IGAC — Drenajes y cuerpos de agua (1:10.000)": {
             "tipo": "wms", "url": "https://mapas2.igac.gov.co/server3/services/carto/carto10000puertorico18592/MapServer/WMSServer",
-            "layers": "13,14,17,18,20", "attribution": "IGAC · Cartografía básica Puerto Rico, Caquetá · 1:10.000"
+            "layers": "13,14,17,18", "attribution": "IGAC · Cartografía básica Puerto Rico, Caquetá · 1:10.000"
         },
         "IGAC — Construcciones y zonas duras (1:10.000)": {
             "tipo": "wms", "url": "https://mapas2.igac.gov.co/server3/services/carto/carto10000puertorico18592/MapServer/WMSServer",
             "layers": "0,15,16", "attribution": "IGAC · Cartografía básica Puerto Rico, Caquetá · 1:10.000"
         },
-        "IGAC — Curvas de nivel y bosque (1:10.000)": {
+        "IGAC — Curvas de nivel, piscinas y bosque (1:10.000)": {
             "tipo": "wms", "url": "https://mapas2.igac.gov.co/server3/services/carto/carto10000puertorico18592/MapServer/WMSServer",
-            "layers": "7,19", "attribution": "IGAC · Cartografía básica Puerto Rico, Caquetá · 1:10.000"
+            "layers": "7,19,20", "attribution": "IGAC · Cartografía básica Puerto Rico, Caquetá · 1:10.000"
         },
         "UPRA — Frontera agrícola nacional (1:100.000)": {
-            "tipo": "arcgis_tiles", "url": "https://geoservicios.upra.gov.co/arcgis/rest/services/ordenamiento_productivo/frontera_agricola/MapServer",
+            "tipo": "arcgis_tiles", "url": "https://sig.upra.gov.co/server/rest/services/ordenamiento_productivo/frontera_agricola/MapServer",
             "attribution": "UPRA · Frontera agrícola nacional · 1:100.000"
         },
         "UPRA — Frontera agrícola condicionada": {
-            "tipo": "arcgis_tiles", "url": "https://geoservicios.upra.gov.co/arcgis/rest/services/ordenamiento_productivo/frontera_agricola_frontera_agricola_condicionada/MapServer",
+            "tipo": "arcgis_tiles", "url": "https://sig.upra.gov.co/server/rest/services/ordenamiento_productivo/frontera_agricola_condicionada/MapServer",
             "attribution": "UPRA · Frontera agrícola y frontera agrícola condicionada"
         },
     }
@@ -284,7 +284,7 @@ def construir_mapa(topo, eventos_historicos, conflictos=None, codigo_seleccionad
                 tiles=config["url"].rstrip("/") + "/tile/{z}/{y}/{x}",
                 name=nombre_capa, attr=config["attribution"],
                 overlay=True, control=True, show=False, opacity=0.68,
-                min_zoom=5, max_zoom=16,
+                min_zoom=5, max_zoom=14,
             ).add_to(m)
         else:
             folium.raster_layers.WmsTileLayer(
@@ -474,7 +474,7 @@ with st.sidebar:
             "IGAC — Vías, puentes y límites viales (1:10.000)": "IGAC · vías y puentes",
             "IGAC — Drenajes y cuerpos de agua (1:10.000)": "IGAC · drenajes",
             "IGAC — Construcciones y zonas duras (1:10.000)": "IGAC · construcciones",
-            "IGAC — Curvas de nivel y bosque (1:10.000)": "IGAC · curvas y bosque",
+            "IGAC — Curvas de nivel, piscinas y bosque (1:10.000)": "IGAC · curvas, piscinas y bosque",
             "UPRA — Frontera agrícola nacional (1:100.000)": "UPRA · frontera agrícola",
             "UPRA — Frontera agrícola condicionada": "UPRA · frontera condicionada",
         }
