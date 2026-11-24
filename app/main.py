@@ -869,7 +869,6 @@ with st.sidebar:
             )
 
         with st.expander("05 · Cartografía oficial complementaria", expanded=False):
-            st.caption("Selecciona cartografía oficial. IGAC se consulta mediante imágenes dinámicas ArcGIS REST; SGC y Parques Nacionales mediante WMS. Cada capa es independiente.")
 
             catalogo_wms_disponible, estados_wms = validar_catalogo_wms()
             opciones_pnn = [n for n in catalogo_wms_disponible if n.startswith("Parques Nacionales —")]
@@ -883,14 +882,6 @@ with st.sidebar:
             wms_sel_sb = capas_pnn
             capas_igac = []
 
-            if not catalogo_wms_disponible:
-                st.warning("No se pudo validar ningún servicio WMS en este momento. Comprueba la conexión o inténtalo más tarde.")
-            for url, estado in estados_wms.items():
-                if not estado["ok"]:
-                    st.caption(f"Servicio WMS no disponible: {url} — {estado['error']}")
-            for nombre, config in CARTOGRAFIA_WMS.items():
-                if not config.get("capas_disponibles", False):
-                    st.caption(f"Capa no ofrecida: {nombre}. {config.get('detalle_validacion', 'No validada')}")
 
             capas_upra = st.multiselect(
                 "Servicios oficiales ArcGIS REST (teselas y exportación dinámica)",
