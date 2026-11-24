@@ -77,7 +77,26 @@ CARTOGRAFIA_OFICIAL = {
         "tipo": "arcgis_tiles", "url": "https://sig.upra.gov.co/server/rest/services/ordenamiento_productivo/frontera_agricola_condicionada/MapServer",
         "attribution": "UPRA · Frontera agrícola y frontera agrícola condicionada"
     },
+    "SGC — Amenaza sísmica nacional (PGA75)": {
+        "tipo": "wms", "url": "https://geoportal.sgc.gov.co/arcgis/rest/services/Amenaza_Sismica/Amenaza_Sismica_Nacional/MapServer/WMSServer",
+        "layers": "10", "attribution": "Servicio Geológico Colombiano · Amenaza sísmica nacional · PGA75"
+    },
 }
+
+CARTOGRAFIA_LOCAL = {
+    "IGAC local — Vías y puentes": ("igac_vias.geojson", "#1769aa", 2.4),
+    "IGAC local — Drenajes": ("igac_drenajes.geojson", "#168aad", 1.8),
+    "IGAC local — Construcciones": ("igac_construcciones.geojson", "#9c2f2f", 1.2),
+    "IGAC local — Curvas y piscinas": ("igac_curvas_piscinas.geojson", "#8c6d31", 1.0),
+    "IGAC local — Bosque": ("igac_bosque.geojson", "#2e7d32", 1.0),
+}
+
+def nombres_cartografia_local_disponible():
+    carpeta = DATA_DIR / "cartografia_oficial" / "igac"
+    return [
+        nombre for nombre, (archivo, _, _) in CARTOGRAFIA_LOCAL.items()
+        if (carpeta / archivo).is_file()
+    ]
 
 
 
@@ -194,7 +213,7 @@ def preparar_topo_para_eventos(topo, resumen):
 def construir_mapa(
     topo, eventos_historicos, conflictos=None, codigo_seleccionado="",
     mostrar_veredas=True, mostrar_situaciones=False, mostrar_conflictos=False,
-    pbot_seleccionadas=(), wms_seleccionadas=(),
+    pbot_seleccionadas=(), wms_seleccionadas=(), cartografia_local_seleccionada=(),
 ):
     inicio = time.perf_counter()
     codigos_veredas = {
@@ -283,8 +302,37 @@ def construir_mapa(
         folium.GeoJson(geo, name=titulo, tooltip=tooltip_pbot).add_to(grupo_pbot)
         grupo_pbot.add_to(m)
         
+    # Capas IGAC descargadas en el repositorio (se ofrecen solo si el archivo existe).
+    for nombre_capa in cartografia_local_seleccionada:
+        config_local = CARTOGRAFIA_LOCAL.get(nombre_capa)
+        if not config_local:
+            continue
+        archivo_local, color_local, grosor_local = config_local
+        ruta_local = DATA_DIR / "cartografia_oficial" / "igac" / archivo_local
+        try:
+            with open(ruta_local, "r", encoding="utf-8") as archivo:
+                geo_local = json.load(archivo)
+            if geo_local.get("type") != "FeatureCollection" or not geo_local.get("features"):
+                continue
+            grupo_local = folium.FeatureGroup(name=f"05 · {nombre_capa}", show=True)
+            propiedades = geo_local["features"][0].get("properties") or {}
+            tooltip_local = folium.GeoJsonTooltip(
+                fields=["_igac_layer_name"], aliases=["Capa IGAC"], sticky=True
+            ) if "_igac_layer_name" in propiedades else None
+            folium.GeoJson(
+                geo_local, name=nombre_capa,
+                style_function=lambda feature, color=color_local, weight=grosor_local: {
+                    "color": color, "weight": weight, "opacity": 0.9,
+                    "fillColor": color, "fillOpacity": 0.18,
+                },
+                tooltip=tooltip_local,
+            ).add_to(grupo_local)
+            grupo_local.add_to(m)
+        except (OSError, ValueError, TypeError):
+            continue
+
     # =========================================================================
-    # RENDERIZADO DINÁMICO DE CAPAS WMS SELECCIONADAS
+    # RENDERIZADO DINÁMICO DE CAPAS OFICIALES REMOTAS
     # =========================================================================
 
     for nombre_capa in wms_seleccionadas:
@@ -503,13 +551,32 @@ with st.sidebar:
             )
 
         with st.expander("05 · Cartografía oficial complementaria", expanded=False):
-            st.caption("Capas remotas IGAC y UPRA. Requieren conexión a internet.")
-            wms_sel_sb = st.multiselect(
-                "Selecciona una o varias capas",
-                options=list(CARTOGRAFIA_OFICIAL.keys()),
-                key="sb_cartografia_oficial",
-                help="Las capas se añaden como superposiciones independientes.",
+            st.caption("Selecciona capas de referencia por entidad. Se pueden combinar entre sí y con las capas temáticas.")
+            opciones_igac_upra = [nombre for nombre in CARTOGRAFIA_OFICIAL if nombre.startswith(("IGAC —", "UPRA —"))]
+            capas_igac_upra = st.multiselect(
+                "IGAC / UPRA · servicios remotos",
+                options=opciones_igac_upra,
+                key="sb_cartografia_igac_upra",
+                help="Cartografía básica y frontera agrícola.",
             )
+            opciones_sgc = [nombre for nombre in CARTOGRAFIA_OFICIAL if nombre.startswith("SGC —")]
+            capas_sgc = st.multiselect(
+                "Servicio Geológico Colombiano · amenazas",
+                options=opciones_sgc,
+                key="sb_cartografia_sgc",
+                help="Productos nacionales de referencia; respetar su escala y alcance.",
+            )
+            wms_sel_sb = capas_igac_upra + capas_sgc
+
+            cartografia_local_disponible = nombres_cartografia_local_disponible()
+            capas_locales_sb = st.multiselect(
+                "IGAC · archivos descargados disponibles en el proyecto",
+                options=cartografia_local_disponible,
+                key="sb_cartografia_local",
+                help="Solo aparecen archivos GeoJSON realmente presentes en data/cartografia_oficial/igac.",
+            )
+            if not cartografia_local_disponible:
+                st.caption("No hay capas IGAC descargadas localmente en el repositorio; el selector se habilitará cuando se incorporen los archivos.")
 
         st.session_state["map_vereda"] = vereda_seleccionada
         st.session_state["map_ys"] = ys
@@ -517,6 +584,7 @@ with st.sidebar:
         st.session_state["map_cs"] = cs
         st.session_state["map_pbot"] = pbot_sel_sb
         st.session_state["map_wms"] = wms_sel_sb
+        st.session_state["map_cartografia_local"] = capas_locales_sb
         st.session_state["map_mostrar_veredas"] = mostrar_veredas
         st.session_state["map_mostrar_situaciones"] = mostrar_situaciones
         st.session_state["map_mostrar_gsheets"] = mostrar_gsheets
@@ -603,6 +671,7 @@ if st.session_state["sidebar_seccion_activa"] == "Exploración":
         mostrar_conflictos=mostrar_conflictos_main,
         pbot_seleccionadas=capas_pbot_main,
         wms_seleccionadas=capas_wms_main,
+        cartografia_local_seleccionada=tuple(st.session_state.get("map_cartografia_local", [])),
     )
     auditoria = st.session_state.get("sigo_auditoria_eventos", {})
     incompletas = auditoria.get("filas_incompletas", [])
