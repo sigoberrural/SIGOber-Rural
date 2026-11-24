@@ -576,7 +576,7 @@ if st.session_state["sidebar_seccion_activa"] == "Exploración":
     mapa_render, segundos_mapa = construir_mapa(
         topo_main, eventos_f, conflictos_main, codigo_sel_main,
         mostrar_conflictos_main, capas_pbot_main, capas_wms_main,
-        perspectiva=("Territorio" if vista_actual == "Territorio" else "Situaciones documentadas"),
+        perspectiva=("Territorio" if vista_actual == "Territorio" else ("PBOT" if vista_actual == "Ordenamiento PBOT 2015" else "Situaciones documentadas")),
     )
     auditoria = st.session_state.get("sigo_auditoria_eventos", {})
     incompletas = auditoria.get("filas_incompletas", [])
@@ -590,6 +590,9 @@ if st.session_state["sidebar_seccion_activa"] == "Exploración":
         "precisión VEREDA y código presente en la capa base. El conteo refleja "
         "documentación disponible, no incidencia, prevalencia ni ausencia de conflicto."
     )
+    if vista_actual == "Situaciones documentadas":
+        st.caption("Leyenda: gris = sin registros veredales validados; naranja = 1 registro; rojo = 2 o más registros. Los colores expresan volumen documental, no nivel de riesgo.")
+
     st.caption(f"Generación del mapa en servidor: {segundos_mapa:.2f} s")
     st_folium(mapa_render, width="100%", height=680, returned_objects=["last_active_drawing"])
 
