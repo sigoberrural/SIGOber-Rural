@@ -10,6 +10,7 @@ DESCRIPCIÓN: Aplicación principal con navegación dinámica en barra lateral
 
 from datetime import datetime
 import html
+import io
 import json
 import time
 from pathlib import Path
@@ -19,6 +20,7 @@ import folium
 import pandas as pd
 import streamlit as st
 from streamlit_folium import st_folium
+from fpdf import FPDF
 
 # =============================================================================
 # 1. CONFIGURACIÓN DEL ENTORNO Y RUTAS DEL SISTEMA
@@ -264,13 +266,7 @@ def indicador_pct(valor):
     return "—" if valor is None or pd.isna(valor) else f"{float(valor):.0f}%"
 
 def calcular_indicadores_dci_avanzados(r_sadci):
-    """
-    Calcula nuevos indicadores y ratios derivados de los datos ingresados en el formulario,
-    fundamentado en la teoría de capacidades institucionales de Oszlak y Orellana.
-    """
-    if not r_sadci:
-        return {}
-    
+    if not r_sadci: return {}
     presupuesto = r_sadci.get("presupuesto_anual_rural", 0) or 0
     planta = r_sadci.get("num_personal_planta", 0) or 0
     contratistas = r_sadci.get("num_personal_contratista", 0) or 0
@@ -278,19 +274,9 @@ def calcular_indicadores_dci_avanzados(r_sadci):
     cumplimiento = r_sadci.get("cumplimiento_pdt_pct", 0) or 0
     
     total_personal = planta + contratistas
-    
-    # 1. Ratios calculados
-    # Presupuesto gestionado por cada colaborador operativo
     presupuesto_por_colaborador = (presupuesto / total_personal) if total_personal > 0 else 0
-    
-    # Proporción de dependencia de contratistas (%)
     pct_contratistas = (contratistas / total_personal * 100) if total_personal > 0 else 0
-    
-    # Índice de Eficencia Financiera (Ejecución real ponderada)
     monto_ejecutado = presupuesto * (ejecucion / 100.0)
-    
-    # Índice Sintético de Déficit Institucional (Promedio inverso ponderado de metas y ejecución)
-    # Entre más bajo sea el cumplimiento y la ejecución, mayor es el déficit (0 = sin déficit, 100 = déficit crítico máximo)
     indice_deficit = 100.0 - ((ejecucion + cumplimiento) / 2.0)
     
     return {
@@ -302,16 +288,8 @@ def calcular_indicadores_dci_avanzados(r_sadci):
     }
 
 def generar_analisis_dci_oszlak(r_sadci):
-    """
-    Genera un diagnóstico analítico detallado indicador por indicador y muestra 
-    los indicadores calculados basados estrictamente en los datos del formulario.
-    """
-    if not r_sadci:
-        return "⚠️ Sin datos institucionales suficientes en la sesión actual para auditar los déficits de capacidad institucional (DCI)."
-    
-    # Calculamos los indicadores derivados
+    if not r_sadci: return "⚠️ Sin datos suficientes."
     calc = calcular_indicadores_dci_avanzados(r_sadci)
-    
     presupuesto = r_sadci.get("presupuesto_anual_rural", 0) or 0
     planta = r_sadci.get("num_personal_planta", 0) or 0
     contratistas = r_sadci.get("num_personal_contratista", 0) or 0
@@ -320,8 +298,6 @@ def generar_analisis_dci_oszlak(r_sadci):
     mepi = r_sadci.get("calificacion_mepi")
     
     bloques = []
-    
-    # Resumen de indicadores calculados en base al formulario
     bloques.append(
         "### 🔍 Indicadores Calculados del Sistema (Formulario SADCI)\n"
         f"- **Total Fuerza de Trabajo Institucional:** {int(calc.get('total_personal', 0))} personas "
@@ -332,7 +308,6 @@ def generar_analisis_dci_oszlak(r_sadci):
         f"(*{'Riesgo Crítico' if calc.get('indice_deficit', 0) > 40 else 'Estabilidad Aceptable'}*).\n"
     )
     
-    # 1. Dimensión Material y Financiera
     presupuesto_str = f"{presupuesto:,.0f} COP" if presupuesto > 0 else "sin asignación registrada"
     if presupuesto > 0:
         fin_val = f"- **Presupuesto Asignado ({presupuesto_str}):** Suficiente en términos formales. Oszlak y Orellana señalan que la materialización de políticas rurales requiere recursos monetarios estables y liquidez oportuna."
@@ -340,7 +315,6 @@ def generar_analisis_dci_oszlak(r_sadci):
         fin_val = f"- **Presupuesto Asignado ({presupuesto_str}):** Configura un *déficit financiero estructural crítico* al carecer de recursos monetarios base para la intervención estatal."
     bloques.append("### 🏛️ 1. Dimensión de Capacidad Material y Financiera\n" + fin_val)
     
-    # 2. Dimensión Operativa y de Gestión
     if ejecucion is not None and not pd.isna(ejecucion):
         estado_ejec = "Óptima capacidad de absorción y conversión de recursos" if ejecucion >= 70 else "Déficit crítico de gestión y absorción financiera"
         bloques.append(
@@ -349,7 +323,6 @@ def generar_analisis_dci_oszlak(r_sadci):
             "Un porcentaje bajo refleja cuellos de botella burocráticos o limitaciones técnicas en la formulación de proyectos para ejecutar el gasto programado."
         )
         
-    # 3. Dimensión Burocrática y Organizacional
     if calc.get('total_personal', 0) > 0:
         pct_c = calc.get('pct_contratistas', 0)
         fragilidad_bureau = "alta fragilidad institucional y baja profesionalización" if pct_c > 50 else "adecuado arraigo y estabilidad burocrática"
@@ -360,7 +333,6 @@ def generar_analisis_dci_oszlak(r_sadci):
             "Según la perspectiva de Oszlak, la tercerización excesiva erosiona la memoria institucional y la estabilidad de la carrera administrativa."
         )
         
-    # 4. Dimensión Estratégica y de Resultados
     if cumplimiento is not None and not pd.isna(cumplimiento):
         eficacia_estado = "alta capacidad de co-producción de valor público" if cumplimiento >= 70 else "déficit de efectividad en el cumplimiento de metas"
         bloques.append(
@@ -375,6 +347,108 @@ def generar_analisis_dci_oszlak(r_sadci):
         )
         
     return "\n".join(bloques)
+
+# =============================================================================
+# FUNCION PARA GENERAR PDF PROFESIONAL (REPORTE DCI)
+# =============================================================================
+class PDFReporteDCI(FPDF):
+    def header(self):
+        self.set_font('Arial', 'B', 12)
+        self.set_text_color(38, 105, 78) # Color institucional verde (#26694E)
+        self.cell(0, 10, 'SIGOber-Rural | Reporte Institucional DCI', 0, 1, 'L')
+        self.set_font('Arial', 'I', 8)
+        self.set_text_color(100, 100, 100)
+        self.cell(0, 4, 'Diagnóstico de Capacidad e Indicadores SADCI (Basado en Oszlak y Orellana)', 0, 1, 'L')
+        self.ln(5)
+
+    def footer(self):
+        self.set_y(-15)
+        self.set_font('Arial', 'I', 8)
+        self.set_text_color(150, 150, 150)
+        self.cell(0, 10, f'Página {self.page_no()} | Generado automáticamente por SIGOber-Rural', 0, 0, 'C')
+
+def generar_pdf_reporte(r_sadci):
+    pdf = PDFReporteDCI()
+    pdf.add_page()
+    pdf.set_auto_page_break(auto=True, margin=15)
+    
+    # Título del Reporte
+    pdf.set_font('Arial', 'B', 16)
+    pdf.set_text_color(30, 30, 30)
+    pdf.cell(0, 10, 'Informe Técnico: Déficits de Capacidad Institucional (DCI)', 0, 1, 'L')
+    pdf.set_font('Arial', '', 10)
+    pdf.set_text_color(100, 100, 100)
+    pdf.cell(0, 6, f'Fecha de emisión: {datetime.now().strftime("%Y-%m-%d %H:%M")}', 0, 1, 'L')
+    pdf.ln(5)
+    
+    if not r_sadci:
+        pdf.set_font('Arial', '', 11)
+        pdf.cell(0, 10, 'No hay datos suficientes cargados en la sesión actual para renderizar métricas.', 0, 1, 'L')
+        return bytes(pdf.output())
+
+    calc = calcular_indicadores_dci_avanzados(r_sadci)
+    
+    # Sección 1: Métricas Principales
+    pdf.set_font('Arial', 'B', 12)
+    pdf.set_text_color(38, 105, 78)
+    pdf.cell(0, 8, '1. Resumen de Métricas Base e Indicadores Calculados', 0, 1, 'L')
+    pdf.set_font('Arial', '', 10)
+    pdf.set_text_color(50, 50, 50)
+    
+    presupuesto = r_sadci.get("presupuesto_anual_rural", 0) or 0
+    planta = r_sadci.get("num_personal_planta", 0) or 0
+    contratistas = r_sadci.get("num_personal_contratista", 0) or 0
+    ejecucion = r_sadci.get("ejecucion_presupuestal_pct", 0) or 0
+    cumplimiento = r_sadci.get("cumplimiento_pdt_pct", 0) or 0
+    mepi = r_sadci.get("calificacion_mepi", 0) or 0
+
+    metricas_txt = [
+        f"Presupuesto Anual Rural: ${presupuesto:,.0f} COP",
+        f"Personal de Planta: {int(planta)} | Contratistas: {int(contratistas)} (Total: {int(calc.get('total_personal',0))})",
+        f"Porcentaje de Contratistas: {calc.get('pct_contratistas', 0):.1f}%",
+        f"Ejecución Presupuestal: {ejecucion:.0f}%",
+        f"Cumplimiento PDT: {cumplimiento:.0f}%",
+        f"Calificación MEPI: {mepi:.1f} / 100",
+        f"Índice Sintético de Déficit Institucional (DCI): {calc.get('indice_deficit', 0):.1f} / 100"
+    ]
+    
+    for m in metricas_txt:
+        pdf.cell(0, 6, f"- {m}", 0, 1, 'L')
+    pdf.ln(5)
+    
+    # Sección 2: Análisis Detallado DCI
+    pdf.set_font('Arial', 'B', 12)
+    pdf.set_text_color(38, 105, 78)
+    pdf.cell(0, 8, '2. Diagnóstico Multidimensional (Oszlak & Orellana)', 0, 1, 'L')
+    pdf.set_font('Arial', '', 10)
+    pdf.set_text_color(50, 50, 50)
+    
+    texto_analisis = generar_analisis_dci_oszlak(r_sadci)
+    # Limpiamos etiquetas markdown para el PDF plano
+    texto_limpio = texto_analisis.replace("### ", "").replace("**", "").replace("*", "")
+    for linea in texto_limpio.split('\n'):
+        if linea.strip():
+            pdf.multi_cell(0, 5, linea)
+            pdf.ln(2)
+            
+    pdf.ln(5)
+    
+    # Sección 3: Recomendaciones estratégicas
+    pdf.set_font('Arial', 'B', 12)
+    pdf.set_text_color(38, 105, 78)
+    pdf.cell(0, 8, '3. Recomendaciones de Política Institucional', 0, 1, 'L')
+    pdf.set_font('Arial', '', 10)
+    pdf.set_text_color(50, 50, 50)
+    
+    recomendaciones = [
+        "Fortalecer los mecanismos de planeación financiera para elevar el porcentaje de ejecución presupuestal.",
+        "Revisar los arreglos organizacionales para reducir la alta dependencia de personal temporal (contratistas).",
+        "Articular los instrumentos de gestión del PDT con las problemáticas socio-territoriales identificadas en Puerto Rico, Caquetá."
+    ]
+    for r in recomendaciones:
+        pdf.multi_cell(0, 6, f"* {r}")
+        
+    return bytes(pdf.output())
 
 # =============================================================================
 # 3. BARRA LATERAL (SIDEBAR) - CONTROLES Y PARÁMETROS DE INTERACCIÓN
@@ -537,9 +611,21 @@ else:
     
     st.divider()
     
-    # Análisis detallado indicador por indicador y métricas calculadas (Oszlak y Orellana)
-    st.markdown("### 🤖 Síntesis y Análisis Dinámico de Déficits de Capacidad Institucional (DCI)")
-    st.caption("Auditoría basada en datos del formulario y cálculo de ratios de gobernanza (Oscar Oszlak y Edgardo Orellana).")
+    # Botón para descargar el reporte detallado en PDF
+    col_pdf1, col_pdf2 = st.columns([3, 1])
+    with col_pdf1:
+        st.markdown("### 🤖 Síntesis y Análisis Dinámico de Déficits de Capacidad Institucional (DCI)")
+        st.caption("Auditoría basada en datos del formulario y cálculo de ratios de gobernanza (Oscar Oszlak y Edgardo Orellana).")
+    with col_pdf2:
+        st.markdown("<br>", unsafe_allow_html=True)
+        pdf_bytes = generar_pdf_reporte(r_sadci)
+        st.download_button(
+            label="📄 Descargar Reporte PDF",
+            data=pdf_bytes,
+            file_name="Reporte_DCI_SIGOber.pdf",
+            mime="application/pdf",
+            use_container_width=True
+        )
     
     analisis_dci_texto = generar_analisis_dci_oszlak(r_sadci)
     st.info(analisis_dci_texto)
