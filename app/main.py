@@ -144,11 +144,19 @@ class ArcGISExportLayer(folium.map.Layer):
 CARTOGRAFIA_ARCGIS = {
     "UPRA — Frontera agrícola nacional (1:100.000)": {
         "url": "https://sig.upra.gov.co/server/rest/services/ordenamiento_productivo/frontera_agricola/MapServer",
-        "attribution": "UPRA · Frontera agrícola nacional · 1:100.000"
+        "attribution": "UPRA · Frontera agrícola nacional · 1:100.000", "modo": "teselas"
     },
     "UPRA — Frontera agrícola condicionada": {
         "url": "https://sig.upra.gov.co/server/rest/services/ordenamiento_productivo/frontera_agricola_condicionada/MapServer",
-        "attribution": "UPRA · Frontera agrícola y frontera agrícola condicionada"
+        "attribution": "UPRA · Frontera agrícola y frontera agrícola condicionada", "modo": "teselas"
+    },
+    "SGC — Amenaza sísmica nacional (PGA 475 años)": {
+        "url": "https://geoportal.sgc.gov.co/arcgis/rest/services/Amenaza_Sismica/Mapa_Amenaza_Sismica_Nacional_PGA475/MapServer",
+        "layers": "0", "attribution": "Servicio Geológico Colombiano · PGA 475 años", "modo": "export"
+    },
+    "Parques Nacionales — Áreas protegidas RUNAP": {
+        "url": "https://mapas.parquesnacionales.gov.co/arcgis/rest/services/pnn/runap/MapServer",
+        "layers": "0", "attribution": "Parques Nacionales Naturales · Registro Único Nacional de Áreas Protegidas", "modo": "export"
     },
 }
 
@@ -480,12 +488,19 @@ def construir_mapa(
         config = CARTOGRAFIA_ARCGIS.get(nombre_capa)
         if not config:
             continue
-        folium.TileLayer(
-            tiles=config["url"].rstrip("/") + "/tile/{z}/{y}/{x}",
-            name=nombre_capa, attr=config["attribution"],
-            overlay=True, control=True, show=True, opacity=0.68,
-            min_zoom=5, max_zoom=14,
-        ).add_to(m)
+        if config.get("modo") == "export":
+            ArcGISExportLayer(
+                name=nombre_capa, layers=config["layers"],
+                service_url=config["url"], attribution=config["attribution"],
+                opacity=0.72,
+            ).add_to(m)
+        else:
+            folium.TileLayer(
+                tiles=config["url"].rstrip("/") + "/tile/{z}/{y}/{x}",
+                name=nombre_capa, attr=config["attribution"],
+                overlay=True, control=True, show=True, opacity=0.68,
+                min_zoom=5, max_zoom=14,
+            ).add_to(m)
 
     folium.LayerControl(collapsed=False).add_to(m)
     return m, time.perf_counter() - inicio
@@ -721,10 +736,10 @@ with st.sidebar:
                     st.caption(f"Capa no ofrecida: {nombre}. {config.get('detalle_validacion', 'No validada')}")
 
             capas_upra = st.multiselect(
-                "UPRA · servicios ArcGIS REST (teselas, no WMS)",
+                "Servicios oficiales ArcGIS REST (teselas y exportación dinámica)",
                 options=list(CARTOGRAFIA_ARCGIS.keys()),
                 key="sb_cartografia_arcgis_upra_v2",
-                help="Frontera agrícola nacional y frontera agrícola condicionada.",
+                help="UPRA usa teselas; SGC y RUNAP generan imágenes dinámicas desde MapServer. Capas independientes y acumulables.",
             )
             cartografia_local_disponible = nombres_cartografia_local_disponible()
             capas_locales_sb = st.multiselect(
