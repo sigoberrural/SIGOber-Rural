@@ -528,36 +528,39 @@ veredas_df=propiedades_veredas(topo); nombres=veredas_df[["CODIGO_VER","NOMBRE_V
 
 def render_mapa_interactivo():
     st.markdown("<div class='sigo-section'>Mapa territorial</div>", unsafe_allow_html=True)
-    st.write("Empieza por elegir una consulta. Puedes usar el mapa sin configurar capas.")
+    st.write("Elige primero qué información quieres ver. El mapa funciona con la configuración inicial; los filtros y las capas adicionales son opcionales.")
     vista = st.radio(
-        "¿Qué quieres consultar?",
+        "Selecciona el contenido del mapa",
         ["Veredas y territorio", "Situaciones documentadas", "Ordenamiento PBOT 2015"],
         horizontal=True,
         key="vista_principal_mapa",
-        help="Cada opción prepara el mapa para una tarea habitual.",
+        help="Veredas: límites y atributos. Situaciones: registros territoriales disponibles. PBOT: cartografía de formulación 2015.",
     )
 
-    controles, detalle = st.columns([1.25, 2.75], gap="medium")
+    controles, detalle = st.columns([1.1, 2.9], gap="large")
     with controles:
-        seleccion = st.selectbox("Vereda", opciones, index=0, key="vereda_principal")
+        st.markdown("**Localiza un territorio**")
+        seleccion = st.selectbox("Vereda que quieres consultar", opciones, index=0, key="vereda_principal")
         codigo_sel = "" if seleccion == "Todas las veredas" else seleccion.split(" — ")[-1]
-        st.caption("Elige una vereda para resaltarla en el mapa. También puedes dejar todas las veredas.")
+        st.caption("Puedes consultar el municipio completo o resaltar una vereda.")
         pbot_opciones = {archivo: titulo for archivo, titulo, _, _ in cargar_pbot_capas()}
         pbot_seleccionada = None
         if vista == "Ordenamiento PBOT 2015":
+            st.markdown("**Elige la información de ordenamiento**")
             opciones_pbot = {"": "Selecciona una capa…"}
             opciones_pbot.update({archivo: titulo for archivo, titulo in pbot_opciones.items()})
             pbot_seleccionada = st.selectbox(
-                "Capa de ordenamiento",
+                "Capa del PBOT 2015",
                 options=list(opciones_pbot.keys()),
                 format_func=lambda x: opciones_pbot[x],
                 key="pbot_principal",
-                help="Las capas disponibles corresponden al PBOT 2015; no representan una actualización del instrumento.",
+                help="Esta cartografía corresponde a la formulación PBOT 2015; no implica actualización al PBOT 2023.",
             )
             if not pbot_opciones:
                 st.warning("No hay capas PBOT locales disponibles en esta versión.")
-        with st.expander("Afinar la consulta (opcional)", expanded=False):
-            eventos_f = historicos.copy()
+        eventos_f = historicos.copy()
+        mostrar_conflictos = True
+        with st.expander("Filtros de situaciones (opcional)", expanded=False):
             if not eventos_f.empty:
                 anios = sorted([x for x in eventos_f.get("anio", pd.Series(dtype=str)).astype(str).unique() if x], reverse=True)
                 tipos = sorted([x for x in eventos_f.get("tipo_conflicto", pd.Series(dtype=str)).astype(str).unique() if x])
@@ -574,23 +577,24 @@ def render_mapa_interactivo():
             else:
                 st.info("La fuente local de situaciones no contiene registros disponibles.")
             mostrar_conflictos = st.checkbox(
-                "Mostrar puntos de la hoja institucional Conflictos",
+                "Incluir puntos de la hoja institucional Conflictos",
                 value=True,
                 disabled=vista != "Situaciones documentadas",
-                help="Los puntos proceden de una fuente institucional separada del archivo histórico local.",
+                help="Es una fuente institucional independiente de los registros históricos asociados a veredas.",
                 key="mostrar_puntos_conflictos",
             )
-            st.caption("Las capas oficiales IGAC/UPRA dependen de conexión a internet.")
+        cartografia_local_disponible = nombres_cartografia_local_disponible()
+        with st.expander("Capas cartográficas adicionales (opcional)", expanded=False):
+            st.caption("Las capas oficiales IGAC/UPRA requieren conexión a internet. Las capas locales solo aparecen si sus archivos están disponibles en el repositorio.")
             cartografia_oficial_seleccionada = st.multiselect(
-                "Capas oficiales remotas",
+                "Capas oficiales en línea · IGAC / UPRA",
                 options=list(CARTOGRAFIA_OFICIAL.keys()),
                 default=[],
                 key="capas_remotas_principal",
-                help="Actívalas solo si necesitas información cartográfica adicional.",
+                help="Activa una o más capas para añadir información de referencia al mapa.",
             )
-            cartografia_local_disponible = nombres_cartografia_local_disponible()
             cartografia_local_seleccionada = st.multiselect(
-                "Capas IGAC descargadas",
+                "Capas IGAC disponibles localmente",
                 options=cartografia_local_disponible,
                 default=[],
                 key="capas_locales_principal",
