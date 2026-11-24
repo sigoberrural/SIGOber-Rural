@@ -58,18 +58,6 @@ PBOT_CAPAS = [
 
 # Servicios OGC/WMS con capas identificadas en los directorios oficiales.
 CARTOGRAFIA_WMS = {
-    "SGC — Amenaza sísmica nacional (PGA75)": {
-        "url": "https://geoportal.sgc.gov.co/arcgis/services/Amenaza_Sismica/Amenaza_Sismica_Nacional/MapServer/WMSServer",
-        "layers": "10", "attribution": "Servicio Geológico Colombiano · Amenaza sísmica nacional"
-    },
-    "SGC — Amenaza por movimientos en masa (1:100.000)": {
-        "url": "https://srvags.sgc.gov.co/arcgis/rest/services/Mapa_Nacional_Amenaza_Mov_Masa_100K/Mapa_Nacional_Amenaza_Movimientos_Masa_100K/MapServer/WMSServer",
-        "layers": "3,4", "attribution": "Servicio Geológico Colombiano · Mapa nacional 2015 · 1:100.000"
-    },
-    "SGC — Amenaza volcánica del Nevado del Huila": {
-        "url": "https://srvags.sgc.gov.co/arcgis/services/Amenaza_Volcanica/Amenaza_Volcanica/MapServer/WMSServer",
-        "layers": "35,36", "attribution": "Servicio Geológico Colombiano · Amenaza volcánica · Nevado del Huila"
-    },
     "Parques Nacionales — Áreas protegidas (RUNAP)": {
         "url": "https://mapas.parquesnacionales.gov.co/arcgis/rest/services/pnn/Limites_oficiales_Poligono/MapServer/WMSServer",
         "layers": "0", "attribution": "Parques Nacionales Naturales de Colombia · Límites oficiales de áreas protegidas"
@@ -78,16 +66,6 @@ CARTOGRAFIA_WMS = {
 
 # UPRA publica estos productos como servicios ArcGIS MapServer con caché de teselas,
 # no se presentan como WMS. Se mantienen en un selector independiente.
-IGAC_MAPSERVER_URL = "https://mapas2.igac.gov.co/server3/rest/services/carto/carto10000puertorico18592/MapServer"
-CARTOGRAFIA_IGAC = {
-    "IGAC — Vías, puentes y límites viales (1:10.000)": "6,8,9,10",
-    "IGAC — Drenajes y cuerpos de agua (1:10.000)": "13,14,17,18",
-    "IGAC — Construcciones y zonas duras (1:10.000)": "0,15,16",
-    "IGAC — Curvas de nivel, piscinas y bosque (1:10.000)": "7,19,20",
-    "IGAC — Nombres geográficos y unidades administrativas (1:10.000)": "1,2",
-    "IGAC — Elementos de servicios públicos (1:10.000)": "3,4",
-}
-
 class ArcGISExportLayer(folium.map.Layer):
     """Capa dinámica ArcGIS REST: solicita una imagen por tesela y reproyecta a EPSG:3857."""
     _template = Template(r"""
@@ -521,16 +499,6 @@ def construir_mapa(
             opacity=0.78,
         ).add_to(m)
 
-    # Cartografía IGAC: MapServer dinámico sin caché XYZ; se consume con Export Map.
-    for nombre_capa in igac_seleccionadas:
-        ids_capa = CARTOGRAFIA_IGAC.get(nombre_capa)
-        if ids_capa:
-            ArcGISExportLayer(
-                name=nombre_capa, layers=ids_capa,
-                attribution="IGAC · Cartografía básica Puerto Rico, Caquetá · escala 1:10.000",
-                opacity=0.82,
-            ).add_to(m)
-
     # Servicios UPRA servidos como teselas ArcGIS REST (no son WMS).
     for nombre_capa in arcgis_seleccionadas:
         config = CARTOGRAFIA_ARCGIS.get(nombre_capa)
@@ -751,28 +719,16 @@ with st.sidebar:
             st.caption("Selecciona cartografía oficial. IGAC se consulta mediante imágenes dinámicas ArcGIS REST; SGC y Parques Nacionales mediante WMS. Cada capa es independiente.")
 
             catalogo_wms_disponible, estados_wms = validar_catalogo_wms()
-            opciones_igac = list(CARTOGRAFIA_IGAC.keys())
-            opciones_sgc = [n for n in catalogo_wms_disponible if n.startswith("SGC —")]
             opciones_pnn = [n for n in catalogo_wms_disponible if n.startswith("Parques Nacionales —")]
 
-            capas_igac = st.multiselect(
-                "IGAC · cartografía básica municipal 1:10.000 (servicio dinámico)",
-                options=opciones_igac,
-                key="sb_cartografia_igac_export_v1",
-                help="Servicio oficial ArcGIS MapServer dinámico. Cada capa solicita imágenes reproyectadas a EPSG:3857 para el visor.",
-            )
-            capas_sgc = st.multiselect(
-                "SGC · geología y amenazas",
-                options=opciones_sgc,
-                key="sb_cartografia_wms_sgc_v3",
-                help="Solo se ofrecen capas WMS publicadas por el servicio.",
-            )
             capas_pnn = st.multiselect(
                 "Parques Nacionales · áreas protegidas",
                 options=opciones_pnn,
                 key="sb_cartografia_wms_pnn_v3",
             )
-            wms_sel_sb = capas_igac + capas_sgc + capas_pnn
+            # IGAC 1:10.000 y SGC WMS se retiran hasta validar imágenes en el visor.
+            wms_sel_sb = capas_pnn
+            capas_igac = []
 
             if not catalogo_wms_disponible:
                 st.warning("No se pudo validar ningún servicio WMS en este momento. Comprueba la conexión o inténtalo más tarde.")
