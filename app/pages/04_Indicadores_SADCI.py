@@ -96,116 +96,64 @@ with st.sidebar:
     busqueda = st.text_input("Buscar indicador", placeholder="Código o nombre…", key="sadci_busqueda")
     estado_sel = st.selectbox("Evaluación de meta", ["Todas", "Cumple meta", "No cumple meta", "Sin datos"], key="sadci_filtro_estado")
 
-tab_municipal, tab_veredal, tab_metodo = st.tabs(["Resumen municipal", "Disponibilidad veredal", "Metodología y calidad"])
+# La zona principal presenta exclusivamente resultados SADCI.
+filtrado = df.copy()
+if dimension_sel != "Todas":
+    filtrado = filtrado[filtrado["dimension"] == dimension_sel]
+if busqueda.strip():
+    q = busqueda.strip().casefold()
+    filtrado = filtrado[filtrado.apply(lambda r: q in str(r["codigo"]).casefold() or q in str(r["nombre"]).casefold(), axis=1)]
+mapa_estado = {"Cumple meta": "CUMPLE META", "No cumple meta": "NO CUMPLE META", "Sin datos": "SIN DATOS"}
+if estado_sel != "Todas":
+    filtrado = filtrado[filtrado["estado_meta"] == mapa_estado[estado_sel]]
 
-with tab_municipal:
-    calculables = [x for x in evaluados if x["resultado_calculado_pct"] is not None]
-    cumplen = sum(x["meta_cumplida"] is True for x in calculables)
-    pendientes = sum(x.get("estado_dato") == "PENDIENTE_VERIFICACION" for x in evaluados)
-    a, b, c, d = st.columns(4)
-    a.metric("Indicadores", len(evaluados))
-    b.metric("Cálculos reproducidos", len(calculables))
-    c.metric("Metas alcanzadas", cumplen, help="Según valores de la matriz y operadores explícitos.")
-    d.metric("Datos por verificar", pendientes)
+tabla = pd.DataFrame({
+    "Código": filtrado["codigo"], "Dimensión": filtrado["dimension"],
+    "Indicador": filtrado["nombre"], "Resultado (%)": filtrado["resultado_mostrar"],
+    "Meta": filtrado["meta_texto"], "Evaluación": filtrado["estado_meta"],
+    "Semáforo de origen": filtrado["semaforo_fuente"], "Estado del dato": filtrado["estado_dato"],
+})
+st.dataframe(tabla, use_container_width=True, hide_index=True, column_config={"Resultado (%)": st.column_config.NumberColumn(format="%.2f%%")})
+st.caption(f"Mostrando {len(filtrado)} de {len(evaluados)} indicadores. La evaluación automática y el semáforo de origen se muestran por separado.")
 
-    filtrado = df.copy()
-    if dimension_sel != "Todas":
-        filtrado = filtrado[filtrado["dimension"] == dimension_sel]
-    if busqueda.strip():
-        q = busqueda.strip().casefold()
-        filtrado = filtrado[filtrado.apply(lambda r: q in str(r["codigo"]).casefold() or q in str(r["nombre"]).casefold(), axis=1)]
-    mapa_estado = {"Cumple meta": "CUMPLE META", "No cumple meta": "NO CUMPLE META", "Sin datos": "SIN DATOS"}
-    if estado_sel != "Todas":
-        filtrado = filtrado[filtrado["estado_meta"] == mapa_estado[estado_sel]]
+export_cols = ["codigo", "dimension", "nombre", "resultado_calculado_pct", "meta_texto", "estado_meta", "semaforo_fuente", "estado_dato", "fuentes", "responsable", "periodicidad", "observaciones"]
+exp1, exp2, _ = st.columns([1, 1, 3])
+exp1.download_button("Descargar CSV", data=filtrado[export_cols].to_csv(index=False).encode("utf-8-sig"), file_name="indicadores_sadci_filtrados.csv", mime="text/csv", use_container_width=True)
+exp2.download_button("Descargar JSON", data=json.dumps(filtrado[export_cols].to_dict(orient="records"), ensure_ascii=False, indent=2, default=str).encode("utf-8"), file_name="indicadores_sadci_filtrados.json", mime="application/json", use_container_width=True)
 
-    tabla = pd.DataFrame({
-        "Código": filtrado["codigo"], "Dimensión": filtrado["dimension"],
-        "Indicador": filtrado["nombre"], "Resultado (%)": filtrado["resultado_mostrar"],
-        "Meta": filtrado["meta_texto"], "Evaluación": filtrado["estado_meta"],
-        "Semáforo de origen": filtrado["semaforo_fuente"], "Estado del dato": filtrado["estado_dato"],
-    })
-    st.dataframe(tabla, use_container_width=True, hide_index=True, column_config={"Resultado (%)": st.column_config.NumberColumn(format="%.2f%%")})
-    st.caption(f"Mostrando {len(filtrado)} de {len(evaluados)} indicadores. La evaluación automática y el semáforo de origen se muestran por separado.")
+if not filtrado.empty:
+    st.subheader("Resultados por indicador")
+    graf = filtrado[["codigo", "nombre", "resultado_mostrar", "valor_meta", "dimension"]].dropna(subset=["resultado_mostrar"])
+    if not graf.empty:
+        graf = graf.rename(columns={"codigo": "Código", "nombre": "Indicador", "resultado_mostrar": "Resultado (%)", "valor_meta": "Umbral (%)"})
+        fig = px.bar(graf, x="Resultado (%)", y="Código", orientation="h", hover_name="Indicador", hover_data={"Umbral (%)": True, "Resultado (%)": ":.2f"}, color="dimension", labels={"dimension": "Dimensión"})
+        fig.update_layout(height=max(320, 42 * len(graf)), margin=dict(l=8, r=12, t=15, b=10), legend_title_text="Dimensión", xaxis_title="Resultado calculado (%)", yaxis_title="")
+        fig.update_yaxes(autorange="reversed")
+        st.plotly_chart(fig, use_container_width=True, config={"displaylogo": False})
+        st.caption("Los umbrales se muestran como referencia. Las metas tienen direcciones y escalas distintas; las barras no constituyen un ranking de desempeño.")
 
-    export_cols = ["codigo", "dimension", "nombre", "resultado_calculado_pct", "meta_texto", "estado_meta", "semaforo_fuente", "estado_dato", "fuentes", "responsable", "periodicidad", "observaciones"]
-    exp1, exp2, _ = st.columns([1, 1, 3])
-    exp1.download_button("Descargar CSV", data=filtrado[export_cols].to_csv(index=False).encode("utf-8-sig"), file_name="indicadores_sadci_filtrados.csv", mime="text/csv", use_container_width=True)
-    exp2.download_button("Descargar JSON", data=json.dumps(filtrado[export_cols].to_dict(orient="records"), ensure_ascii=False, indent=2, default=str).encode("utf-8"), file_name="indicadores_sadci_filtrados.json", mime="application/json", use_container_width=True)
+st.subheader("Fichas técnicas")
+for x in filtrado.to_dict(orient="records"):
+    with st.expander(f'{x["codigo"]} · {x["nombre"]}'):
+        left, right = st.columns(2)
+        with left:
+            st.markdown(f'**Dimensión:** {x["dimension"]}')
+            st.markdown(f'**Fórmula:** {x["formula"]}')
+            st.markdown(f'**Numerador:** {x["numerador"]}')
+            st.markdown(f'**Denominador:** {x["denominador"]}')
+            st.markdown(f'**Meta:** {x["meta_texto"]}')
+            st.markdown(f'**Dirección deseable:** {"Menor es mejor" if x["direccion"] == "menor_es_mejor" else "Mayor es mejor"}')
+        with right:
+            st.markdown(f'**Valores de la matriz:** {x["valor_numerador"]} / {x["valor_denominador"]}')
+            valor = x["resultado_calculado_pct"]
+            st.metric("Resultado reproducido", f"{valor:.2f}%" if valor is not None else "Sin datos calculables")
+            st.markdown(f'**Evaluación de meta:** {x["estado_meta"]}')
+            st.markdown(f'**Semáforo de origen:** {x.get("semaforo_fuente", "No informado")}')
+            st.markdown(f'**Fuentes declaradas:** {x["fuentes"]}')
+            st.markdown(f'**Responsable:** {x["responsable"]}')
+            st.markdown(f'**Periodicidad:** {x["periodicidad"]}')
+        if x.get("semaforo_fuente_requiere_revision"):
+            st.error("Inconsistencia: la hoja marca VERDE, pero el resultado no cumple la meta explícita.")
+        st.info(x.get("observaciones", "Pendiente de precisar criterios de medición."))
+        st.caption("Estado de evidencia: pendiente de verificación documental.")
 
-    if not filtrado.empty:
-        st.subheader("Resultados por indicador")
-        graf = filtrado[["codigo", "nombre", "resultado_mostrar", "valor_meta", "dimension"]].dropna(subset=["resultado_mostrar"])
-        if not graf.empty:
-            graf = graf.rename(columns={"codigo": "Código", "nombre": "Indicador", "resultado_mostrar": "Resultado (%)", "valor_meta": "Umbral (%)"})
-            fig = px.bar(graf, x="Resultado (%)", y="Código", orientation="h", hover_name="Indicador", hover_data={"Umbral (%)": True, "Resultado (%)": ":.2f"}, color="dimension", labels={"dimension": "Dimensión"})
-            fig.update_layout(height=max(320, 42 * len(graf)), margin=dict(l=8, r=12, t=15, b=10), legend_title_text="Dimensión", xaxis_title="Resultado calculado (%)", yaxis_title="")
-            fig.update_yaxes(autorange="reversed")
-            st.plotly_chart(fig, use_container_width=True, config={"displaylogo": False})
-            st.caption("Los umbrales se muestran como referencia. Las metas tienen direcciones y escalas distintas; las barras no constituyen un ranking de desempeño.")
-
-    st.subheader("Fichas técnicas")
-    for x in filtrado.to_dict(orient="records"):
-        with st.expander(f'{x["codigo"]} · {x["nombre"]}'):
-            left, right = st.columns(2)
-            with left:
-                st.markdown(f'**Dimensión:** {x["dimension"]}')
-                st.markdown(f'**Fórmula:** {x["formula"]}')
-                st.markdown(f'**Numerador:** {x["numerador"]}')
-                st.markdown(f'**Denominador:** {x["denominador"]}')
-                st.markdown(f'**Meta:** {x["meta_texto"]}')
-                st.markdown(f'**Dirección deseable:** {"Menor es mejor" if x["direccion"] == "menor_es_mejor" else "Mayor es mejor"}')
-            with right:
-                st.markdown(f'**Valores de la matriz:** {x["valor_numerador"]} / {x["valor_denominador"]}')
-                valor = x["resultado_calculado_pct"]
-                st.metric("Resultado reproducido", f"{valor:.2f}%" if valor is not None else "Sin datos calculables")
-                st.markdown(f'**Evaluación de meta:** {x["estado_meta"]}')
-                st.markdown(f'**Semáforo de origen:** {x.get("semaforo_fuente", "No informado")}')
-                st.markdown(f'**Fuentes declaradas:** {x["fuentes"]}')
-                st.markdown(f'**Responsable:** {x["responsable"]}')
-                st.markdown(f'**Periodicidad:** {x["periodicidad"]}')
-            if x.get("semaforo_fuente_requiere_revision"):
-                st.error("Inconsistencia: la hoja marca VERDE, pero el resultado no cumple la meta explícita.")
-            st.info(x.get("observaciones", "Pendiente de precisar criterios de medición."))
-            st.caption("Estado de evidencia: pendiente de verificación documental.")
-
-with tab_veredal:
-    st.subheader("Disponibilidad para análisis veredal")
-    st.write("La matriz actual contiene valores agregados de capacidad institucional municipal. La desagregación requiere datos territoriales observados y una definición válida de la unidad de análisis.")
-    readiness = [{
-        "Código": x["codigo"], "Indicador": x["nombre"],
-        "Escala actual": "Municipal", "Estado veredal": "Sin datos veredales validados",
-        "Condición para habilitar": x["desagregacion_veredal"],
-    } for x in evaluados]
-    st.dataframe(pd.DataFrame(readiness), use_container_width=True, hide_index=True)
-    st.markdown("#### Esquema mínimo de registro veredal")
-    st.code("codigo_indicador | codigo_vereda | periodo | numerador | denominador | fuente | fecha_corte | responsable | estado_validacion", language="text")
-    st.warning("No se prorratean valores municipales entre veredas. Los indicadores normativos, organizacionales o de vinculación pueden no admitir desagregación veredal directa.")
-
-with tab_metodo:
-    st.subheader("Reglas de cálculo")
-    st.markdown(
-        "- Resultado (%) = numerador / denominador × 100.\n"
-        "- Si falta el denominador, no es numérico o es menor o igual a cero, el resultado no se calcula.\n"
-        "- La meta se evalúa con el operador literal consignado en la matriz.\n"
-        "- La evaluación de meta no reemplaza el semáforo de origen.\n"
-        "- No se inventan bandas amarillas o rojas mientras no se aprueben sus umbrales."
-    )
-    st.subheader("Controles pendientes de cierre")
-    controles = [
-        ("Fuentes documentales", "Contrastar cada valor con el documento institucional y registrar fecha de corte."),
-        ("Universo de conteo", "Aprobar qué procesos, convenios, activos, personas o metas se incluyen."),
-        ("Semáforos", "Definir bandas y sentido de mejora por indicador."),
-        ("Periodicidad NSF", "Confirmar si “Bi-anual” significa semestral o bienal."),
-        ("Series temporales", "Comparar periodos solo si son metodológicamente equivalentes."),
-        ("Escala veredal", "Habilitar únicamente con numeradores y denominadores territorializados y trazables."),
-    ]
-    for titulo, detalle in controles:
-        st.markdown(f"- **{titulo}:** {detalle}")
-    st.subheader("Control de consistencia")
-    conflictos = [x for x in evaluados if x.get("semaforo_fuente_requiere_revision")]
-    if conflictos:
-        for x in conflictos:
-            st.error(f'{x["codigo"]}: semáforo fuente VERDE incompatible con la meta ({x["estado_meta"]}).')
-    else:
-        st.success("No se detectaron contradicciones directas entre VERDE y la meta explícita.")
-    st.caption("La matriz y las fichas siguen siendo instrumentos de trabajo hasta completar la verificación institucional.")
