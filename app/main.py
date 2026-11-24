@@ -869,37 +869,18 @@ with st.sidebar:
             )
 
         with st.expander("05 · Cartografía oficial complementaria", expanded=False):
-
-            catalogo_wms_disponible, estados_wms = validar_catalogo_wms()
-            opciones_pnn = [n for n in catalogo_wms_disponible if n.startswith("Parques Nacionales —")]
-
-            capas_pnn = st.multiselect(
-                "Parques Nacionales · áreas protegidas",
-                options=opciones_pnn,
-                key="sb_cartografia_wms_pnn_v3",
-            )
-            # IGAC 1:10.000 y SGC WMS se retiran hasta validar imágenes en el visor.
-            wms_sel_sb = capas_pnn
-            capas_igac = []
-
-
             capas_upra = st.multiselect(
                 "Servicios oficiales ArcGIS REST (teselas y exportación dinámica)",
                 options=list(CARTOGRAFIA_ARCGIS.keys()),
                 key="sb_cartografia_arcgis_upra_v2",
-                help="UPRA usa teselas; SGC y RUNAP generan imágenes dinámicas desde MapServer. Capas independientes y acumulables.",
+                help="Selecciona las capas oficiales disponibles. Pueden superponerse entre sí y con la cartografía base.",
             )
-            cartografia_local_disponible = nombres_cartografia_local_disponible()
-            capas_locales_sb = st.multiselect(
-                "IGAC · archivos descargados disponibles en el proyecto",
-                options=cartografia_local_disponible,
-                key="sb_cartografia_local",
-                help="Solo aparecen archivos GeoJSON realmente presentes en data/cartografia_oficial/igac.",
-            )
-            if not cartografia_local_disponible:
-                st.caption("No hay capas IGAC descargadas localmente en el repositorio; el selector se habilitará cuando se incorporen los archivos.")
+            # Listas vacías para conservar compatibilidad con el estado del mapa.
+            wms_sel_sb = []
+            capas_igac = []
+            capas_locales_sb = []
 
-            # Guía contextual para las capas activas: permanece en el panel izquierdo.
+            # Guía contextual para las capas activas.
             seleccionadas_ficha = []
             if mostrar_veredas:
                 seleccionadas_ficha.append("Límites y nombres de veredas")
@@ -908,9 +889,7 @@ with st.sidebar:
                 seleccionadas_ficha.append("Mostrar situaciones validadas por vereda")
             if mostrar_gsheets:
                 seleccionadas_ficha.append("Mostrar puntos con coordenadas válidas")
-            seleccionadas_ficha.extend(wms_sel_sb)
             seleccionadas_ficha.extend(capas_upra)
-            seleccionadas_ficha.extend(capas_locales_sb)
             if seleccionadas_ficha:
                 with st.expander("ℹ️ Guía para interpretar las capas seleccionadas", expanded=False):
                     for nombre_ficha in seleccionadas_ficha:
@@ -952,8 +931,6 @@ with st.sidebar:
                                         col_txt.caption(f"{item['capa']}: {item['etiqueta']}")
                                 else:
                                     st.caption("El servicio no entregó una leyenda consultable. No se asignan colores por inferencia; consulte la leyenda del geoportal de origen.")
-                        elif nombre_ficha in capas_locales_sb:
-                            st.caption("La simbología de esta capa local se define en su estilo cartográfico. Consulte los atributos de cada elemento para interpretar su categoría.")
                         elif nombre_ficha in pbot_opciones_sb.values():
                             st.caption("La simbología oficial del PBOT debe interpretarse con la leyenda del plano y el documento técnico de formulación de 2015. No se reconstruyen categorías ni colores sin esa fuente.")
                         st.divider()
