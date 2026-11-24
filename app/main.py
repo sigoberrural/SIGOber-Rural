@@ -1,10 +1,10 @@
 """
 =============================================================================
 PROYECTO: SIGOber-Rural
-ARCHIVO: main.py (Rama Develope - Exploración y Módulo Ingesta/SADCI Integrado)
+ARCHIVO: main.py (Rama Develope - Exploración y SADCI con Controles a la Izq y Resultados a la Der)
 DESCRIPCIÓN: Aplicación principal con navegación dinámica en barra lateral 
-             para alternar entre Exploración Cartográfica y el módulo completo 
-             de Ingesta y Gestión SADCI.
+             para alternar entre Exploración Cartográfica y el módulo de Gestión SADCI,
+             separando controles de interacción y paneles de resultados.
 =============================================================================
 """
 
@@ -215,7 +215,7 @@ def construir_mapa(topo, eventos_historicos, conflictos=None, codigo_seleccionad
         for row in validos.itertuples(index=False):
             data = row._asdict()
             folium.CircleMarker(
-                location=[float(data["lat_num"], float(data["lon_num"]))],
+                location=[float(data["lat_num"]), float(data["lon_num"])],
                 radius=7, weight=2, fill=True, fill_opacity=0.85,
                 tooltip=f"{data.get('tipo_conflicto', 'Situación')} — {data.get('vereda', '')}",
                 popup=folium.Popup(popup_conflicto(data), max_width=340)
@@ -256,7 +256,7 @@ def indicador_pct(valor): return "—" if valor is None or pd.isna(valor) else f
 
 
 # =============================================================================
-# 3. BARRA LATERAL (SIDEBAR) - NAVEGACIÓN Y PARÁMETROS
+# 3. BARRA LATERAL (SIDEBAR) - CONTROLES Y PARÁMETROS DE INTERACCIÓN
 # =============================================================================
 
 with st.sidebar:
@@ -278,6 +278,7 @@ with st.sidebar:
             
     st.divider()
     
+    # Controles exclusivos para Exploración Cartográfica
     if st.session_state["sidebar_seccion_activa"] == "Exploración":
         st.markdown("### 🗺️ Parámetros de Mapa")
         st.caption("Filtros y capas para la lectura territorial:")
@@ -311,20 +312,42 @@ with st.sidebar:
         st.session_state["map_mostrar_gsheets"] = mostrar_gsheets
         st.session_state["map_pbot"] = pbot_sel_sb
         
+    # Controles exclusivos para Ingesta y Gestión SADCI (Izquierda)
     else:
-        st.markdown("### 📥 Ingesta y Gestión SADCI")
-        st.caption("Herramientas de control institucional:")
-        st.markdown("• Carga de problemáticas")
-        st.markdown("• Actualización de indicadores DCI")
-        st.markdown("• Archivos temporales")
+        st.markdown("### 📥 Controles SADCI")
+        st.caption("Gestión y cálculo de indicadores DCI:")
         
+        try:
+            catalogo_sadci = cargar_catalogo()
+            
+            st.markdown("**1. Descarga de Plantilla**")
+            st.download_button(
+                "Descargar plantilla Excel",
+                data=crear_excel_plantilla("sadci", catalogo_sadci),
+                file_name="plantilla_actualizacion_sadci.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True,
+            )
+            st.caption("Completa numerador, denominador, periodo, fecha de corte, fuente y responsable.")
+            
+            st.divider()
+            st.markdown("**2. Carga y Validación**")
+            sadci_file = st.file_uploader("Cargar plantilla completada", type=["csv", "xlsx", "xls"], key="sb_sadci_file")
+            
+            st.session_state["sb_sadci_file_obj"] = sadci_file
+            st.session_state["sb_catalogo_sadci"] = catalogo_sadci
+            
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            st.error(f"Error al preparar plantilla: {exc}")
+            st.session_state["sb_sadci_file_obj"] = None
+
     st.divider()
     st.caption("Puerto Rico · Caquetá")
     st.caption("Versión 1.0 en preparación")
 
 
 # =============================================================================
-# 4. INTERFAZ PRINCIPAL (CONDICIONAL SEGÚN SECCIÓN ACTIVA)
+# 4. INTERFAZ PRINCIPAL (RESULTADOS A LA DERECHA)
 # =============================================================================
 
 if st.session_state["sidebar_seccion_activa"] == "Exploración":
@@ -368,60 +391,49 @@ else:
     st.markdown("""
     <div style='padding:.2rem 0 .6rem'>
         <div style='font-size:.72rem;font-weight:750;letter-spacing:.14em;text-transform:uppercase;opacity:.62'>Capacidad institucional</div>
-        <div style='font-size:2.25rem;font-weight:820;line-height:1.04;margin:.1rem 0 .25rem'>Ingesta y Gestión SADCI</div>
-        <div style='font-size:.96rem;opacity:.72'>Incorpora y valida información institucional mediante plantillas guiadas para el cálculo de indicadores.</div>
+        <div style='font-size:2.25rem;font-weight:820;line-height:1.04;margin:.1rem 0 .25rem'>Resultados e Indicadores SADCI</div>
+        <div style='font-size:.96rem;opacity:.72'>Visualización de resultados de validación técnica y cálculo de indicadores DCI.</div>
     </div>
     """, unsafe_allow_html=True)
     
-    # Módulo completo de ingesta SADCI integrado (Plantilla, subida, validación y confirmación)
-    try:
-        catalogo_sadci = cargar_catalogo()
+    sadci_file = st.session_state.get("sb_sadci_file_obj")
+    catalogo_sadci = st.session_state.get("sb_catalogo_sadci")
+    
+    if sadci_file is not None and catalogo_sadci is not None:
+        try:
+            sadci_df = leer_archivo_tabular(sadci_file)
+            sadci_review = validar_importacion_sadci(sadci_df, catalogo_sadci)
+            valid_count = int(sadci_review["valido_revision_tecnica"].sum())
+            
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Filas leídas", len(sadci_review))
+            c2.metric("Sin errores técnicos", valid_count)
+            c3.metric("Con errores", len(sadci_review) - valid_count)
+            
+            st.divider()
+            st.subheader("Informe de validación y cálculo")
+            st.dataframe(sadci_review, use_container_width=True, hide_index=True)
+            st.download_button("Descargar informe de validación SADCI", sadci_review.to_csv(index=False).encode("utf-8-sig"), "revision_sadci.csv", "text/csv")
+            
+            if valid_count != len(sadci_review) or sadci_review.empty:
+                st.error("Corrige los códigos, periodos y valores numéricos indicados en el informe antes de confirmar.")
+            else:
+                st.info("Los valores importados están listos para ser incorporados.")
+                if st.button("Confirmar actualización SADCI en esta sesión", key="confirm_sadci_import", type="primary"):
+                    st.session_state.sigo_sadci_importado = sadci_review.drop(columns=["errores_validacion", "valido_revision_tecnica"]).copy()
+                    st.success(f"Se incorporaron {len(sadci_review)} filas SADCI a la sesión actual.")
+                    st.rerun()
+                    
+        except (ValueError, UnicodeDecodeError, pd.errors.ParserError) as exc:
+            st.error(f"No se pudo leer la plantilla cargada: {exc}")
+    else:
+        st.info("👈 Selecciona y carga tu plantilla completada en el panel izquierdo (Controles SADCI) para visualizar aquí los resultados, métricas e informe de validación.")
         
-        st.subheader("1. Descargar plantilla de actualización SADCI")
-        st.download_button(
-            "Descargar plantilla Excel SADCI (Cálculo DCI)",
-            data=crear_excel_plantilla("sadci", catalogo_sadci),
-            file_name="plantilla_actualizacion_sadci.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=True,
-        )
-        st.caption("La plantilla incluye los códigos existentes. Completa numerador, denominador, periodo, fecha de corte, fuente y responsable. El porcentaje se calcula desde esos valores.")
+    if st.session_state.sigo_sadci_importado is not None:
         st.divider()
-        
-        st.subheader("2. Cargar, validar y confirmar actualización")
-        sadci_file = st.file_uploader("Carga la plantilla SADCI completada (CSV o Excel)", type=["csv", "xlsx", "xls"], key="sigo_sadci_template")
-        
-        if sadci_file is not None:
-            try:
-                sadci_df = leer_archivo_tabular(sadci_file)
-                sadci_review = validar_importacion_sadci(sadci_df, catalogo_sadci)
-                valid_count = int(sadci_review["valido_revision_tecnica"].sum())
-                
-                c1, c2, c3 = st.columns(3)
-                c1.metric("Filas leídas", len(sadci_review))
-                c2.metric("Sin errores técnicos", valid_count)
-                c3.metric("Con errores", len(sadci_review) - valid_count)
-                
-                st.dataframe(sadci_review, use_container_width=True, hide_index=True)
-                st.download_button("Descargar informe de validación SADCI", sadci_review.to_csv(index=False).encode("utf-8-sig"), "revision_sadci.csv", "text/csv")
-                
-                if valid_count != len(sadci_review) or sadci_review.empty:
-                    st.error("Corrige los códigos, periodos y valores numéricos antes de confirmar.")
-                else:
-                    st.info("Los valores importados quedan marcados como pendientes de verificación documental. No se modifican las metas ni las fórmulas del catálogo.")
-                    if st.button("Confirmar actualización SADCI en esta sesión", key="confirm_sadci_import", type="primary"):
-                        st.session_state.sigo_sadci_importado = sadci_review.drop(columns=["errores_validacion", "valido_revision_tecnica"]).copy()
-                        st.success(f"Se incorporaron {len(sadci_review)} filas SADCI a la sesión actual.")
-            except (ValueError, UnicodeDecodeError, pd.errors.ParserError) as exc:
-                st.error(f"No se pudo leer la plantilla SADCI: {exc}")
-                
-        if st.session_state.sigo_sadci_importado is not None:
-            current = st.session_state.sigo_sadci_importado
-            st.success(f"Actualización SADCI cargada en esta sesión: {len(current)} fila(s).")
-            st.dataframe(current, use_container_width=True, hide_index=True)
-            if st.button("Retirar actualización SADCI de esta sesión", key="clear_sadci_import"):
-                st.session_state.sigo_sadci_importado = None
-                st.rerun()
-                
-    except (OSError, ValueError, json.JSONDecodeError) as exc:
-        st.error(f"No fue posible preparar la plantilla SADCI: {exc}")
+        st.subheader("Registros SADCI activos en la sesión actual")
+        current = st.session_state.sigo_sadci_importado
+        st.dataframe(current, use_container_width=True, hide_index=True)
+        if st.button("Retirar actualización SADCI de esta sesión", key="clear_sadci_import"):
+            st.session_state.sigo_sadci_importado = None
+            st.rerun()
