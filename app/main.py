@@ -529,8 +529,8 @@ else:
     analisis_dci_texto = generar_analisis_dci_oszlak(r_sadci)
     st.info(analisis_dci_texto)
     
-    # Gráfico de Radar DCI (Estado y Umbrales)
-    st.markdown("#### 📊 Gráfico de Radar: Estado y Umbrales DCI")
+    # Gráfico de Estado y Umbrales DCI (Versión compatible y optimizada con Altair)
+    st.markdown("#### 📊 Gráfico de Dimensiones y Umbrales DCI")
     if r_sadci:
         df_radar_base = pd.DataFrame([
             {"Dimensión": "Ejecución Presupuestal", "Valor": r_sadci.get("ejecucion_presupuestal_pct", 0) or 0},
@@ -538,28 +538,27 @@ else:
             {"Dimensión": "Calificación MEPI", "Valor": r_sadci.get("calificacion_mepi", 0) or 0}
         ])
         
-        # Generación del gráfico de radar con Altair utilizando coordenadas polares
-        radar_chart = alt.Chart(df_radar_base).mark_polygon(
-            fillOpacity=0.3,
-            strokeWidth=2
-        ).encode(
-            theta=alt.Theta("Dimensión:N", sort=None),
-            radius=alt.Radius("Valor:Q", scale=alt.Scale(domain=[0, 100])),
-            color=alt.value("#26694E"),
-            stroke=alt.value("#26694E"),
-            tooltip=["Dimensión", "Valor"]
+        # Gráfico de barras horizontales optimizado para lectura de capacidades DCI con umbral
+        bar_chart = alt.Chart(df_radar_base).mark_bar(cornerRadiusTopRight=4, cornerRadiusBottomRight=4).encode(
+            x=alt.X('Valor:Q', scale=alt.Scale(domain=[0, 100]), title="Grado de Cumplimiento (%)"),
+            y=alt.Y('Dimensión:N', sort='-x', title="Dimensión Institucional"),
+            color=alt.condition(
+                alt.datum.Valor < 70,
+                alt.value('#d73027'),  # Rojo si hay déficit crítico (< 70%)
+                alt.value('#26694E')   # Verde institucional si es favorable
+            ),
+            tooltip=['Dimensión', 'Valor']
+        ).properties(
+            height=240
         )
         
-        puntos_radar = alt.Chart(df_radar_base).mark_circle(size=60, color="#111111").encode(
-            theta=alt.Theta("Dimensión:N", sort=None),
-            radius=alt.Radius("Valor:Q", scale=alt.Scale(domain=[0, 100])),
-            tooltip=["Dimensión", "Valor"]
-        )
+        # Línea de referencia del umbral óptimo (70%)
+        linea_meta = alt.Chart(pd.DataFrame({'x': [70]})).mark_rule(strokeDash=[5, 5], color='orange').encode(x='x')
 
-        st.altair_chart(radar_chart + puntos_radar, use_container_width=True)
-        st.caption("🕸️ *El gráfico de radar evalúa de forma multidimensional el balance de las capacidades institucionales clave frente al límite porcentual de desempeño.*")
+        st.altair_chart(bar_chart + linea_meta, use_container_width=True)
+        st.caption("🟠 *La línea naranja discontinua (70%) marca el umbral mínimo aceptable de gestión y efectividad estatal según Oszlak y Orellana.*")
     else:
-        st.warning("No hay registros suficientes para renderizar el gráfico de radar.")
+        st.warning("No hay registros suficientes para renderizar el gráfico de capacidades.")
     
     st.divider()
     
