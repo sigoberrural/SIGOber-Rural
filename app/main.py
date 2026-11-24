@@ -14,6 +14,7 @@ import json
 import time
 from pathlib import Path
 
+import altair as alt
 import folium
 import pandas as pd
 import streamlit as st
@@ -262,16 +263,15 @@ def resumen_sadci(sadci):
 def indicador_pct(valor):
     return "—" if valor is None or pd.isna(valor) else f"{float(valor):.0f}%"
 
-def generar_descripcion_dinamica_sadci(r_sadci):
+def generar_analisis_dci_oszlak(r_sadci):
     """
-    Genera una descripción analítica y detallada indicador por indicador,
-    fundamentada en la metodología de Déficits de Capacidad Institucional (DCI)
-    de Oscar Oszlak y Edgardo Orellana.
+    Genera un diagnóstico profundo de Déficits de Capacidad Institucional (DCI)
+    fundamentado en el marco teórico de Oscar Oszlak y Edgardo Orellana,
+    desagregado indicador por indicador.
     """
     if not r_sadci:
-        return "No hay datos institucionales suficientes en la sesión actual para realizar el diagnóstico de capacidades según el enfoque de Oszlak y Orellana."
+        return "⚠️ Sin datos institucionales suficientes en la sesión actual para auditar los déficits de capacidad institucional (DCI)."
     
-    # Extracción de métricas base
     presupuesto = r_sadci.get("presupuesto_anual_rural", 0) or 0
     planta = r_sadci.get("num_personal_planta", 0) or 0
     contratistas = r_sadci.get("num_personal_contratista", 0) or 0
@@ -279,52 +279,53 @@ def generar_descripcion_dinamica_sadci(r_sadci):
     cumplimiento = r_sadci.get("cumplimiento_pdt_pct")
     mepi = r_sadci.get("calificacion_mepi")
     
-    analisis = []
+    total_personal = planta + contratistas
+    pct_contratistas = (contratistas / total_personal * 100) if total_personal > 0 else 0
     
-    # 1. Análisis Financiero (Déficits de capacidad financiera y física)
+    bloques = []
+    
+    # 1. Dimensión Material y Financiera
     presupuesto_str = f"{presupuesto:,.0f} COP" if presupuesto > 0 else "sin asignación registrada"
     if presupuesto > 0:
-        fin_val = f"El presupuesto anual rural asciende a **{presupuesto_str}**, lo que configura la base material de sustentación para la intervención estatal en el territorio."
+        fin_val = f"- **Presupuesto Asignado ({presupuesto_str}):** Suficiente en términos formales. Oszlak y Orellana señalan que la materialización de políticas rurales requiere recursos monetarios estables y liquidez oportuna para mitigar riesgos de inoperancia."
     else:
-        fin_val = f"Se detecta una restricción crítica o ausencia de asignación en el presupuesto anual rural (**{presupuesto_str}**), configurando un potencial *déficit financiero estructural* (Oszlak & Orellana)."
-    analisis.append(fin_val)
+        fin_val = f"- **Presupuesto Asignado ({presupuesto_str}):** Configura un *déficit financiero estructural crítico* al carecer de recursos monetarios base para la intervención estatal."
+    bloques.append("### 🏛️ 1. Dimensión de Capacidad Material y Financiera\n" + fin_val)
     
-    # 2. Análisis de Ejecución Presupuestal (Eficiencia en la asignación y gestión)
+    # 2. Dimensión Operativa y de Gestión
     if ejecucion is not None and not pd.isna(ejecucion):
-        if ejecucion >= 70:
-            ejec_val = f"En cuanto a la **Ejecución Presupuestal ({ejecucion:.0f}%)**, el indicador muestra una adecuada capacidad de conversión de los recursos financieros en acciones operativas efectivas."
-        else:
-            ejec_val = f"El indicador de **Ejecución Presupuestal se ubica en un bajo {ejecucion:.0f}%**, evidenciando un *déficit en la capacidad de gestión y absorción financiera* para cumplir los objetivos programados."
-        analisis.append(ejec_val)
-    
-    # 3. Análisis de Talento Humano: Planta vs Contratistas (Políticas de personal y burocracia)
-    total_personal = planta + contratistas
-    if total_personal > 0:
-        proporcion_contratistas = (contratistas / total_personal) * 100 if total_personal > 0 else 0
-        humano_val = (
-            f"Respecto al **Talento Humano**, la organización cuenta con **{int(total_personal)} colaboradores en total** "
-            f"({int(planta)} en planta y {int(contratistas)} contratistas). "
+        estado_ejec = "Óptima capacidad de absorción y conversión de recursos" if ejecucion >= 70 else "Déficit crítico de gestión y absorción financiera"
+        bloques.append(
+            "\n### ⚙️ 2. Dimensión de Eficiencia Operativa y Gestión\n"
+            f"- **Ejecución Presupuestal ({ejecucion:.0f}%):** Evaluado como *{estado_ejec}*. "
+            "Un porcentaje bajo refleja cuellos de botella burocráticos o limitaciones técnicas en la formulación de proyectos para ejecutar el gasto programado."
         )
-        if proporcion_contratistas > 50:
-            humano_val += f"La alta dependencia de personal externo ({proporcion_contratistas:.0f}% contratistas) sugiere un riesgo de fragilidad institucional y debilidad en la carrera administrativa y estabilidad técnica."
-        else:
-            humano_val += f"La estructura refleja un equilibrio razonable entre el cuadro permanente y el apoyo externo para la ejecución de políticas rurales."
-        analisis.append(humano_val)
-    
-    # 4. Análisis de Cumplimiento del PDT (Eficacia en el logro de metas públicas)
+        
+    # 3. Dimensión Burocrática y Organizacional
+    if total_personal > 0:
+        fragilidad_bureau = "alta fragilidad institucional y baja profesionalización" if pct_contratistas > 50 else "adecuado arraigo y estabilidad burocrática"
+        bloques.append(
+            "\n### 👥 3. Dimensión Burocrática y Arreglos Organizacionales\n"
+            f"- **Talento Humano ({int(total_personal)} total: {int(planta)} planta, {int(contratistas)} contratistas):** "
+            f"La proporción de contratistas equivale al **{pct_contratistas:.0f}%**, lo que denota **{fragilidad_bureau}**. "
+            "Según la perspectiva de Oszlak, la tercerización excesiva erosiona la memoria institucional y la estabilidad de la carrera administrativa."
+        )
+        
+    # 4. Dimensión Estratégica y de Resultados
     if cumplimiento is not None and not pd.isna(cumplimiento):
-        if cumplimiento >= 70:
-            pdt_val = f"El **Cumplimiento del PDT ({cumplimiento:.0f}%)** refleja una alta eficacia estatal para cristalizar las decisiones de política pública en bienes y servicios para la ciudadanía rural."
-        else:
-            pdt_val = f"El **Cumplimiento del PDT ({cumplimiento:.0f}%)** revela brechas significativas o retrasos en las metas proyectadas, señalando un *déficit de efectividad en la gestión de resultados*."
-        analisis.append(pdt_val)
+        eficacia_estado = "alta capacidad de co-producción de valor público" if cumplimiento >= 70 else "déficit de efectividad en el cumplimiento de metas"
+        bloques.append(
+            "\n### 📈 4. Dimensión Estratégica y de Resultados (Eficacia)\n"
+            f"- **Cumplimiento del PDT ({cumplimiento:.0f}%):** Diagnóstico de *{eficacia_estado}*. "
+            "Mide el grado en que la burocracia estatal logra incidir en la transformación de las condiciones socioeconómicas y territoriales."
+        )
         
-    # 5. Análisis MEPI (Desempeño Institucional y Calidad de la Gestión Fiscal)
     if mepi is not None and not pd.isna(mepi):
-        mepi_val = f"Finalmente, la **Calificación MEPI ({mepi:.1f} puntos)** sintetiza el desempeño institucional global, permitiendo dimensionar los arreglos de gobernanza y la calidad institucional frente a las demandas del entorno territorial."
-        analisis.append(mepi_val)
+        bloques.append(
+            f"\n- **Desempeño Institucional Global (MEPI: {mepi:.1f}/100):** Sintetiza la capacidad global de gestión fiscal y administrativa de la entidad territorial."
+        )
         
-    return " ".join(analisis)
+    return "\n".join(bloques)
 
 # =============================================================================
 # 3. BARRA LATERAL (SIDEBAR) - CONTROLES Y PARÁMETROS DE INTERACCIÓN
@@ -487,9 +488,41 @@ else:
     
     st.divider()
     
-    st.markdown("### 🤖 Síntesis y Análisis Dinámico Institucional")
-    descripcion_ia = generar_descripcion_dinamica_sadci(r_sadci)
-    st.info(descripcion_ia)
+    # Análisis detallado indicador por indicador (Marco Teórico: Oszlak y Orellana)
+    st.markdown("### 🤖 Síntesis y Análisis Dinámico de Déficits de Capacidad Institucional (DCI)")
+    st.caption("Auditoría institucional desagregada bajo los enfoques de Oscar Oszlak y Edgardo Orellana.")
+    
+    analisis_dci_texto = generar_analisis_dci_oszlak(r_sadci)
+    st.info(analisis_dci_texto)
+    
+    # Gráficos de estado DCI
+    st.markdown("#### 📊 Gráficos de Estado y Umbrales DCI")
+    if r_sadci:
+        df_dci_grafico = pd.DataFrame([
+            {"Indicador": "Ejecución Presupuestal", "Porcentaje": r_sadci.get("ejecucion_presupuestal_pct", 0) or 0},
+            {"Indicador": "Cumplimiento PDT", "Porcentaje": r_sadci.get("cumplimiento_pdt_pct", 0) or 0},
+            {"Indicador": "Calificación MEPI", "Porcentaje": r_sadci.get("calificacion_mepi", 0) or 0}
+        ])
+
+        chart = alt.Chart(df_dci_grafico).mark_bar(cornerRadiusTopLeft=4, cornerRadiusTopRight=4).encode(
+            x=alt.X('Indicador:N', sort=None, title="Dimensión Institucional"),
+            y=alt.Y('Porcentaje:Q', scale=alt.Scale(domain=[0, 100]), title="Valor / Grado de Cumplimiento (%)"),
+            color=alt.condition(
+                alt.datum.Porcentaje < 70,
+                alt.value('#d73027'),  # Rojo si hay déficit crítico (< 70%)
+                alt.value('#26694E')   # Verde institucional si es favorable
+            ),
+            tooltip=['Indicador', 'Porcentaje']
+        ).properties(
+            height=300
+        )
+
+        linea_meta = alt.Chart(pd.DataFrame({'y': [70]})).mark_rule(strokeDash=[5, 5], color='orange').encode(y='y')
+
+        st.altair_chart(chart + linea_meta, use_container_width=True)
+        st.caption("🟠 *La línea naranja discontinua (70%) marca el umbral mínimo aceptable de gestión y efectividad estatal.*")
+    else:
+        st.warning("No hay registros suficientes para renderizar las gráficas de déficits.")
     
     st.divider()
     
