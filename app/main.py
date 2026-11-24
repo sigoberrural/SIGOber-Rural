@@ -34,6 +34,7 @@ from app.ingesta import (
     validar_importacion_sadci, validar_problematicas,
 )
 from app.sadci import cargar_catalogo
+from app.territorio import leer_eventos_territoriales, resumir_eventos_por_vereda
 
 st.set_page_config(page_title="SIGOber-Rural", page_icon="🗺️", layout="wide")
 
@@ -82,11 +83,16 @@ def cargar_pbot_capas():
     return capas
 
 @st.cache_data(show_spinner=False)
+def _leer_eventos_locales():
+    ruta = DATA_DIR / "SITUACIONES_TERRITORIALES_eventos.csv"
+    if not ruta.exists():
+        return pd.DataFrame(), {"filas_leidas": 0, "filas_validas_estructura": 0, "filas_incompletas": []}
+    return leer_eventos_territoriales(ruta)
+
 def cargar_eventos_locales():
-    for nombre in ("SITUACIONES_TERRITORIALES_eventos.csv",):
-        ruta = DATA_DIR / nombre
-        if ruta.exists(): return pd.read_csv(ruta, dtype=str).fillna("")
-    return pd.DataFrame()
+    eventos, auditoria = _leer_eventos_locales()
+    st.session_state["sigo_auditoria_eventos"] = auditoria
+    return eventos
 
 @st.cache_data(show_spinner=False)
 def cargar_veredas_topo():
@@ -100,15 +106,8 @@ def propiedades_veredas(topo):
     return pd.DataFrame([g.get("properties", {}) or {} for g in topo.get("objects", {}).get("Veredas", {}).get("geometries", [])]).fillna("")
 
 @st.cache_data(show_spinner=False)
-def resumenes_por_vereda(eventos):
-    vacio = pd.DataFrame(columns=["codigo_ver_resuelto", "SIGOber_situaciones", "SIGOber_anios", "SIGOber_tipos", "SIGOber_confianza"])
-    if eventos is None or eventos.empty or "codigo_ver_resuelto" not in eventos.columns: return vacio
-    df = eventos.copy(); df["codigo_ver_resuelto"] = df["codigo_ver_resuelto"].astype(str).str.strip(); df = df[df["codigo_ver_resuelto"] != ""]
-    if df.empty: return vacio
-    def valores(col): return df[col].astype(str).str.strip() if col in df.columns else pd.Series("", index=df.index)
-    df["_anio"], df["_tipo"], df["_conf"] = valores("anio"), valores("tipo_conflicto"), valores("confianza")
-    def uniq(series): return ", ".join(sorted(x for x in series.unique() if x))
-    return df.groupby("codigo_ver_resuelto", sort=False).agg(SIGOber_situaciones=("codigo_ver_resuelto", "size"), SIGOber_anios=("_anio", uniq), SIGOber_tipos=("_tipo", uniq), SIGOber_confianza=("_conf", uniq)).reset_index()
+def resumenes_por_vereda(eventos, codigos_veredas):
+    return resumir_eventos_por_vereda(eventos, codigos_veredas)
 
 def normalizar_conflictos(df):
     if df is None or df.empty: return pd.DataFrame()
@@ -160,15 +159,20 @@ def preparar_topo_para_eventos(topo, resumen):
             p["SIGOber_confianza"] = "Sin registros"
     return copia
 
-def construir_mapa(topo, eventos_historicos, conflictos=None, codigo_seleccionado="", mostrar_conflictos=True, pbot_seleccionadas=(), wms_seleccionadas=()):
+def construir_mapa(topo, eventos_historicos, conflictos=None, codigo_seleccionado="", mostrar_conflictos=True, pbot_seleccionadas=(), wms_seleccionadas=(), perspectiva="Situaciones documentadas"):
     inicio = time.perf_counter()
-    resumen = resumenes_por_vereda(eventos_historicos)
+    codigos_veredas = {
+        str(g.get("properties", {}).get("CODIGO_VER", "")).strip()
+        for g in topo.get("objects", {}).get("Veredas", {}).get("geometries", [])
+        if str(g.get("properties", {}).get("CODIGO_VER", "")).strip()
+    }
+    resumen = resumenes_por_vereda(eventos_historicos, tuple(sorted(codigos_veredas)))
     topo_mapa = preparar_topo_para_eventos(topo, resumen)
     conteo = resumen.set_index("codigo_ver_resuelto")["SIGOber_situaciones"].to_dict() if not resumen.empty else {}
     
     m = folium.Map(location=[1.9123, -75.1842], zoom_start=10, tiles="OpenStreetMap", prefer_canvas=True)
     
-    grupo_territorio = folium.FeatureGroup(name="Territorio — Veredas", show=True)
+    grupo_territorio = folium.FeatureGroup(name="Territorio — Veredas", show=(perspectiva == "Territorio"))
     folium.Marker([1.9123, -75.1842], tooltip="Puerto Rico, Caquetá").add_to(grupo_territorio)
     
     def estilo_territorio(feature):
@@ -189,7 +193,7 @@ def construir_mapa(topo, eventos_historicos, conflictos=None, codigo_seleccionad
     ).add_to(grupo_territorio)
     grupo_territorio.add_to(m)
     
-    grupo_situaciones = folium.FeatureGroup(name="Situaciones — evidencia territorial", show=True)
+    grupo_situaciones = folium.FeatureGroup(name="Situaciones documentadas — evidencia validada", show=(perspectiva == "Situaciones documentadas"))
     def estilo_situaciones(feature):
         p = feature.get("properties", {}); codigo = str(p.get("CODIGO_VER", "")).strip()
         n = int(conteo.get(codigo, 0)); sel = bool(codigo) and codigo == str(codigo_seleccionado).strip()
@@ -244,27 +248,49 @@ def construir_mapa(topo, eventos_historicos, conflictos=None, codigo_seleccionad
     # =========================================================================
     # RENDERIZADO DINÁMICO DE CAPAS WMS SELECCIONADAS
     # =========================================================================
-    wms_diccionario = {
-        "wms_ecosistemas": ("https://visualizador.ideam.gov.co/gisserver/services/Estado_Ecosistemas/MapServer/WMSServer", "Estado de Ecosistemas (IDEAM)", "IDEAM"),
-        "wms_masas": ("https://sigeo.sgc.gov.co/arcgis/services/Amenaza_Movimientos_Masa/MapServer/WMSServer", "Amenaza Movimientos en Masa (SGC)", "SGC"),
-        "wms_forestal": ("https://portalmapas.minambiente.gov.co/arcgis/services/Bosques/Ley_2_1959/MapServer/WMSServer", "Zonas de Reserva Forestal Ley 2 (MinAmbiente)", "MinAmbiente"),
-        "wms_hidro": ("https://visualizador.ideam.gov.co/gisserver/services/Red_Hidrografica/MapServer/WMSServer", "Red Hidrográfica (IDEAM)", "IDEAM"),
-        "wms_minero": ("https://gis.anm.gov.co/arcgis/services/Catastro/CatastroMineroNacional/MapServer/WMSServer", "Catastro Minero (ANM)", "ANM"),
-        "wms_upra": ("https://portalmapas.upra.gov.co/arcgis/services/Aptitud/Aptitud_Agricola/MapServer/WMSServer", "Aptitud Agropecuaria (UPRA)", "UPRA")
+    cartografia_oficial = {
+        "IGAC — Vías, puentes y límites viales (1:10.000)": {
+            "tipo": "wms", "url": "https://mapas2.igac.gov.co/server3/services/carto/carto10000puertorico18592/MapServer/WMSServer",
+            "layers": "6,8,9,10", "attribution": "IGAC · Cartografía básica Puerto Rico, Caquetá · 1:10.000"
+        },
+        "IGAC — Drenajes y cuerpos de agua (1:10.000)": {
+            "tipo": "wms", "url": "https://mapas2.igac.gov.co/server3/services/carto/carto10000puertorico18592/MapServer/WMSServer",
+            "layers": "13,14,17,18,20", "attribution": "IGAC · Cartografía básica Puerto Rico, Caquetá · 1:10.000"
+        },
+        "IGAC — Construcciones y zonas duras (1:10.000)": {
+            "tipo": "wms", "url": "https://mapas2.igac.gov.co/server3/services/carto/carto10000puertorico18592/MapServer/WMSServer",
+            "layers": "0,15,16", "attribution": "IGAC · Cartografía básica Puerto Rico, Caquetá · 1:10.000"
+        },
+        "IGAC — Curvas de nivel y bosque (1:10.000)": {
+            "tipo": "wms", "url": "https://mapas2.igac.gov.co/server3/services/carto/carto10000puertorico18592/MapServer/WMSServer",
+            "layers": "7,19", "attribution": "IGAC · Cartografía básica Puerto Rico, Caquetá · 1:10.000"
+        },
+        "UPRA — Frontera agrícola nacional (1:100.000)": {
+            "tipo": "arcgis_tiles", "url": "https://geoservicios.upra.gov.co/arcgis/rest/services/ordenamiento_productivo/frontera_agricola/MapServer",
+            "attribution": "UPRA · Frontera agrícola nacional · 1:100.000"
+        },
+        "UPRA — Frontera agrícola condicionada": {
+            "tipo": "arcgis_tiles", "url": "https://geoservicios.upra.gov.co/arcgis/rest/services/ordenamiento_productivo/frontera_agricola_frontera_agricola_condicionada/MapServer",
+            "attribution": "UPRA · Frontera agrícola y frontera agrícola condicionada"
+        },
     }
 
-    for wms_key in wms_seleccionadas:
-        if wms_key in wms_diccionario:
-            url, nombre_capa, atrib = wms_diccionario[wms_key]
+    for nombre_capa in wms_seleccionadas:
+        config = cartografia_oficial.get(nombre_capa)
+        if not config:
+            continue
+        if config["tipo"] == "arcgis_tiles":
+            folium.TileLayer(
+                tiles=config["url"].rstrip("/") + "/tile/{z}/{y}/{x}",
+                name=nombre_capa, attr=config["attribution"],
+                overlay=True, control=True, show=False, opacity=0.68,
+                min_zoom=5, max_zoom=16,
+            ).add_to(m)
+        else:
             folium.raster_layers.WmsTileLayer(
-                url=url,
-                name=nombre_capa,
-                layers="0",
-                fmt="image/png",
-                transparent=True,
-                overlay=True,
-                control=True,
-                attr=atrib
+                url=config["url"], name=nombre_capa, layers=config["layers"],
+                fmt="image/png", transparent=True, overlay=True, control=True,
+                version="1.1.1", attr=config["attribution"], show=False,
             ).add_to(m)
 
     folium.LayerControl(collapsed=False).add_to(m)
@@ -413,6 +439,11 @@ with st.sidebar:
     if st.session_state["sidebar_seccion_activa"] == "Exploración":
         st.markdown("### 🗺️ Parámetros de Mapa")
         st.caption("Filtros y capas para la lectura territorial:")
+        vista_exploracion = st.radio(
+            "Resultado que se mostrará",
+            ["Territorio", "Situaciones documentadas", "Ordenamiento PBOT 2015"],
+            index=1, key="sb_vista_exploracion",
+        )
         
         topo_sb = cargar_veredas_topo()
         veredas_df_sb = propiedades_veredas(topo_sb)
@@ -438,16 +469,21 @@ with st.sidebar:
         pbot_opciones_sb = {archivo: titulo for archivo, titulo, _, _ in cargar_pbot_capas()}
         pbot_sel_sb = st.multiselect("Capas PBOT 2015", options=list(pbot_opciones_sb.keys()), format_func=lambda x: pbot_opciones_sb[x], key="sb_pbot")
         
-        # Capas WMS oficiales nacionales
-        wms_opciones_sb = {
-            "wms_ecosistemas": "Estado de Ecosistemas (IDEAM)",
-            "wms_masas": "Amenaza Movimientos en Masa (SGC)",
-            "wms_forestal": "Zonas de Reserva Forestal Ley 2 (MinAmbiente)",
-            "wms_hidro": "Red Hidrográfica (IDEAM)",
-            "wms_minero": "Catastro Minero (ANM)",
-            "wms_upra": "Aptitud Agropecuaria (UPRA)"
+        # Capas oficiales específicas de IGAC y UPRA, con su tipo de servicio correcto.
+        cartografia_oficial_sb = {
+            "IGAC — Vías, puentes y límites viales (1:10.000)": "IGAC · vías y puentes",
+            "IGAC — Drenajes y cuerpos de agua (1:10.000)": "IGAC · drenajes",
+            "IGAC — Construcciones y zonas duras (1:10.000)": "IGAC · construcciones",
+            "IGAC — Curvas de nivel y bosque (1:10.000)": "IGAC · curvas y bosque",
+            "UPRA — Frontera agrícola nacional (1:100.000)": "UPRA · frontera agrícola",
+            "UPRA — Frontera agrícola condicionada": "UPRA · frontera condicionada",
         }
-        wms_sel_sb = st.multiselect("Capas Institucionales WMS", options=list(wms_opciones_sb.keys()), format_func=lambda x: wms_opciones_sb[x], key="sb_wms")
+        wms_sel_sb = st.multiselect(
+            "Cartografía oficial en línea · IGAC / UPRA",
+            options=list(cartografia_oficial_sb),
+            key="sb_wms",
+            help="IGAC se consume como WMS y UPRA mediante teselas ArcGIS REST.",
+        )
         
         st.session_state["map_vereda"] = vereda_seleccionada
         st.session_state["map_ys"] = ys
@@ -456,6 +492,7 @@ with st.sidebar:
         st.session_state["map_mostrar_gsheets"] = mostrar_gsheets
         st.session_state["map_pbot"] = pbot_sel_sb
         st.session_state["map_wms"] = wms_sel_sb
+        st.session_state["map_vista"] = vista_exploracion
         
     else:
         st.markdown("### 📥 Controles SADCI")
@@ -513,6 +550,7 @@ if st.session_state["sidebar_seccion_activa"] == "Exploración":
     
     eventos_f = historicos_main.copy()
     if not eventos_f.empty:
+        # Los filtros de fecha/tipo/confianza se aplican sobre el conjunto legible.
         ys_f = st.session_state.get("map_ys", [])
         ts_f = st.session_state.get("map_ts", [])
         cs_f = st.session_state.get("map_cs", [])
@@ -528,7 +566,30 @@ if st.session_state["sidebar_seccion_activa"] == "Exploración":
     
     conflictos_main = normalizar_conflictos(gd_main.get("Conflictos")) if isinstance(gd_main.get("Conflictos"), pd.DataFrame) else pd.DataFrame()
     
-    mapa_render, segundos_mapa = construir_mapa(topo_main, eventos_f, conflictos_main, codigo_sel_main, mostrar_conflictos_main, capas_pbot_main, capas_wms_main)
+    vista_actual = st.session_state.get("map_vista", "Situaciones documentadas")
+    if vista_actual == "Ordenamiento PBOT 2015":
+        capas_pbot_main = tuple(st.session_state.get("map_pbot", []))
+        if not capas_pbot_main:
+            capas_pbot_main = tuple(x[0] for x in cargar_pbot_capas()[:1])
+    else:
+        capas_pbot_main = ()
+    mapa_render, segundos_mapa = construir_mapa(
+        topo_main, eventos_f, conflictos_main, codigo_sel_main,
+        mostrar_conflictos_main, capas_pbot_main, capas_wms_main,
+        perspectiva=("Territorio" if vista_actual == "Territorio" else "Situaciones documentadas"),
+    )
+    auditoria = st.session_state.get("sigo_auditoria_eventos", {})
+    incompletas = auditoria.get("filas_incompletas", [])
+    if incompletas:
+        st.warning(
+            f"Se excluyeron {len(incompletas)} filas con estructura CSV incompleta "
+            "para evitar interpretar campos desplazados. No se modificó el archivo fuente."
+        )
+    st.caption(
+        "Situaciones documentadas: solo registros con estado VALIDADA_EN_CAPA, "
+        "precisión VEREDA y código presente en la capa base. El conteo refleja "
+        "documentación disponible, no incidencia, prevalencia ni ausencia de conflicto."
+    )
     st.caption(f"Generación del mapa en servidor: {segundos_mapa:.2f} s")
     st_folium(mapa_render, width="100%", height=680, returned_objects=["last_active_drawing"])
 
