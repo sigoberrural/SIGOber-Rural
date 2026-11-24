@@ -15,7 +15,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from app.sadci import cargar_catalogo, evaluar_catalogo
-from app.ingesta import aplicar_actualizacion_sadci
+from app.ingesta import (\n    aplicar_actualizacion_sadci, crear_excel_plantilla,\n    leer_archivo_tabular, validar_importacion_sadci,\n)
 
 st.set_page_config(page_title="SADCI · SIGOber-Rural", page_icon="📊", layout="wide")
 
@@ -31,21 +31,6 @@ with st.sidebar:
     st.divider()
     st.caption("Puerto Rico · Caquetá")
     st.caption("Versión 1.0 en preparación")
-st.markdown("""
-<style>
-.sadci-hero{padding:1.2rem 1.3rem;border:1px solid rgba(128,128,128,.22);border-radius:1rem;background:linear-gradient(115deg,rgba(31,91,75,.12),rgba(91,128,108,.025));margin:.2rem 0 1rem}
-.sadci-hero h1{margin:.1rem 0 .35rem;font-size:2rem}
-.sadci-hero p{margin:0;opacity:.78;max-width:850px}
-.sadci-eyebrow{font-size:.74rem;letter-spacing:.12em;text-transform:uppercase;font-weight:750;opacity:.65}
-.sadci-note{padding:.8rem 1rem;border-left:3px solid #B88746;background:rgba(184,135,70,.09);border-radius:.3rem .7rem .7rem .3rem}
-div[data-testid="stMetric"]{padding:.65rem .75rem;border:1px solid rgba(128,128,128,.2);border-radius:.8rem;background:rgba(128,128,128,.035)}
-</style>
-<div class="sadci-hero">
-<div class="sadci-eyebrow">SIGOber-Rural · módulo institucional</div>
-<h1>Indicadores SADCI</h1>
-<p>Capacidades institucionales para la gobernanza rural de Puerto Rico, Caquetá. Consulta de resultados, metas, fuentes y condiciones para el análisis territorial.</p>
-</div>
-""", unsafe_allow_html=True)
 
 try:
     catalogo = cargar_catalogo()
@@ -59,25 +44,57 @@ catalogo_visualizacion = [dict(item) for item in catalogo]
 importacion = st.session_state.get("sigo_sadci_importado")
 if importacion is not None and not importacion.empty:
     periodos = sorted(importacion["periodo"].astype(str).str.strip().unique().tolist())
-    periodo_activo = st.selectbox("Periodo de la actualización cargada", periodos, key="sadci_periodo_importado")
+    with st.sidebar:\n        st.markdown("**Periodo de resultados**")\n        periodo_activo = st.selectbox("Actualización cargada", periodos, key="sadci_periodo_importado")
     filas_periodo = importacion[importacion["periodo"].astype(str).str.strip() == periodo_activo]
     catalogo_visualizacion = aplicar_actualizacion_sadci(catalogo_visualizacion, filas_periodo, periodo_activo)
     st.info(f"Vista temporal con {len(filas_periodo)} actualización(es) del periodo {periodo_activo}. El catálogo original permanece intacto y los datos siguen pendientes de verificación.")
 evaluados = evaluar_catalogo(catalogo_visualizacion)
 df = pd.DataFrame(evaluados)
 
-with st.expander("Cómo usar este tablero", expanded=False):
-    st.markdown(
-        "1. **Empieza por el resumen municipal** para ver los diez indicadores y sus resultados calculados.\n"
-        "2. **Filtra** por dimensión, código, nombre o cumplimiento de meta para encontrar un indicador.\n"
-        "3. **Abre su ficha** para consultar fórmula, valores, fuente, responsable y periodicidad.\n"
-        "4. **Descarga los resultados** si necesitas analizarlos o incorporarlos a un informe."
-    )
-    st.caption("La pestaña veredal informa qué datos faltan para una desagregación válida; no reparte automáticamente los valores municipales entre veredas.")
+
 df["resultado_mostrar"] = df["resultado_calculado_pct"].map(lambda x: round(float(x), 2) if pd.notna(x) else None)
 df["estado_meta"] = df["estado_meta"].fillna("SIN DATOS")
 
-st.markdown('<div class="sadci-note"><strong>Estado de la evidencia.</strong> Los valores proceden de la matriz de trabajo y están pendientes de verificación documental. El tablero reproduce los cálculos y compara las metas consignadas; no certifica por sí solo el desempeño institucional.</div>', unsafe_allow_html=True)
+
+with st.sidebar:
+    st.divider()
+    st.markdown("### Ingesta y carga SADCI")
+    st.caption("Actualiza los indicadores desde una plantilla Excel. La carga queda disponible durante esta sesión.")
+    try:
+        st.download_button(
+            "Descargar plantilla SADCI",
+            data=crear_excel_plantilla("sadci", catalogo),
+            file_name="plantilla_actualizacion_sadci.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True,
+        )
+        archivo_sadci = st.file_uploader("Cargar plantilla completada", type=["csv", "xlsx", "xls"], key="sadci_sidebar_upload")
+        if archivo_sadci is not None:
+            datos_sadci = leer_archivo_tabular(archivo_sadci)
+            revision_sadci = validar_importacion_sadci(datos_sadci, catalogo)
+            validos = int(revision_sadci["valido_revision_tecnica"].sum())
+            st.caption(f"{len(revision_sadci)} filas · {validos} válidas · {len(revision_sadci)-validos} con errores")
+            if validos == len(revision_sadci) and not revision_sadci.empty:
+                if st.button("Confirmar carga SADCI", type="primary", use_container_width=True, key="sadci_sidebar_confirm"):
+                    st.session_state.sigo_sadci_importado = revision_sadci.drop(columns=["errores_validacion", "valido_revision_tecnica"]).copy()
+                    st.rerun()
+            else:
+                st.error("Revisa los errores de la plantilla antes de confirmar.")
+                st.dataframe(revision_sadci, use_container_width=True, hide_index=True)
+        if st.session_state.get("sigo_sadci_importado") is not None:
+            st.success(f"Actualización activa: {len(st.session_state.sigo_sadci_importado)} filas")
+            if st.button("Retirar actualización", key="sadci_sidebar_clear", use_container_width=True):
+                st.session_state.sigo_sadci_importado = None
+                st.rerun()
+    except (ValueError, UnicodeDecodeError, pd.errors.ParserError, OSError) as exc:
+        st.error(f"No se pudo procesar la plantilla: {exc}")
+
+    st.divider()
+    st.markdown("### Filtrar resultados")
+    dimensiones = ["Todas"] + sorted(df["dimension"].dropna().unique().tolist())
+    dimension_sel = st.selectbox("Dimensión", dimensiones, key="sadci_filtro_dimension")
+    busqueda = st.text_input("Buscar indicador", placeholder="Código o nombre…", key="sadci_busqueda")
+    estado_sel = st.selectbox("Evaluación de meta", ["Todas", "Cumple meta", "No cumple meta", "Sin datos"], key="sadci_filtro_estado")
 
 tab_municipal, tab_veredal, tab_metodo = st.tabs(["Resumen municipal", "Disponibilidad veredal", "Metodología y calidad"])
 
@@ -91,12 +108,6 @@ with tab_municipal:
     c.metric("Metas alcanzadas", cumplen, help="Según valores de la matriz y operadores explícitos.")
     d.metric("Datos por verificar", pendientes)
 
-    st.subheader("Explorar indicadores")
-    f1, f2, f3 = st.columns([1.1, 1.4, 1.3])
-    dimensiones = ["Todas"] + sorted(df["dimension"].dropna().unique().tolist())
-    dimension_sel = f1.selectbox("Dimensión SADCI", dimensiones)
-    busqueda = f2.text_input("Buscar indicador", placeholder="Código o nombre…")
-    estado_sel = f3.selectbox("Evaluación de meta", ["Todas", "Cumple meta", "No cumple meta", "Sin datos"])
     filtrado = df.copy()
     if dimension_sel != "Todas":
         filtrado = filtrado[filtrado["dimension"] == dimension_sel]
