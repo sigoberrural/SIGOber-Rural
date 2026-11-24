@@ -17,8 +17,16 @@ CAMPOS_PROBLEMATICAS = [
     "estado_validacion", "observaciones",
 ]
 
-# Campos ajustados estrictamente a las variables de cálculo requeridas por el DCI
+# Estructura histórica de la plantilla DCI/SADCI funcional.
+# Se conserva el contrato de datos utilizado por el módulo principal.
 CAMPOS_SADCI = [
+    "codigo_variable", "nombre_variable_o_indicador", "periodo",
+    "valor_ingresado", "unidad_medida", "fuente_informacion",
+    "responsable_reporte", "fecha_corte", "observaciones",
+]
+
+# Esquema independiente para el catálogo metodológico de diez indicadores.
+CAMPOS_SADCI_INDICADORES = [
     "codigo", "periodo", "valor_numerador", "valor_denominador",
     "fuentes", "responsable", "fecha_corte", "observaciones",
 ]
@@ -53,6 +61,50 @@ def crear_excel_plantilla(tipo: str, catalogo: list[dict[str, Any]] | None = Non
             cell.fill = fill_header
 
     elif tipo == "sadci":
+        # Plantilla DCI/SADCI original: se conservan nombres, orden,
+        # hojas, glosario y seis variables de entrada que ya eran funcionales.
+        ws_inst = wb.active
+        ws_inst.title = "Glosario y Guía"
+
+        instrucciones_sadci = [
+            ["GUÍA DE DILIGENCIAMIENTO — VARIABLES DE CÁLCULO DCI"],
+            ["1. Ingrese únicamente los valores numéricos o porcentuales requeridos para cada variable."],
+            ["2. No altere los códigos de las variables para garantizar el procesamiento automático."],
+            [""],
+            ["GLOSARIO DE REFERENCIA (QUÉ MIDE CADA COMPONENTE):"],
+            ["Variable / Indicador", "Definición conceptual"],
+            ["Presupuesto Anual Rural", "Recursos financieros asignados para la inversión y atención en la zona rural."],
+            ["Personal de Planta (Rural)", "Talento humano vinculado de planta con funciones orientadas al sector rural."],
+            ["Personal Contratista", "Apoyo técnico y operativo temporal contratado para proyectos rurales."],
+            ["Ejecución Presupuestal (%)", "Porcentaje de gestión financiera ejecutada frente a la asignación."],
+            ["Cumplimiento PDT (%)", "Grado de avance en las metas del Plan de Desarrollo Territorial rural."],
+            ["Calificación MEPI", "Puntaje oficial de desempeño institucional y gestión fiscal."]
+        ]
+        for row in instrucciones_sadci:
+            ws_inst.append(row)
+
+        ws_datos = wb.create_sheet(title="Variables de Cálculo")
+        ws_datos.append(CAMPOS_SADCI)
+        for cell in ws_datos[1]:
+            cell.font = font_header
+            cell.fill = fill_header
+            cell.alignment = Alignment(horizontal="center", vertical="center")
+
+        variables_base = [
+            ("presupuesto_anual_rural", "Presupuesto Anual Rural", "COP ($)"),
+            ("num_personal_planta", "Personal de Planta (Rural)", "Número de personas"),
+            ("num_personal_contratista", "Personal Contratista", "Número de personas"),
+            ("ejecucion_presupuestal_pct", "Ejecución Presupuestal", "Porcentaje (%)"),
+            ("cumplimiento_pdt_pct", "Cumplimiento PDT", "Porcentaje (%)"),
+            ("calificacion_mepi", "Calificación MEPI", "Puntaje (0 - 100)")
+        ]
+        for codigo_var, nombre_var, unidad in variables_base:
+            ws_datos.append([
+                codigo_var, nombre_var, "2026", "", unidad, "", "", "2026-06-30", ""
+            ])
+
+    elif tipo == "sadci_indicadores":
+        # Plantilla distinta para la matriz de diez indicadores del catálogo SADCI.
         ws_inst = wb.active
         ws_inst.title = "Instrucciones"
         instrucciones = [
@@ -66,11 +118,7 @@ def crear_excel_plantilla(tipo: str, catalogo: list[dict[str, Any]] | None = Non
             ws_inst.append(row)
 
         ws_datos = wb.create_sheet(title="Actualización SADCI")
-        encabezados = [
-            "codigo", "periodo", "valor_numerador", "valor_denominador",
-            "fuentes", "responsable", "fecha_corte", "observaciones",
-        ]
-        ws_datos.append(encabezados)
+        ws_datos.append(CAMPOS_SADCI_INDICADORES)
         for cell in ws_datos[1]:
             cell.font = font_header
             cell.fill = fill_header
@@ -78,14 +126,7 @@ def crear_excel_plantilla(tipo: str, catalogo: list[dict[str, Any]] | None = Non
 
         for indicador in (catalogo or []):
             ws_datos.append([
-                str(indicador.get("codigo", "")).strip(),
-                "",
-                "",
-                "",
-                "",
-                "",
-                "",
-                "",
+                str(indicador.get("codigo", "")).strip(), "", "", "", "", "", "", ""
             ])
             ws_inst.append([
                 str(indicador.get("codigo", "")),
@@ -161,9 +202,35 @@ def validar_problematicas(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def validar_importacion_sadci(df: pd.DataFrame, catalogo: list[dict[str, Any]]) -> pd.DataFrame:
-    """Valida actualizaciones por indicador sin modificar fórmulas ni metas del catálogo."""
+    """Valida tanto la plantilla DCI histórica como la matriz de indicadores SADCI."""
     resultado = df.copy()
-    # Compatibilidad de nombres de código usados por plantillas anteriores.
+
+    # Esquema original DCI: seis variables con un valor directo por fila.
+    # No se transforma a numerador/denominador ni se renombran sus columnas.
+    if {"codigo_variable", "valor_ingresado"}.issubset(resultado.columns):
+        errores = []
+        for _, fila in resultado.iterrows():
+            fila_errores = []
+            codigo = str(fila.get("codigo_variable", "")).strip()
+            if not codigo:
+                fila_errores.append("Falta código de variable")
+            if not str(fila.get("periodo", "")).strip():
+                fila_errores.append("Falta periodo")
+            valor = str(fila.get("valor_ingresado", "")).strip()
+            if not valor:
+                fila_errores.append("Falta valor ingresado")
+            else:
+                try:
+                    float(valor.replace(",", "."))
+                except (TypeError, ValueError):
+                    fila_errores.append("El valor ingresado debe ser numérico")
+            errores.append("; ".join(fila_errores))
+
+        resultado["errores_validacion"] = errores
+        resultado["valido_revision_tecnica"] = resultado["errores_validacion"].eq("")
+        return resultado
+
+    # Esquema de diez indicadores: numerador y denominador.
     if "codigo" not in resultado.columns and "codigo_variable" in resultado.columns:
         resultado = resultado.rename(columns={"codigo_variable": "codigo"})
 
