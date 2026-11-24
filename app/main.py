@@ -1,10 +1,10 @@
 """
 =============================================================================
 PROYECTO: SIGOber-Rural
-ARCHIVO: main.py (Rama Develope - Integración Completa de Exploración y SADCI)
+ARCHIVO: main.py (Rama Develope - Exploración y Módulo Ingesta/SADCI Integrado)
 DESCRIPCIÓN: Aplicación principal con navegación dinámica en barra lateral 
-             para alternar entre Exploración Cartográfica (con todos los parámetros 
-             y filtros desarrollados) y el módulo de Capacidad Institucional (SADCI).
+             para alternar entre Exploración Cartográfica y el módulo completo 
+             de Ingesta y Gestión SADCI.
 =============================================================================
 """
 
@@ -120,12 +120,6 @@ def normalizar_conflictos(df):
     out.loc[inval & out[["lat_num", "lon_num"]].notna().all(axis=1), "precision_coordenada"] = "REQUIERE_REVISION"
     return out
 
-def config_gsheets():
-    try:
-        c = st.secrets.get("connections", {}); x = c.get("gsheets", {}) if hasattr(c, "get") else {}
-        return dict(x) if hasattr(x, "items") else {}
-    except Exception: return {}
-
 @st.cache_data(ttl=300, max_entries=4, show_spinner=False)
 def leer_google_hoja(nombre_hoja):
     from streamlit_gsheets import GSheetsConnection
@@ -173,7 +167,6 @@ def construir_mapa(topo, eventos_historicos, conflictos=None, codigo_seleccionad
     
     m = folium.Map(location=[1.9123, -75.1842], zoom_start=10, tiles="OpenStreetMap", prefer_canvas=True)
     
-    # Capa base de Territorio y Veredas
     grupo_territorio = folium.FeatureGroup(name="Territorio — Veredas", show=True)
     folium.Marker([1.9123, -75.1842], tooltip="Puerto Rico, Caquetá").add_to(grupo_territorio)
     
@@ -195,9 +188,7 @@ def construir_mapa(topo, eventos_historicos, conflictos=None, codigo_seleccionad
     ).add_to(grupo_territorio)
     grupo_territorio.add_to(m)
     
-    # Capa de Situaciones (Evidencia territorial)
     grupo_situaciones = folium.FeatureGroup(name="Situaciones — evidencia territorial", show=True)
-    
     def estilo_situaciones(feature):
         p = feature.get("properties", {}); codigo = str(p.get("CODIGO_VER", "")).strip()
         n = int(conteo.get(codigo, 0)); sel = bool(codigo) and codigo == str(codigo_seleccionado).strip()
@@ -218,21 +209,19 @@ def construir_mapa(topo, eventos_historicos, conflictos=None, codigo_seleccionad
     ).add_to(grupo_situaciones)
     grupo_situaciones.add_to(m)
     
-    # Capa de Conflictos (Google Sheets)
     if mostrar_conflictos and conflictos is not None and not conflictos.empty:
         validos = conflictos.loc[conflictos["precision_coordenada"].eq("VALIDA")]
         grupo = folium.FeatureGroup(name="Conflictos — Google Sheets", show=True)
         for row in validos.itertuples(index=False):
             data = row._asdict()
             folium.CircleMarker(
-                location=[float(data["lat_num"]), float(data["lon_num"])],
+                location=[float(data["lat_num"], float(data["lon_num"]))],
                 radius=7, weight=2, fill=True, fill_opacity=0.85,
                 tooltip=f"{data.get('tipo_conflicto', 'Situación')} — {data.get('vereda', '')}",
                 popup=folium.Popup(popup_conflicto(data), max_width=340)
             ).add_to(grupo)
         grupo.add_to(m)
         
-    # Capas PBOT 2015
     aliases_pbot = {"UGOT": "UGOT", "Aptitud": "Aptitud", "area_ha": "Área (ha)", "Area_ha": "Área (ha)", "Tipo": "Tipo", "area_m2": "Área (m²)", "Id": "ID", "codigo": "Código", "sector_cat": "Sector catastral", "tipo_avalu": "Tipo avalúo", "Reporte": "Reporte"}
     disponibles = {x[0]: x for x in cargar_pbot_capas()}
     for archivo in pbot_seleccionadas:
@@ -267,7 +256,7 @@ def indicador_pct(valor): return "—" if valor is None or pd.isna(valor) else f
 
 
 # =============================================================================
-# 3. BARRA LATERAL (SIDEBAR) - NAVEGACIÓN Y PARÁMETROS DE MAPA
+# 3. BARRA LATERAL (SIDEBAR) - NAVEGACIÓN Y PARÁMETROS
 # =============================================================================
 
 with st.sidebar:
@@ -277,7 +266,6 @@ with st.sidebar:
     
     st.markdown("**Espacios de trabajo**")
     
-    # Botones superiores para alternar la sección activa
     col_b1, col_b2 = st.columns(2)
     with col_b1:
         if st.button("🗺️ Exploración", use_container_width=True, type="primary" if st.session_state["sidebar_seccion_activa"] == "Exploración" else "secondary"):
@@ -290,7 +278,6 @@ with st.sidebar:
             
     st.divider()
     
-    # Panel inferior dinámico según la sección seleccionada
     if st.session_state["sidebar_seccion_activa"] == "Exploración":
         st.markdown("### 🗺️ Parámetros de Mapa")
         st.caption("Filtros y capas para la lectura territorial:")
@@ -314,11 +301,9 @@ with st.sidebar:
             cs = st.multiselect("Confianza", confs_l, default=[], key="sb_confs")
             
         mostrar_gsheets = st.checkbox("Mostrar conflictos de Sheets", value=True, key="sb_mostrar_conflictos")
-        
         pbot_opciones_sb = {archivo: titulo for archivo, titulo, _, _ in cargar_pbot_capas()}
         pbot_sel_sb = st.multiselect("Capas PBOT 2015", options=list(pbot_opciones_sb.keys()), format_func=lambda x: pbot_opciones_sb[x], key="sb_pbot")
         
-        # Guardar en session_state para el mapa principal
         st.session_state["map_vereda"] = vereda_seleccionada
         st.session_state["map_ys"] = ys
         st.session_state["map_ts"] = ts
@@ -330,7 +315,7 @@ with st.sidebar:
         st.markdown("### 📥 Ingesta y Gestión SADCI")
         st.caption("Herramientas de control institucional:")
         st.markdown("• Carga de problemáticas")
-        st.markdown("• Actualización de indicadores")
+        st.markdown("• Actualización de indicadores DCI")
         st.markdown("• Archivos temporales")
         
     st.divider()
@@ -354,13 +339,11 @@ if st.session_state["sidebar_seccion_activa"] == "Exploración":
     topo_main = cargar_veredas_topo()
     historicos_main = cargar_eventos_locales()
     
-    # Cargar conexión a Google Sheets si no está en sesión
     if "google_data" not in st.session_state:
         with st.spinner("Conectando con las fuentes territoriales…"):
             st.session_state["google_data"] = leer_google_sheets()
     gd_main = st.session_state["google_data"]
     
-    # Aplicar filtros de eventos históricos configurados en el sidebar
     eventos_f = historicos_main.copy()
     if not eventos_f.empty:
         ys_f = st.session_state.get("map_ys", [])
@@ -385,28 +368,60 @@ else:
     st.markdown("""
     <div style='padding:.2rem 0 .6rem'>
         <div style='font-size:.72rem;font-weight:750;letter-spacing:.14em;text-transform:uppercase;opacity:.62'>Capacidad institucional</div>
-        <div style='font-size:2.25rem;font-weight:820;line-height:1.04;margin:.1rem 0 .25rem'>Indicadores SADCI</div>
-        <div style='font-size:.96rem;opacity:.72'>Resultados consolidados de las capacidades institucionales rurales</div>
+        <div style='font-size:2.25rem;font-weight:820;line-height:1.04;margin:.1rem 0 .25rem'>Ingesta y Gestión SADCI</div>
+        <div style='font-size:.96rem;opacity:.72'>Incorpora y valida información institucional mediante plantillas guiadas para el cálculo de indicadores.</div>
     </div>
     """, unsafe_allow_html=True)
     
-    if "google_data" not in st.session_state:
-        st.session_state["google_data"] = leer_google_sheets()
-    gd_sadci = st.session_state["google_data"].get("SADCI")
-    
-    r_sadci = resumen_sadci(gd_sadci)
-    
-    col1, col2, col3, col4, col5, col6 = st.columns(6)
-    col1.metric("Presupuesto rural", f"{r_sadci.get('presupuesto_anual_rural', 0):,.0f}" if r_sadci and r_sadci.get("presupuesto_anual_rural") is not None else "—")
-    col2.metric("Personal planta", f"{r_sadci.get('num_personal_planta', 0):.0f}" if r_sadci and r_sadci.get("num_personal_planta") is not None else "—")
-    col3.metric("Contratistas", f"{r_sadci.get('num_personal_contratista', 0):.0f}" if r_sadci and r_sadci.get("num_personal_contratista") is not None else "—")
-    col4.metric("Ejecución", indicador_pct(r_sadci.get("ejecucion_presupuestal_pct") if r_sadci else None))
-    col5.metric("Cumplimiento PDT", indicador_pct(r_sadci.get("cumplimiento_pdt_pct") if r_sadci else None))
-    col6.metric("MEPI", f"{r_sadci.get('calificacion_mepi', 0):.1f}" if r_sadci and r_sadci.get("calificacion_mepi") is not None else "—")
-    
-    st.divider()
-    st.subheader("Detalle de registros institucionales SADCI")
-    if isinstance(gd_sadci, pd.DataFrame) and not gd_sadci.empty:
-        st.dataframe(gd_sadci, use_container_width=True, hide_index=True)
-    else:
-        st.info("No hay datos cargados en la tabla SADCI actualmente. Utiliza las herramientas de ingesta para actualizar los registros.")
+    # Módulo completo de ingesta SADCI integrado (Plantilla, subida, validación y confirmación)
+    try:
+        catalogo_sadci = cargar_catalogo()
+        
+        st.subheader("1. Descargar plantilla de actualización SADCI")
+        st.download_button(
+            "Descargar plantilla Excel SADCI (Cálculo DCI)",
+            data=crear_excel_plantilla("sadci", catalogo_sadci),
+            file_name="plantilla_actualizacion_sadci.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True,
+        )
+        st.caption("La plantilla incluye los códigos existentes. Completa numerador, denominador, periodo, fecha de corte, fuente y responsable. El porcentaje se calcula desde esos valores.")
+        st.divider()
+        
+        st.subheader("2. Cargar, validar y confirmar actualización")
+        sadci_file = st.file_uploader("Carga la plantilla SADCI completada (CSV o Excel)", type=["csv", "xlsx", "xls"], key="sigo_sadci_template")
+        
+        if sadci_file is not None:
+            try:
+                sadci_df = leer_archivo_tabular(sadci_file)
+                sadci_review = validar_importacion_sadci(sadci_df, catalogo_sadci)
+                valid_count = int(sadci_review["valido_revision_tecnica"].sum())
+                
+                c1, c2, c3 = st.columns(3)
+                c1.metric("Filas leídas", len(sadci_review))
+                c2.metric("Sin errores técnicos", valid_count)
+                c3.metric("Con errores", len(sadci_review) - valid_count)
+                
+                st.dataframe(sadci_review, use_container_width=True, hide_index=True)
+                st.download_button("Descargar informe de validación SADCI", sadci_review.to_csv(index=False).encode("utf-8-sig"), "revision_sadci.csv", "text/csv")
+                
+                if valid_count != len(sadci_review) or sadci_review.empty:
+                    st.error("Corrige los códigos, periodos y valores numéricos antes de confirmar.")
+                else:
+                    st.info("Los valores importados quedan marcados como pendientes de verificación documental. No se modifican las metas ni las fórmulas del catálogo.")
+                    if st.button("Confirmar actualización SADCI en esta sesión", key="confirm_sadci_import", type="primary"):
+                        st.session_state.sigo_sadci_importado = sadci_review.drop(columns=["errores_validacion", "valido_revision_tecnica"]).copy()
+                        st.success(f"Se incorporaron {len(sadci_review)} filas SADCI a la sesión actual.")
+            except (ValueError, UnicodeDecodeError, pd.errors.ParserError) as exc:
+                st.error(f"No se pudo leer la plantilla SADCI: {exc}")
+                
+        if st.session_state.sigo_sadci_importado is not None:
+            current = st.session_state.sigo_sadci_importado
+            st.success(f"Actualización SADCI cargada en esta sesión: {len(current)} fila(s).")
+            st.dataframe(current, use_container_width=True, hide_index=True)
+            if st.button("Retirar actualización SADCI de esta sesión", key="clear_sadci_import"):
+                st.session_state.sigo_sadci_importado = None
+                st.rerun()
+                
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        st.error(f"No fue posible preparar la plantilla SADCI: {exc}")
