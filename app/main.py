@@ -932,6 +932,39 @@ with st.sidebar:
                         st.markdown(f"**Qué representa:** {ficha['qué']}")
                         st.markdown(f"**Cómo leerla:** {ficha['lectura']}")
                         st.caption(f"**Alcance y precauciones:** {ficha['límites']}")
+                        if nombre_ficha == "Mostrar situaciones validadas por vereda":
+                            st.markdown("**Leyenda del mapa:**")
+                            st.markdown(
+                                "- Gris claro: cero registros documentales validados en el conjunto filtrado.\n"
+                                "- Naranja: un registro validado.\n"
+                                "- Rojo: dos o más registros validados.\n"
+                                "- Contorno oscuro más grueso: vereda seleccionada."
+                            )
+                        elif nombre_ficha == "Límites y nombres de veredas":
+                            st.markdown("**Leyenda del mapa:** relleno gris claro semitransparente y contorno gris oscuro; la vereda seleccionada se resalta con un contorno más grueso.")
+                        elif nombre_ficha in capas_upra:
+                            cfg = CARTOGRAFIA_ARCGIS.get(nombre_ficha, {})
+                            ids = cfg.get("layers", "")
+                            if cfg.get("modo") == "teselas":
+                                st.caption("Esta capa usa teselas pre-renderizadas. La leyenda depende de la simbología publicada por el servicio y no se reconstruye localmente.")
+                            elif cfg.get("url"):
+                                leyenda = obtener_leyenda_arcgis(cfg["url"], ids)
+                                if leyenda:
+                                    st.markdown("**Leyenda oficial del servicio:**")
+                                    for item in leyenda:
+                                        col_img, col_txt = st.columns([1, 5])
+                                        if item.get("imagen"):
+                                            try:
+                                                col_img.image(base64.b64decode(item["imagen"]), width=36)
+                                            except Exception:
+                                                col_img.caption("Símbolo")
+                                        col_txt.caption(f"{item['capa']}: {item['etiqueta']}")
+                                else:
+                                    st.caption("El servicio no entregó una leyenda consultable. No se asignan colores por inferencia; consulte la leyenda del geoportal de origen.")
+                        elif nombre_ficha in capas_locales_sb:
+                            st.caption("La simbología de esta capa local se define en su estilo cartográfico. Consulte los atributos de cada elemento para interpretar su categoría.")
+                        elif nombre_ficha in pbot_opciones_sb.values():
+                            st.caption("La simbología oficial del PBOT debe interpretarse con la leyenda del plano y el documento técnico de formulación de 2015. No se reconstruyen categorías ni colores sin esa fuente.")
                         st.divider()
 
         st.session_state["map_vereda"] = vereda_seleccionada
