@@ -246,13 +246,19 @@ def construir_mapa(topo, eventos_historicos, conflictos=None, codigo_seleccionad
 def resumen_sadci(sadci):
     if not isinstance(sadci, pd.DataFrame) or sadci.empty: return None
     out = {}
-    for c in ("presupuesto_anual_rural", "num_personal_planta", "num_personal_contratista", "ejecucion_presupuestal_pct", "cumplimiento_pdt_pct", "calificacion_mepi"):
-        if c in sadci.columns:
-            vals = pd.to_numeric(sadci[c], errors="coerce").dropna()
-            if not vals.empty: out[c] = float(vals.mean())
+    # Soporte para formato vertical (plantilla de variables) o ancho (Google Sheets)
+    if "codigo_variable" in sadci.columns and "valor_ingresado" in sadci.columns:
+        for _, row in sadci.iterrows():
+            k = str(row.get("codigo_variable", "")).strip()
+            v = pd.to_numeric(row.get("valor_ingresado", ""), errors="coerce")
+            if k and not pd.isna(v):
+                out[k] = float(v)
+    else:
+        for c in ("presupuesto_anual_rural", "num_personal_planta", "num_personal_contratista", "ejecucion_presupuestal_pct", "cumplimiento_pdt_pct", "calificacion_mepi"):
+            if c in sadci.columns:
+                vals = pd.to_numeric(sadci[c], errors="coerce").dropna()
+                if not vals.empty: out[c] = float(vals.mean())
     return out
-
-def indicador_pct(valor): return "—" if valor is None or pd.isna(valor) else f"{float(valor):.0f}%"
 
 
 # =============================================================================
