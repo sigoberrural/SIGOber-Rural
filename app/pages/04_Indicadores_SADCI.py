@@ -117,7 +117,7 @@ tabla = pd.DataFrame({
     "Semáforo de origen": filtrado["semaforo_fuente"], "Estado del dato": filtrado["estado_dato"],
 })
 st.dataframe(tabla, use_container_width=True, hide_index=True, column_config={"Resultado (%)": st.column_config.NumberColumn(format="%.2f%%")})
-st.caption(f"Mostrando {len(filtrado)} de {len(evaluados)} indicadores. La evaluación automática y el semáforo de origen se muestran por separado.")
+
 
 export_cols = ["codigo", "dimension", "nombre", "resultado_calculado_pct", "meta_texto", "estado_meta", "semaforo_fuente", "estado_dato", "fuentes", "responsable", "periodicidad", "observaciones"]
 exp1, exp2, _ = st.columns([1, 1, 3])
@@ -134,29 +134,4 @@ if not filtrado.empty:
         fig.update_yaxes(autorange="reversed")
         st.plotly_chart(fig, use_container_width=True, config={"displaylogo": False})
         st.caption("Los umbrales se muestran como referencia. Las metas tienen direcciones y escalas distintas; las barras no constituyen un ranking de desempeño.")
-
-st.subheader("Fichas técnicas")
-for x in filtrado.to_dict(orient="records"):
-    with st.expander(f'{x["codigo"]} · {x["nombre"]}'):
-        left, right = st.columns(2)
-        with left:
-            st.markdown(f'**Dimensión:** {x["dimension"]}')
-            st.markdown(f'**Fórmula:** {x["formula"]}')
-            st.markdown(f'**Numerador:** {x["numerador"]}')
-            st.markdown(f'**Denominador:** {x["denominador"]}')
-            st.markdown(f'**Meta:** {x["meta_texto"]}')
-            st.markdown(f'**Dirección deseable:** {"Menor es mejor" if x["direccion"] == "menor_es_mejor" else "Mayor es mejor"}')
-        with right:
-            st.markdown(f'**Valores de la matriz:** {x["valor_numerador"]} / {x["valor_denominador"]}')
-            valor = x["resultado_calculado_pct"]
-            st.metric("Resultado reproducido", f"{valor:.2f}%" if valor is not None else "Sin datos calculables")
-            st.markdown(f'**Evaluación de meta:** {x["estado_meta"]}')
-            st.markdown(f'**Semáforo de origen:** {x.get("semaforo_fuente", "No informado")}')
-            st.markdown(f'**Fuentes declaradas:** {x["fuentes"]}')
-            st.markdown(f'**Responsable:** {x["responsable"]}')
-            st.markdown(f'**Periodicidad:** {x["periodicidad"]}')
-        if x.get("semaforo_fuente_requiere_revision"):
-            st.error("Inconsistencia: la hoja marca VERDE, pero el resultado no cumple la meta explícita.")
-        st.info(x.get("observaciones", "Pendiente de precisar criterios de medición."))
-        st.caption("Estado de evidencia: pendiente de verificación documental.")
 
