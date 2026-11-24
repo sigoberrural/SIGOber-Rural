@@ -10,6 +10,7 @@ DESCRIPCIÓN: Aplicación principal con navegación dinámica en barra lateral
 
 from datetime import datetime
 import html
+import base64
 import json
 import time
 import urllib.request
@@ -189,6 +190,33 @@ CARTOGRAFIA_LOCAL = {
     "IGAC local — Curvas y piscinas": ("igac_curvas_piscinas.geojson", "#8c6d31", 1.0),
     "IGAC local — Bosque": ("igac_bosque.geojson", "#2e7d32", 1.0),
 }
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def obtener_leyenda_arcgis(url_servicio, ids_seleccionados):
+    """Consulta la leyenda publicada por ArcGIS REST; no inventa símbolos."""
+    try:
+        url = url_servicio.rstrip("/") + "/legend?f=pjson"
+        req = urllib.request.Request(url, headers={"User-Agent": "SIGOber-Rural/1.0"})
+        with urllib.request.urlopen(req, timeout=6) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+        if payload.get("error"):
+            return []
+        ids = {int(x) for x in str(ids_seleccionados).split(",") if str(x).strip().isdigit()}
+        salida = []
+        for layer in payload.get("layers", []):
+            if ids and int(layer.get("layerId", -1)) not in ids:
+                continue
+            for item in layer.get("legend", []):
+                salida.append({
+                    "capa": layer.get("layerName", "Capa"),
+                    "etiqueta": item.get("label") or "Símbolo sin etiqueta publicada",
+                    "imagen": item.get("imageData"),
+                    "tipo": item.get("contentType", "image/png"),
+                })
+        return salida
+    except Exception:
+        return []
+
 
 # Fichas interpretativas: alcance, lectura y límites de cada capa.
 FICHAS_CAPAS = {
