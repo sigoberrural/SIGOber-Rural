@@ -47,7 +47,11 @@ catalogo_visualizacion = [dict(item) for item in catalogo]
 importacion = st.session_state.get("sigo_sadci_importado")
 if importacion is not None and not importacion.empty:
     periodos = sorted(importacion["periodo"].astype(str).str.strip().unique().tolist())
-    with st.sidebar:\n        st.markdown("**Periodo de resultados**")\n        periodo_activo = st.selectbox("Actualización cargada", periodos, key="sadci_periodo_importado")
+    with st.sidebar:
+        st.markdown("**Periodo de resultados**")
+        periodo_activo = st.selectbox(
+            "Actualización cargada", periodos, key="sadci_periodo_importado"
+        )
     filas_periodo = importacion[importacion["periodo"].astype(str).str.strip() == periodo_activo]
     catalogo_visualizacion = aplicar_actualizacion_sadci(catalogo_visualizacion, filas_periodo, periodo_activo)
     st.info(f"Vista temporal con {len(filas_periodo)} actualización(es) del periodo {periodo_activo}. El catálogo original permanece intacto y los datos siguen pendientes de verificación.")
