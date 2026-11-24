@@ -305,6 +305,18 @@ def construir_mapa(topo, eventos_historicos, conflictos=None, codigo_seleccionad
         attr="Agencia Nacional de Minería - ANM"
     ).add_to(m)
 
+  # 6. Aptitud Agrícola / Pecuaria / Forestal (UPRA)
+    folium.raster_layers.WmsTileLayer(
+        url="https://portalmapas.upra.gov.co/arcgis/services/Aptitud/Aptitud_Agricola/MapServer/WMSServer",
+        name="Aptitud Agropecuaria (UPRA)",
+        layers="0",
+        fmt="image/png",
+        transparent=True,
+        overlay=True,
+        control=True,
+        attr="UPRA - Unidad de Planificación Rural Agropecuaria"
+    ).add_to(m)
+
     folium.LayerControl(collapsed=False).add_to(m)
     return m, time.perf_counter() - initialise if 'initialise' in locals() else time.perf_counter() - inicio
   
