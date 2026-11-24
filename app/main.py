@@ -241,9 +241,22 @@ def construir_mapa(topo, eventos_historicos, conflictos=None, codigo_seleccionad
         folium.GeoJson(geo, name=titulo, tooltip=tooltip_pbot).add_to(grupo_pbot)
         grupo_pbot.add_to(m)
         
+    # === AÑADIR CAPA WMS DEL IDEAM (ESTADO DE ECOSISTEMAS) ===
+    url_wms_ideam = "https://visualizador.ideam.gov.co/gisserver/services/Estado_Ecosistemas/MapServer/WMSServer"
+    folium.raster_layers.WmsTileLayer(
+        url=url_wms_ideam,
+        name="Estado de Ecosistemas (IDEAM)",
+        layers="0",
+        fmt="image/png",
+        transparent=True,
+        overlay=True,
+        control=True,
+        attr="IDEAM - Instituto de Hidrología, Meteorología y Estudios Ambientales"
+    ).add_to(m)
+
     folium.LayerControl(collapsed=False).add_to(m)
     return m, time.perf_counter() - inicio
-
+  
 def resumen_sadci(sadci):
     if not isinstance(sadci, pd.DataFrame) or sadci.empty: return None
     out = {}
