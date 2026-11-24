@@ -263,14 +263,54 @@ def resumen_sadci(sadci):
 def indicador_pct(valor):
     return "—" if valor is None or pd.isna(valor) else f"{float(valor):.0f}%"
 
+def calcular_indicadores_dci_avanzados(r_sadci):
+    """
+    Calcula nuevos indicadores y ratios derivados de los datos ingresados en el formulario,
+    fundamentado en la teoría de capacidades institucionales de Oszlak y Orellana.
+    """
+    if not r_sadci:
+        return {}
+    
+    presupuesto = r_sadci.get("presupuesto_anual_rural", 0) or 0
+    planta = r_sadci.get("num_personal_planta", 0) or 0
+    contratistas = r_sadci.get("num_personal_contratista", 0) or 0
+    ejecucion = r_sadci.get("ejecucion_presupuestal_pct", 0) or 0
+    cumplimiento = r_sadci.get("cumplimiento_pdt_pct", 0) or 0
+    
+    total_personal = planta + contratistas
+    
+    # 1. Ratios calculados
+    # Presupuesto gestionado por cada colaborador operativo
+    presupuesto_por_colaborador = (presupuesto / total_personal) if total_personal > 0 else 0
+    
+    # Proporción de dependencia de contratistas (%)
+    pct_contratistas = (contratistas / total_personal * 100) if total_personal > 0 else 0
+    
+    # Índice de Eficencia Financiera (Ejecución real ponderada)
+    monto_ejecutado = presupuesto * (ejecucion / 100.0)
+    
+    # Índice Sintético de Déficit Institucional (Promedio inverso ponderado de metas y ejecución)
+    # Entre más bajo sea el cumplimiento y la ejecución, mayor es el déficit (0 = sin déficit, 100 = déficit crítico máximo)
+    indice_deficit = 100.0 - ((ejecucion + cumplimiento) / 2.0)
+    
+    return {
+        "total_personal": total_personal,
+        "pct_contratistas": pct_contratistas,
+        "presupuesto_por_colaborador": presupuesto_por_colaborador,
+        "monto_ejecutado": monto_ejecutado,
+        "indice_deficit": indice_deficit
+    }
+
 def generar_analisis_dci_oszlak(r_sadci):
     """
-    Genera un diagnóstico profundo de Déficits de Capacidad Institucional (DCI)
-    fundamentado en el marco teórico de Oscar Oszlak y Edgardo Orellana,
-    desagregado indicador por indicador.
+    Genera un diagnóstico analítico detallado indicador por indicador y muestra 
+    los indicadores calculados basados estrictamente en los datos del formulario.
     """
     if not r_sadci:
         return "⚠️ Sin datos institucionales suficientes en la sesión actual para auditar los déficits de capacidad institucional (DCI)."
+    
+    # Calculamos los indicadores derivados
+    calc = calcular_indicadores_dci_avanzados(r_sadci)
     
     presupuesto = r_sadci.get("presupuesto_anual_rural", 0) or 0
     planta = r_sadci.get("num_personal_planta", 0) or 0
@@ -279,15 +319,23 @@ def generar_analisis_dci_oszlak(r_sadci):
     cumplimiento = r_sadci.get("cumplimiento_pdt_pct")
     mepi = r_sadci.get("calificacion_mepi")
     
-    total_personal = planta + contratistas
-    pct_contratistas = (contratistas / total_personal * 100) if total_personal > 0 else 0
-    
     bloques = []
+    
+    # Resumen de indicadores calculados en base al formulario
+    bloques.append(
+        "### 🔍 Indicadores Calculados del Sistema (Formulario SADCI)\n"
+        f"- **Total Fuerza de Trabajo Institucional:** {int(calc.get('total_personal', 0))} personas "
+        f"(*{calc.get('pct_contratistas', 0):.1f}% contratistas* / *{100 - calc.get('pct_contratistas', 0):.1f}% planta*).\n"
+        f"- **Presupuesto Asignado por Colaborador:** ${calc.get('presupuesto_por_colaborador', 0):,.2f} COP.\n"
+        f"- **Monto Financiero Ejecutado Real:** ${calc.get('monto_ejecutado', 0):,.2f} COP.\n"
+        f"- **Índice Sintético de Déficit Institucional (DCI):** **{calc.get('indice_deficit', 0):.1f}/100** "
+        f"(*{'Riesgo Crítico' if calc.get('indice_deficit', 0) > 40 else 'Estabilidad Aceptable'}*).\n"
+    )
     
     # 1. Dimensión Material y Financiera
     presupuesto_str = f"{presupuesto:,.0f} COP" if presupuesto > 0 else "sin asignación registrada"
     if presupuesto > 0:
-        fin_val = f"- **Presupuesto Asignado ({presupuesto_str}):** Suficiente en términos formales. Oszlak y Orellana señalan que la materialización de políticas rurales requiere recursos monetarios estables y liquidez oportuna para mitigar riesgos de inoperancia."
+        fin_val = f"- **Presupuesto Asignado ({presupuesto_str}):** Suficiente en términos formales. Oszlak y Orellana señalan que la materialización de políticas rurales requiere recursos monetarios estables y liquidez oportuna."
     else:
         fin_val = f"- **Presupuesto Asignado ({presupuesto_str}):** Configura un *déficit financiero estructural crítico* al carecer de recursos monetarios base para la intervención estatal."
     bloques.append("### 🏛️ 1. Dimensión de Capacidad Material y Financiera\n" + fin_val)
@@ -302,12 +350,13 @@ def generar_analisis_dci_oszlak(r_sadci):
         )
         
     # 3. Dimensión Burocrática y Organizacional
-    if total_personal > 0:
-        fragilidad_bureau = "alta fragilidad institucional y baja profesionalización" if pct_contratistas > 50 else "adecuado arraigo y estabilidad burocrática"
+    if calc.get('total_personal', 0) > 0:
+        pct_c = calc.get('pct_contratistas', 0)
+        fragilidad_bureau = "alta fragilidad institucional y baja profesionalización" if pct_c > 50 else "adecuado arraigo y estabilidad burocrática"
         bloques.append(
             "\n### 👥 3. Dimensión Burocrática y Arreglos Organizacionales\n"
-            f"- **Talento Humano ({int(total_personal)} total: {int(planta)} planta, {int(contratistas)} contratistas):** "
-            f"La proporción de contratistas equivale al **{pct_contratistas:.0f}%**, lo que denota **{fragilidad_bureau}**. "
+            f"- **Talento Humano ({int(planta)} planta, {int(contratistas)} contratistas):** "
+            f"La dependencia de contratistas está en **{pct_c:.1f}%**, lo que denota **{fragilidad_bureau}**. "
             "Según la perspectiva de Oszlak, la tercerización excesiva erosiona la memoria institucional y la estabilidad de la carrera administrativa."
         )
         
@@ -488,9 +537,9 @@ else:
     
     st.divider()
     
-    # Análisis detallado indicador por indicador (Marco Teórico: Oszlak y Orellana)
+    # Análisis detallado indicador por indicador y métricas calculadas (Oszlak y Orellana)
     st.markdown("### 🤖 Síntesis y Análisis Dinámico de Déficits de Capacidad Institucional (DCI)")
-    st.caption("Auditoría institucional desagregada bajo los enfoques de Oscar Oszlak y Edgardo Orellana.")
+    st.caption("Auditoría basada en datos del formulario y cálculo de ratios de gobernanza (Oscar Oszlak y Edgardo Orellana).")
     
     analisis_dci_texto = generar_analisis_dci_oszlak(r_sadci)
     st.info(analisis_dci_texto)
