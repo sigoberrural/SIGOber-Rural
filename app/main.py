@@ -158,6 +158,38 @@ CARTOGRAFIA_ARCGIS = {
         "url": "https://mapas.parquesnacionales.gov.co/arcgis/rest/services/pnn/runap/MapServer",
         "layers": "0", "attribution": "Parques Nacionales Naturales · Registro Único Nacional de Áreas Protegidas", "modo": "export"
     },
+    "UPRA — Determinantes: frontera agrícola": {
+        "url": "https://geoportal.ant.gov.co/servidor/rest/services/MIGO/Determinantes_UPRA/MapServer",
+        "layers": "4", "attribution": "UPRA · Determinantes territoriales · MIGO", "modo": "export"
+    },
+    "UPRA — Restricciones agropecuarias de frontera": {
+        "url": "https://geoportal.ant.gov.co/servidor/rest/services/MIGO/Determinantes_UPRA/MapServer",
+        "layers": "5", "attribution": "UPRA · Restricciones agropecuarias · MIGO", "modo": "export"
+    },
+    "UPRA — Frontera agrícola condicionada": {
+        "url": "https://geoportal.ant.gov.co/servidor/rest/services/MIGO/Determinantes_UPRA/MapServer",
+        "layers": "6,12", "attribution": "UPRA · Frontera agrícola condicionada · MIGO", "modo": "export"
+    },
+    "UPRA — Distritos de adecuación de tierras": {
+        "url": "https://geoportal.ant.gov.co/servidor/rest/services/MIGO/Determinantes_UPRA/MapServer",
+        "layers": "7,8", "attribution": "UPRA · Distritos de adecuación de tierras · MIGO", "modo": "export"
+    },
+    "UPRA — Áreas de referencia ZIDRES": {
+        "url": "https://geoportal.ant.gov.co/servidor/rest/services/MIGO/Determinantes_UPRA/MapServer",
+        "layers": "9", "attribution": "UPRA · Áreas de referencia ZIDRES · MIGO", "modo": "export"
+    },
+    "UPRA — Adjudicabilidad UAF": {
+        "url": "https://geoportal.ant.gov.co/servidor/rest/services/MIGO/Determinantes_UPRA/MapServer",
+        "layers": "11", "attribution": "UPRA · Adjudicabilidad UAF · MIGO", "modo": "export"
+    },
+    "SGC — Amenaza por movimientos en masa (mapa nacional 1:100.000)": {
+        "url": "https://srvags.sgc.gov.co/arcgis/rest/services/Mapa_Nacional_Amenaza_Mov_Masa_100K/Mapa_Nacional_Amenaza_Movimientos_Masa_100K/MapServer",
+        "layers": "3", "attribution": "Servicio Geológico Colombiano · mapa nacional 2015 · escala 1:100.000", "modo": "export"
+    },
+    "IGAC — Atlas 2024: remoción en masa": {
+        "url": "https://mapas.igac.gov.co/server/rest/services/atlas/geologicogeomorfologico/MapServer",
+        "layers": "2", "attribution": "IGAC · Atlas de Colombia 2024 · fenómenos geológicos", "modo": "teselas"
+    },
 }
 
 CARTOGRAFIA_LOCAL = {
