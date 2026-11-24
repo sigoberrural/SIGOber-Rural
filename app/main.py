@@ -1,19 +1,21 @@
 """
 =============================================================================
 PROYECTO: SIGOber-Rural
-ARCHIVO: main.py (Rama Develope - Módulo de Ingesta y Gestión de Datos)
-DESCRIPCIÓN: Aplicación principal de Streamlit organizada con navegación por 
-             botones de estado en la barra lateral (Exploración / SADCI) y 
-             separación estricta de controles a la izquierda y resultados a la derecha.
+ARCHIVO: main.py (Rama Develope)
+DESCRIPCIÓN: Aplicación principal con navegación dinámica en barra lateral 
+             para alternar entre las vistas de Exploración (Cartografía) y SADCI.
 =============================================================================
 """
 
 from datetime import datetime
 import json
+import time
 from pathlib import Path
 
+import folium
 import pandas as pd
 import streamlit as st
+from streamlit_folium import st_folium
 
 # =============================================================================
 # 1. CONFIGURACIÓN DEL ENTORNO Y RUTAS DEL SISTEMA
@@ -32,18 +34,129 @@ from app.sadci import cargar_catalogo
 
 st.set_page_config(page_title="SIGOber-Rural", page_icon="🗺️", layout="wide")
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
+BASE_DIR = Path(__file__).resolve().parent.parent
+DATA_DIR = BASE_DIR / "data"
+PBOT_DIR = DATA_DIR / "PBOT2015"
+
+PBOT_CAPAS = [
+    ("PBOT2015_ZONIFICACION_USO_SUELO_RURAL.geojson", "Zonificación de uso del suelo rural", ["UGOT", "Aptitud", "area_ha"]),
+    ("PBOT2015_PROTECCION_RURAL.geojson", "Suelos de protección rural", ["Aptitud", "Area_ha"]),
+    ("PBOT2015_PERIMETRO_EXPANSION.geojson", "Perímetro y expansión urbana", ["Tipo", "area_m2", "Id"]),
+    ("PBOT2015_TRATAMIENTOS_URBANOS.geojson", "Tratamientos urbanos", ["Tipo", "area_m2", "Id"]),
+    ("PBOT2015_ZONAS_HOMOGENEAS_URBANAS.geojson", "Zonas homogéneas urbanas", ["Tipo", "area_m2", "Id"]),
+    ("PBOT2015_PUNTOS_EXPANSION.geojson", "Puntos de expansión urbana", ["Tipo", "area_m2", "Id"]),
+    ("PBOT2015_MANZANAS_INSPECCIONES.geojson", "Manzanas e inspecciones", ["codigo", "sector_cat", "tipo_avalu", "Reporte"])
+]
 
 # Inicialización de variables de estado en la sesión
 st.session_state.setdefault("sigo_uploads", {})
 st.session_state.setdefault("sigo_upload_widget_version", 0)
 st.session_state.setdefault("sigo_problematicas_validadas", None)
 st.session_state.setdefault("sigo_sadci_importado", None)
-st.session_state.setdefault("sidebar_seccion_activa", "SADCI")
+st.session_state.setdefault("sidebar_seccion_activa", "Exploración")
 
 
 # =============================================================================
-# 2. BARRA LATERAL (SIDEBAR) - NAVEGACIÓN Y CONFIGURACIÓN DINÁMICA
+# 2. FUNCIONES DE CARGA Y PROCESAMIENTO ESPACIAL
+# =============================================================================
+
+@st.cache_data(show_spinner=False)
+def cargar_json(nombre):
+    ruta = DATA_DIR / nombre
+    if not ruta.exists(): return None
+    with open(ruta, "r", encoding="utf-8") as f: return json.load(f)
+
+@st.cache_data(show_spinner=False)
+def cargar_pbot_capas():
+    capas = []
+    for archivo, titulo, campos in PBOT_CAPAS:
+        ruta = PBOT_DIR / archivo
+        if not ruta.exists(): continue
+        try:
+            with open(ruta, "r", encoding="utf-8") as f: geo = json.load(f)
+            if geo.get("type") == "FeatureCollection": capas.append((archivo, titulo, geo, campos))
+        except Exception: continue
+    return capas
+
+@st.cache_data(show_spinner=False)
+def cargar_eventos_locales():
+    for nombre in ("SITUACIONES_TERRITORIALES_eventos.csv",):
+        ruta = DATA_DIR / nombre
+        if ruta.exists(): return pd.read_csv(ruta, dtype=str).fillna("")
+    return pd.DataFrame()
+
+@st.cache_data(show_spinner=False)
+def cargar_veredas_topo():
+    topo = cargar_json("veredas_puerto_rico.json")
+    if not topo or topo.get("type") != "Topology" or "Veredas" not in topo.get("objects", {}): 
+        raise RuntimeError("No se encontró un TopoJSON válido con el objeto Veredas.")
+    return topo
+
+@st.cache_data(show_spinner=False)
+def propiedades_veredas(topo): 
+    return pd.DataFrame([g.get("properties", {}) or {} for g in topo.get("objects", {}).get("Veredas", {}).get("geometries", [])]).fillna("")
+
+@st.cache_data(show_spinner=False)
+def resumenes_por_vereda(eventos):
+    vacio = pd.DataFrame(columns=["codigo_ver_resuelto", "SIGOber_situaciones", "SIGOber_anios", "SIGOber_tipos", "SIGOber_confianza"])
+    if eventos is None or eventos.empty or "codigo_ver_resuelto" not in eventos.columns: return vacio
+    df = eventos.copy(); df["codigo_ver_resuelto"] = df["codigo_ver_resuelto"].astype(str).str.strip(); df = df[df["codigo_ver_resuelto"] != ""]
+    if df.empty: return vacio
+    def valores(col): return df[col].astype(str).str.strip() if col in df.columns else pd.Series("", index=df.index)
+    df["_anio"], df["_tipo"], df["_conf"] = valores("anio"), valores("tipo_conflicto"), valores("confianza")
+    def uniq(series): return ", ".join(sorted(x for x in series.unique() if x))
+    return df.groupby("codigo_ver_resuelto", sort=False).agg(SIGOber_situaciones=("codigo_ver_resuelto", "size"), SIGOber_anios=("_anio", uniq), SIGOber_tipos=("_tipo", uniq), SIGOber_confianza=("_conf", uniq)).reset_index()
+
+@st.cache_data(show_spinner=False, max_entries=32)
+def preparar_topo_para_eventos(topo, resumen):
+    copia = json.loads(json.dumps(topo)); tabla = resumen.set_index("codigo_ver_resuelto") if not resumen.empty else pd.DataFrame()
+    for g in copia.get("objects", {}).get("Veredas", {}).get("geometries", []):
+        p = g.setdefault("properties", {}); codigo = str(p.get("CODIGO_VER", "")).strip()
+        if not tabla.empty and codigo in tabla.index:
+            r = tabla.loc[codigo]; p["SIGOber_situaciones"] = int(r["SIGOber_situaciones"]); p["SIGOber_anios"] = str(r["SIGOber_anios"]); p["SIGOber_tipos"] = str(r["SIGOber_tipos"]); p["SIGOber_confianza"] = str(r["SIGOber_confianza"])
+        else: p["SIGOber_situaciones"] = 0; p["SIGOber_anios"] = "Sin registros"; p["SIGOber_tipos"] = "Sin registros"; p["SIGOber_confianza"] = "Sin registros"
+    return copia
+
+def construir_mapa(topo, eventos_historicos, codigo_seleccionado="", pbot_seleccionadas=()):
+    inicio = time.perf_counter(); resumen = resumenes_por_vereda(eventos_historicos); topo_mapa = preparar_topo_para_eventos(topo, resumen)
+    m = folium.Map(location=[1.9123, -75.1842], zoom_start=10, tiles="OpenStreetMap", prefer_canvas=True)
+    
+    grupo_territorio = folium.FeatureGroup(name="Territorio — Veredas", show=True)
+    folium.Marker([1.9123, -75.1842], tooltip="Puerto Rico, Caquetá").add_to(grupo_territorio)
+    
+    def estilo_territorio(feature):
+        p = feature.get("properties", {}); codigo = str(p.get("CODIGO_VER", "")).strip(); sel = bool(codigo) and codigo == str(codigo_seleccionado).strip()
+        return {"fillColor": "#eeeeee", "color": "#111111" if sel else "#555555", "weight": 2.8 if sel else 0.8, "fillOpacity": 0.22}
+    
+    folium.TopoJson(data=topo_mapa, object_path="objects.Veredas", name="Veredas", style_function=estilo_territorio, show=True).add_to(grupo_territorio)
+    grupo_territorio.add_to(m)
+    
+    disponibles = {x[0]: x for x in cargar_pbot_capas()}
+    for archivo in pbot_seleccionadas:
+        capa = disponibles.get(archivo)
+        if not capa: continue
+        _, titulo, geo, _ = capa
+        grupo_pbot = folium.FeatureGroup(name=f"{titulo} — PBOT 2015", show=True)
+        folium.GeoJson(geo, name=titulo).add_to(grupo_pbot)
+        grupo_pbot.add_to(m)
+        
+    folium.LayerControl(collapsed=False).add_to(m)
+    return m, time.perf_counter() - inicio
+
+def resumen_sadci(sadci):
+    if not isinstance(sadci, pd.DataFrame) or sadci.empty: return None
+    out = {}
+    for c in ("presupuesto_anual_rural", "num_personal_planta", "num_personal_contratista", "ejecucion_presupuestal_pct", "cumplimiento_pdt_pct", "calificacion_mepi"):
+        if c in sadci.columns:
+            vals = pd.to_numeric(sadci[c], errors="coerce").dropna()
+            if not vals.empty: out[c] = float(vals.mean())
+    return out
+
+def indicador_pct(valor): return "—" if valor is None or pd.isna(valor) else f"{float(valor):.0f}%"
+
+
+# =============================================================================
+# 3. BARRA LATERAL (SIDEBAR) - NAVEGACIÓN DINÁMICA
 # =============================================================================
 
 with st.sidebar:
@@ -53,7 +166,7 @@ with st.sidebar:
     
     st.markdown("**Espacios de trabajo**")
     
-    # Botones superiores para alternar la sección activa (mantienen estado visual)
+    # Botones superiores para alternar la sección activa
     col_b1, col_b2 = st.columns(2)
     with col_b1:
         if st.button("🗺️ Exploración", use_container_width=True, type="primary" if st.session_state["sidebar_seccion_activa"] == "Exploración" else "secondary"):
@@ -66,20 +179,30 @@ with st.sidebar:
             
     st.divider()
     
-    # Panel inferior dinámico según la sección seleccionada arriba
+    # Panel inferior dinámico según la sección seleccionada
     if st.session_state["sidebar_seccion_activa"] == "Exploración":
-        st.markdown("### 🔍 Herramientas de Consulta")
-        st.caption("Filtros y parámetros espaciales:")
-        vereda_filtro = st.selectbox("Filtrar por Vereda", ["Todas las veredas", "Vereda Centro", "Vereda Rural Norte"], key="filtro_vereda_sb")
-        anio_filtro = st.multiselect("Año de análisis", ["2024", "2025", "2026"], default=["2025", "2026"])
-        st.page_link("pages/01_Exploracion.py", label="Abrir visor cartográfico completo", icon="🚀")
+        st.markdown("### ⚙️ Parámetros de Mapa")
+        topo_sb = cargar_veredas_topo()
+        veredas_df_sb = propiedades_veredas(topo_sb)
+        nombres_sb = veredas_df_sb[["CODIGO_VER", "NOMBRE_VER"]].drop_duplicates().copy()
+        nombres_sb["etiqueta"] = nombres_sb["NOMBRE_VER"].astype(str) + " — " + nombres_sb["CODIGO_VER"].astype(str)
+        opciones_sb = ["Todas las veredas"] + sorted(nombres_sb["etiqueta"].tolist())
+        
+        vereda_seleccionada = st.selectbox("Seleccionar Vereda", opciones_sb)
+        
+        pbot_opciones_sb = {archivo: titulo for archivo, titulo, _, _ in cargar_pbot_capas()}
+        pbot_sel_sb = st.multiselect("Capas PBOT 2015", options=list(pbot_opciones_sb.keys()), format_func=lambda x: pbot_opciones_sb[x])
+        
+        # Guardamos los filtros en session_state para usarlos en el área principal
+        st.session_state["filtro_vereda"] = vereda_seleccionada
+        st.session_state["pbot_seleccionadas"] = pbot_sel_sb
         
     else:
         st.markdown("### 📥 Ingesta y Gestión SADCI")
-        st.caption("Herramientas activas de gestión institucional:")
-        st.markdown("• Plantilla de problemáticas")
-        st.markdown("• Actualización institucional SADCI")
-        st.markdown("• Gestión de archivos temporales")
+        st.caption("Herramientas de control institucional:")
+        st.markdown("• Carga de problemáticas")
+        st.markdown("• Actualización de indicadores")
+        st.markdown("• Archivos temporales")
         
     st.divider()
     st.caption("Puerto Rico · Caquetá")
@@ -87,264 +210,54 @@ with st.sidebar:
 
 
 # =============================================================================
-# 3. INTERFAZ DE USUARIO - CABECERA Y ESTILOS CSS
+# 4. INTERFAZ PRINCIPAL (CONDICIONAL SEGÚN SECCIÓN ACTIVA)
 # =============================================================================
 
-st.markdown("""
-<style>
-.ingesta-hero{padding:1.35rem 1.5rem;border:1px solid rgba(128,128,128,.2);border-radius:1.1rem;background:linear-gradient(118deg,rgba(38,105,78,.14),rgba(122,143,102,.035));margin:.25rem 0 1rem}
-.ingesta-kicker{font-size:.72rem;letter-spacing:.13em;text-transform:uppercase;font-weight:750;opacity:.65}
-.ingesta-hero h1{font-size:2.15rem;line-height:1.15;margin:.25rem 0 .4rem}
-.ingesta-hero p{max-width:850px;margin:0;opacity:.8}
-</style>
-<div class="ingesta-hero">
-  <div class="ingesta-kicker">SIGOber-Rural · Puerto Rico, Caquetá</div>
-  <h1>Ingesta y gestión de datos</h1>
-  <p>Incorpora información territorial mediante plantillas guiadas. Revisa los datos antes de confirmarlos y consulta después los resultados en el espacio de visualización.</p>
-</div>
-""", unsafe_allow_html=True)
-
-st.info("**Importante:** los archivos confirmados permanecen disponibles durante la sesión activa. Esta versión todavía no los guarda en una base de datos compartida ni garantiza su conservación al cerrar la sesión.")
-
-
-# =============================================================================
-# 4. PESTAÑAS PRINCIPALES DE GESTIÓN (TABS) - DISEÑO IZQ (CONTROLES) / DER (RESULTADOS)
-# =============================================================================
-
-tab_social, tab_sadci, tab_archivos = st.tabs(["Problemáticas por vereda", "Capacidad institucional · SADCI", "Archivos de apoyo"])
-
-
-# -----------------------------------------------------------------------------
-# 4.1. MÓDULO: Problemáticas por vereda
-# -----------------------------------------------------------------------------
-with tab_social:
-    col_izq, col_der = st.columns([1, 1.4], gap="large")
+if st.session_state["sidebar_seccion_activa"] == "Exploración":
+    st.markdown("""
+    <div style='padding:.5rem 0 1rem'>
+        <h2>Exploración Cartográfica</h2>
+        <p style='opacity:0.75'>Visualización geoespacial de veredas, situaciones e instrumentos de ordenamiento territorial.</p>
+    </div>
+    """, unsafe_allow_html=True)
     
-    with col_izq:
-        st.subheader("1. Controles y Carga")
-        st.write("Descarga la plantilla, complétala con una fila por observación y cárgala aquí.")
-        
-        st.download_button(
-            "Descargar plantilla Excel de problemáticas",
-            data=crear_excel_plantilla("problematicas"),
-            file_name="plantilla_problematicas_sigo_rural.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=True,
-        )
-        st.caption("Campos clave: ID, código y nombre de vereda, categoría, descripción, fecha, coordenadas opcionales, fuente y estado de validación.")
-        
-        st.divider()
-        social_file = st.file_uploader("Carga tu plantilla completada (CSV o Excel)", type=["csv", "xlsx", "xls"], key="sigo_social_template")
-        
-        social_df = None
-        reviewed = None
-        valid_count = 0
-        if social_file is not None:
-            try:
-                social_df = leer_archivo_tabular(social_file)
-                reviewed = validar_problematicas(social_df)
-                valid_count = int(reviewed["valido_revision_tecnica"].sum())
-            except (ValueError, UnicodeDecodeError, pd.errors.ParserError) as exc:
-                st.error(f"No se pudo leer la plantilla: {exc}")
-
-        if reviewed is not None:
-            st.divider()
-            if valid_count != len(reviewed):
-                st.error("Hay filas con errores técnicos. Corrígelas antes de confirmar.")
-            elif reviewed.empty:
-                st.warning("El archivo no contiene filas.")
-            else:
-                st.info("Validación técnica exitosa. Puedes confirmar la incorporación.")
-                if st.button("Confirmar e incorporar a esta sesión", key="confirm_social_import", type="primary", use_container_width=True):
-                    st.session_state.sigo_problematicas_validadas = reviewed.drop(columns=["errores_validacion", "valido_revision_tecnica"]).copy()
-                    st.success(f"Se incorporaron {len(reviewed)} registros a la sesión actual.")
-                    st.rerun()
-
-        if st.session_state.sigo_problematicas_validadas is not None:
-            if st.button("Retirar problemáticas de esta sesión", key="clear_social_import", use_container_width=True):
-                st.session_state.sigo_problematicas_validadas = None
-                st.rerun()
-
-    with col_der:
-        st.subheader("2. Resultados y Validación")
-        if social_file is not None and reviewed is not None:
-            c1, c2, c3 = st.columns(3)
-            c1.metric("Filas leídas", len(reviewed))
-            c2.metric("Sin errores", valid_count)
-            c3.metric("Con errores", len(reviewed) - valid_count)
-            
-            st.markdown("**Vista previa del informe de validación:**")
-            st.dataframe(reviewed, use_container_width=True, hide_index=True)
-            st.download_button("Descargar informe de validación", reviewed.to_csv(index=False).encode("utf-8-sig"), "revision_problematicas.csv", "text/csv", use_container_width=True)
-        else:
-            st.info("Sube un archivo en el panel izquierdo para ver los resultados de validación y métricas aquí.")
-
-        if st.session_state.sigo_problematicas_validadas is not None:
-            current = st.session_state.sigo_problematicas_validadas
-            st.success(f"Registros activos en sesión: {len(current)}")
-            with st.expander("Ver registros incorporados en sesión"):
-                st.dataframe(current, use_container_width=True, hide_index=True)
-            st.download_button("Descargar registros incorporados", current.to_csv(index=False).encode("utf-8-sig"), "problematicas_sesion.csv", "text/csv", use_container_width=True)
-
-
-# -----------------------------------------------------------------------------
-# 4.2. MÓDULO: Capacidad institucional · SADCI
-# -----------------------------------------------------------------------------
-with tab_sadci:
-    col_izq_s, col_der_s = st.columns([1, 1.4], gap="large")
+    topo_main = cargar_veredas_topo()
+    historicos_main = cargar_eventos_locales()
     
-    try:
-        catalogo_sadci = cargar_catalogo()
-        
-        with col_izq_s:
-            st.subheader("1. Controles y Carga SADCI")
-            st.write("Descarga la plantilla institucional, completa los valores y súbela para su revisión.")
-            
-            st.download_button(
-                "Descargar plantilla Excel SADCI",
-                data=crear_excel_plantilla("sadci", catalogo_sadci),
-                file_name="plantilla_actualizacion_sadci.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                use_container_width=True,
-            )
-            st.caption("Completa numerador, denominador, periodo, fecha de corte, fuente y responsable.")
-            
-            st.divider()
-            sadci_file = st.file_uploader("Carga la plantilla SADCI completada (CSV o Excel)", type=["csv", "xlsx", "xls"], key="sigo_sadci_template")
-            
-            sadci_review = None
-            valid_count_sadci = 0
-            if sadci_file is not None:
-                try:
-                    sadci_df = leer_archivo_tabular(sadci_file)
-                    sadci_review = validar_importacion_sadci(sadci_df, catalogo_sadci)
-                    valid_count_sadci = int(sadci_review["valido_revision_tecnica"].sum())
-                except (ValueError, UnicodeDecodeError, pd.errors.ParserError) as exc:
-                    st.error(f"No se pudo leer la plantilla SADCI: {exc}")
-
-            if sadci_review is not None:
-                st.divider()
-                if valid_count_sadci != len(sadci_review) or sadci_review.empty:
-                    st.error("Corrige los códigos, periodos y valores numéricos antes de confirmar.")
-                else:
-                    st.info("Los valores importados están listos para confirmación.")
-                    if st.button("Confirmar actualización SADCI en esta sesión", key="confirm_sadci_import", type="primary", use_container_width=True):
-                        st.session_state.sigo_sadci_importado = sadci_review.drop(columns=["errores_validacion", "valido_revision_tecnica"]).copy()
-                        st.success(f"Se incorporaron {len(sadci_review)} filas SADCI.")
-                        st.rerun()
-
-            if st.session_state.sigo_sadci_importado is not None:
-                if st.button("Retirar actualización SADCI de esta sesión", key="clear_sadci_import", use_container_width=True):
-                    st.session_state.sigo_sadci_importado = None
-                    st.rerun()
-
-        with col_der_s:
-            st.subheader("2. Resultados y Validación SADCI")
-            if sadci_file is not None and sadci_review is not None:
-                c1, c2, c3 = st.columns(3)
-                c1.metric("Filas leídas", len(sadci_review))
-                c2.metric("Sin errores", valid_count_sadci)
-                c3.metric("Con errores", len(sadci_review) - valid_count_sadci)
-                
-                st.markdown("**Vista previa del informe SADCI:**")
-                st.dataframe(sadci_review, use_container_width=True, hide_index=True)
-                st.download_button("Descargar informe de validación SADCI", sadci_review.to_csv(index=False).encode("utf-8-sig"), "revision_sadci.csv", "text/csv", use_container_width=True)
-            else:
-                st.info("Carga una plantilla SADCI en el panel izquierdo para visualizar las métricas y el informe aquí.")
-
-            if st.session_state.sigo_sadci_importado is not None:
-                current_sadci = st.session_state.sigo_sadci_importado
-                st.success(f"Actualización SADCI activa en sesión: {len(current_sadci)} fila(s).")
-                st.dataframe(current_sadci, use_container_width=True, hide_index=True)
-                st.caption("Para consultar los resultados calculados, abre el módulo SADCI.")
-
-    except (OSError, ValueError, json.JSONDecodeError) as exc:
-        st.error(f"No fue posible preparar la plantilla SADCI: {exc}")
-
-
-# -----------------------------------------------------------------------------
-# 4.3. MÓDULO: Archivos de apoyo (Carga temporal)
-# -----------------------------------------------------------------------------
-with tab_archivos:
-    col_izq_a, col_der_a = st.columns([1, 1.4], gap="large")
+    vereda_activa = st.session_state.get("filtro_vereda", "Todas las veredas")
+    codigo_sel_main = "" if vereda_activa == "Todas las veredas" else vereda_activa.split(" — ")[-1]
+    capas_pbot_main = tuple(st.session_state.get("pbot_seleccionadas", []))
     
-    with col_izq_a:
-        st.subheader("1. Controles de Carga")
-        st.write("Selecciona archivos auxiliares para inspección rápida en memoria.")
-        
-        uploads = st.file_uploader(
-            "Selecciona uno o varios archivos",
-            type=["csv", "xlsx", "xls", "json", "geojson"],
-            accept_multiple_files=True,
-            key=f"sigo_file_uploader_{st.session_state.sigo_upload_widget_version}",
-            help="Los archivos se mantienen en memoria de esta sesión.",
-        )
-        
-        for uploaded in uploads or []:
-            raw = uploaded.getvalue()
-            file_id = f"{uploaded.name}::{len(raw)}::{uploaded.type}"
-            st.session_state.sigo_uploads[file_id] = {
-                "name": uploaded.name, "bytes": raw, "size": len(raw),
-                "type": uploaded.type, "loaded_at": datetime.now().isoformat(timespec="seconds"),
-            }
-            
-        files = list(st.session_state.sigo_uploads.items())
-        
-        if files:
-            st.divider()
-            confirm = st.checkbox("Confirmo que quiero retirar todos los archivos de esta sesión", key="confirm_clear_session_uploads")
-            if st.button("Retirar todos los archivos", type="secondary", disabled=not confirm, use_container_width=True):
-                st.session_state.sigo_uploads.clear()
-                st.session_state.sigo_upload_widget_version += 1
-                st.session_state.confirm_clear_session_uploads = False
-                st.rerun()
+    mapa_render, segs = construir_mapa(topo_main, historicos_main, codigo_sel_main, capas_pbot_main)
+    st_folium(mapa_render, width="100%", height=650, returned_objects=[])
 
-    with col_der_a:
-        st.subheader("2. Resultados y Vistas Previas")
-        files = list(st.session_state.sigo_uploads.items())
-        if not files:
-            st.info("No hay archivos de apoyo cargados en esta sesión.")
-        else:
-            st.success(f"{len(files)} archivo(s) disponibles en memoria.")
-            for idx, (file_id, item) in enumerate(files):
-                with st.container(border=True):
-                    sub_l, sub_r = st.columns([3, 1])
-                    with sub_l:
-                        st.markdown(f"**{item['name']}**")
-                        st.caption(f"{item['type'] or 'Tipo no identificado'} · {item['size'] / 1024:.1f} KB")
-                    with sub_r:
-                        if st.button("Retirar", key=f"remove_upload_{idx}", use_container_width=True):
-                            del st.session_state.sigo_uploads[file_id]
-                            st.session_state.sigo_upload_widget_version += 1
-                            st.rerun()
-                    try:
-                        from io import BytesIO
-                        suffix = Path(item["name"]).suffix.lower()
-                        if suffix == ".csv":
-                            preview = pd.read_csv(BytesIO(item["bytes"]), dtype=str, keep_default_na=False, nrows=100)
-                            st.caption("Vista previa (hasta 100 filas):")
-                            st.dataframe(preview, use_container_width=True, hide_index=True)
-                        elif suffix in {".xlsx", ".xls"}:
-                            preview = pd.read_excel(BytesIO(item["bytes"]), nrows=100)
-                            st.caption("Vista previa (hasta 100 filas):")
-                            st.dataframe(preview, use_container_width=True, hide_index=True)
-                        elif suffix in {".json", ".geojson"}:
-                            parsed = json.loads(item["bytes"].decode("utf-8-sig"))
-                            if isinstance(parsed, dict) and parsed.get("type") == "FeatureCollection":
-                                st.caption(f"GeoJSON · {len(parsed.get('features', []))} entidades.")
-                            else:
-                                st.caption("JSON válido.")
-                            st.json(parsed, expanded=False)
-                    except Exception as exc:
-                        st.warning(f"No se pudo generar vista previa: {type(exc).__name__}")
-
-
-# =============================================================================
-# 5. PIE DE PÁGINA Y ENLACES A OTRAS HERRAMIENTAS
-# =============================================================================
-
-st.divider()
-st.subheader("Otras herramientas de ingesta")
-st.write("Para revisar la estructura y la calidad de los registros de cartografía social, abre la herramienta específica.")
-st.page_link("pages/03_Cartografia_Social.py", label="Abrir revisión de cartografía social", icon="📍")
-st.caption("La retirada de archivos solo afecta a la sesión actual. Los datos persistentes requieren una operación autorizada sobre su fuente.")
+else:
+    st.markdown("""
+    <div style='padding:.5rem 0 1rem'>
+        <h2>Capacidad Institucional · SADCI</h2>
+        <p style='opacity:0.75'>Resultados consolidados de los indicadores institucionales y capacidades del municipio.</p>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Cargamos datos de ejemplo o de Google Sheets si existen en la sesión
+    st.session_state.setdefault("google_data", {"SADCI": pd.DataFrame()})
+    gd_sadci = st.session_state["google_data"].get("SADCI")
+    
+    r_sadci = resumen_sadci(gd_sadci)
+    
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Presupuesto rural", f"{r_sadci.get('presupuesto_anual_rural', 0):,.0f}" if r_sadci and r_sadci.get("presupuesto_anual_rural") is not None else "—")
+    col2.metric("Personal planta", f"{r_sadci.get('num_personal_planta', 0):.0f}" if r_sadci and r_sadci.get("num_personal_planta") is not None else "—")
+    col3.metric("Contratistas", f"{r_sadci.get('num_personal_contratista', 0):.0f}" if r_sadci and r_sadci.get("num_personal_contratista") is not None else "—")
+    
+    col4, col5, col6 = st.columns(3)
+    col4.metric("Ejecución presupuestal", indicador_pct(r_sadci.get("ejecucion_presupuestal_pct") if r_sadci else None))
+    col5.metric("Cumplimiento PDT", indicador_pct(r_sadci.get("cumplimiento_pdt_pct") if r_sadci else None))
+    col6.metric("Calificación MEPI", f"{r_sadci.get('calificacion_mepi', 0):.1f}" if r_sadci and r_sadci.get("calificacion_mepi") is not None else "—")
+    
+    st.divider()
+    st.subheader("Detalle de registros institucionales")
+    if isinstance(gd_sadci, pd.DataFrame) and not gd_sadci.empty:
+        st.dataframe(gd_sadci, use_container_width=True, hide_index=True)
+    else:
+        st.info("No hay datos cargados en la tabla SADCI actualmente. Puedes gestionarlos desde las herramientas del sistema o mediante plantillas.")
