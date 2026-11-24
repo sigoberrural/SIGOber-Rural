@@ -21,7 +21,7 @@ CAMPOS_SADCI = [
 
 
 def crear_excel_plantilla(tipo: str, catalogo: list[dict[str, Any]] | None = None) -> bytes:
-    """Devuelve una plantilla XLSX con instrucciones y columnas estables."""
+    """Devuelve una plantilla XLSX con instrucciones detalladas, glosario DCI y columnas estables."""
     if tipo == "problematicas":
         columnas = CAMPOS_PROBLEMATICAS
         ejemplo = {
@@ -50,21 +50,31 @@ def crear_excel_plantilla(tipo: str, catalogo: list[dict[str, Any]] | None = Non
             "fecha_corte": "AAAA-MM-DD", "observaciones": "",
             "estado_dato": "PENDIENTE_VERIFICACION",
         }
+        
+        # Instrucciones ampliadas con glosario detallado de las Dimensiones de Capacidad Institucional (DCI)
         instrucciones = [
-            ["Plantilla de actualización SADCI — SIGOber-Rural"],
-            ["Una fila por indicador y periodo. El código debe existir en el catálogo SADCI."],
-            ["Introduzca numerador y denominador; la aplicación calcula el porcentaje."],
-            ["No cambie fórmulas, metas ni dirección del indicador desde esta plantilla."],
-            ["Los registros importados quedan pendientes de verificación documental."],
+            ["INSTRUCTIVO Y GLOSARIO — ACTUALIZACIÓN SADCI (DCI)"],
+            ["1. Una fila por indicador y periodo. El código del indicador no debe modificarse."],
+            ["2. Introduzca los valores numéricos de numerador y denominador; la aplicación calcula automáticamente los porcentajes o tasas."],
+            ["3. Formato de fecha obligatorio para la fecha de corte: AAAA-MM-DD."],
+            ["4. Los registros importados quedarán marcados como pendientes de verificación documental."],
+            [""],
+            ["GLOSARIO DE DIMENSIONES DE CAPACIDAD INSTITUCIONAL (DCI):"],
+            ["Código / Indicador", "Descripción detallada del DCI"],
+            ["Presupuesto Anual Rural", "Mide la asignación de recursos financieros dirigidos específicamente a la atención e inversión en el sector rural del municipio."],
+            ["Personal de Planta (Rural)", "Cuantifica el talento humano vinculado directamente a la administración pública con funciones orientadas a la gestión rural."],
+            ["Personal Contratista", "Evalúa el apoyo operativo y técnico temporal contratado para la ejecución de proyectos, programas y atención en el campo."],
+            ["Ejecución Presupuestal (%)", "Mide la capacidad de gestión financiera comparando el presupuesto ejecutado frente al presupuesto asignado para la ruralidad."],
+            ["Cumplimiento PDT (%)", "Evalúa el grado de avance físico y de metas del Plan de Desarrollo Territorial relacionadas con el sector rural."],
+            ["Calificación MEPI", "Puntaje que refleja el desempeño institucional y la gestión fiscal de acuerdo con las mediciones oficiales establecidas."],
         ]
         if catalogo:
-            instrucciones += [["Códigos admitidos", ", ".join(str(x.get("codigo", "")) for x in catalogo)]]
+            instrucciones += [[""], ["Códigos admitidos en el catálogo actual:", ", ".join(str(x.get("codigo", "")) for x in catalogo)]]
     else:
         raise ValueError("Tipo de plantilla no admitido.")
 
     filas = [ejemplo]
     if tipo == "sadci" and catalogo:
-        # Una fila por cada indicador del catálogo; el usuario completa valores y periodo.
         filas = []
         for indicador in catalogo:
             filas.append({
