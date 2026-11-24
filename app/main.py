@@ -279,18 +279,9 @@ def calcular_indicadores_dci_avanzados(r_sadci):
     
     total_personal = planta + contratistas
     
-    # 1. Ratios calculados
-    # Presupuesto gestionado por cada colaborador operativo
     presupuesto_por_colaborador = (presupuesto / total_personal) if total_personal > 0 else 0
-    
-    # Proporción de dependencia de contratistas (%)
     pct_contratistas = (contratistas / total_personal * 100) if total_personal > 0 else 0
-    
-    # Índice de Eficencia Financiera (Ejecución real ponderada)
     monto_ejecutado = presupuesto * (ejecucion / 100.0)
-    
-    # Índice Sintético de Déficit Institucional (Promedio inverso ponderado de metas y ejecución)
-    # Entre más bajo sea el cumplimiento y la ejecución, mayor es el déficit (0 = sin déficit, 100 = déficit crítico máximo)
     indice_deficit = 100.0 - ((ejecucion + cumplimiento) / 2.0)
     
     return {
@@ -309,7 +300,6 @@ def generar_analisis_dci_oszlak(r_sadci):
     if not r_sadci:
         return "⚠️ Sin datos institucionales suficientes en la sesión actual para auditar los déficits de capacidad institucional (DCI)."
     
-    # Calculamos los indicadores derivados
     calc = calcular_indicadores_dci_avanzados(r_sadci)
     
     presupuesto = r_sadci.get("presupuesto_anual_rural", 0) or 0
@@ -321,7 +311,6 @@ def generar_analisis_dci_oszlak(r_sadci):
     
     bloques = []
     
-    # Resumen de indicadores calculados en base al formulario
     bloques.append(
         "### 🔍 Indicadores Calculados del Sistema (Formulario SADCI)\n"
         f"- **Total Fuerza de Trabajo Institucional:** {int(calc.get('total_personal', 0))} personas "
@@ -332,7 +321,6 @@ def generar_analisis_dci_oszlak(r_sadci):
         f"(*{'Riesgo Crítico' if calc.get('indice_deficit', 0) > 40 else 'Estabilidad Aceptable'}*).\n"
     )
     
-    # 1. Dimensión Material y Financiera
     presupuesto_str = f"{presupuesto:,.0f} COP" if presupuesto > 0 else "sin asignación registrada"
     if presupuesto > 0:
         fin_val = f"- **Presupuesto Asignado ({presupuesto_str}):** Suficiente en términos formales. Oszlak y Orellana señalan que la materialización de políticas rurales requiere recursos monetarios estables y liquidez oportuna."
@@ -340,7 +328,6 @@ def generar_analisis_dci_oszlak(r_sadci):
         fin_val = f"- **Presupuesto Asignado ({presupuesto_str}):** Configura un *déficit financiero estructural crítico* al carecer de recursos monetarios base para la intervención estatal."
     bloques.append("### 🏛️ 1. Dimensión de Capacidad Material y Financiera\n" + fin_val)
     
-    # 2. Dimensión Operativa y de Gestión
     if ejecucion is not None and not pd.isna(ejecucion):
         estado_ejec = "Óptima capacidad de absorción y conversión de recursos" if ejecucion >= 70 else "Déficit crítico de gestión y absorción financiera"
         bloques.append(
@@ -349,7 +336,6 @@ def generar_analisis_dci_oszlak(r_sadci):
             "Un porcentaje bajo refleja cuellos de botella burocráticos o limitaciones técnicas en la formulación de proyectos para ejecutar el gasto programado."
         )
         
-    # 3. Dimensión Burocrática y Organizacional
     if calc.get('total_personal', 0) > 0:
         pct_c = calc.get('pct_contratistas', 0)
         fragilidad_bureau = "alta fragilidad institucional y baja profesionalización" if pct_c > 50 else "adecuado arraigo y estabilidad burocrática"
@@ -360,7 +346,6 @@ def generar_analisis_dci_oszlak(r_sadci):
             "Según la perspectiva de Oszlak, la tercerización excesiva erosiona la memoria institucional y la estabilidad de la carrera administrativa."
         )
         
-    # 4. Dimensión Estratégica y de Resultados
     if cumplimiento is not None and not pd.isna(cumplimiento):
         eficacia_estado = "alta capacidad de co-producción de valor público" if cumplimiento >= 70 else "déficit de efectividad en el cumplimiento de metas"
         bloques.append(
@@ -544,34 +529,37 @@ else:
     analisis_dci_texto = generar_analisis_dci_oszlak(r_sadci)
     st.info(analisis_dci_texto)
     
-    # Gráficos de estado DCI
-    st.markdown("#### 📊 Gráficos de Estado y Umbrales DCI")
+    # Gráfico de Radar DCI (Estado y Umbrales)
+    st.markdown("#### 📊 Gráfico de Radar: Estado y Umbrales DCI")
     if r_sadci:
-        df_dci_grafico = pd.DataFrame([
-            {"Indicador": "Ejecución Presupuestal", "Porcentaje": r_sadci.get("ejecucion_presupuestal_pct", 0) or 0},
-            {"Indicador": "Cumplimiento PDT", "Porcentaje": r_sadci.get("cumplimiento_pdt_pct", 0) or 0},
-            {"Indicador": "Calificación MEPI", "Porcentaje": r_sadci.get("calificacion_mepi", 0) or 0}
+        df_radar_base = pd.DataFrame([
+            {"Dimensión": "Ejecución Presupuestal", "Valor": r_sadci.get("ejecucion_presupuestal_pct", 0) or 0},
+            {"Dimensión": "Cumplimiento PDT", "Valor": r_sadci.get("cumplimiento_pdt_pct", 0) or 0},
+            {"Dimensión": "Calificación MEPI", "Valor": r_sadci.get("calificacion_mepi", 0) or 0}
         ])
-
-        chart = alt.Chart(df_dci_grafico).mark_bar(cornerRadiusTopLeft=4, cornerRadiusTopRight=4).encode(
-            x=alt.X('Indicador:N', sort=None, title="Dimensión Institucional"),
-            y=alt.Y('Porcentaje:Q', scale=alt.Scale(domain=[0, 100]), title="Valor / Grado de Cumplimiento (%)"),
-            color=alt.condition(
-                alt.datum.Porcentaje < 70,
-                alt.value('#d73027'),  # Rojo si hay déficit crítico (< 70%)
-                alt.value('#26694E')   # Verde institucional si es favorable
-            ),
-            tooltip=['Indicador', 'Porcentaje']
-        ).properties(
-            height=300
+        
+        # Generación del gráfico de radar con Altair utilizando coordenadas polares
+        radar_chart = alt.Chart(df_radar_base).mark_polygon(
+            fillOpacity=0.3,
+            strokeWidth=2
+        ).encode(
+            theta=alt.Theta("Dimensión:N", sort=None),
+            radius=alt.Radius("Valor:Q", scale=alt.Scale(domain=[0, 100])),
+            color=alt.value("#26694E"),
+            stroke=alt.value("#26694E"),
+            tooltip=["Dimensión", "Valor"]
+        )
+        
+        puntos_radar = alt.Chart(df_radar_base).mark_circle(size=60, color="#111111").encode(
+            theta=alt.Theta("Dimensión:N", sort=None),
+            radius=alt.Radius("Valor:Q", scale=alt.Scale(domain=[0, 100])),
+            tooltip=["Dimensión", "Valor"]
         )
 
-        linea_meta = alt.Chart(pd.DataFrame({'y': [70]})).mark_rule(strokeDash=[5, 5], color='orange').encode(y='y')
-
-        st.altair_chart(chart + linea_meta, use_container_width=True)
-        st.caption("🟠 *La línea naranja discontinua (70%) marca el umbral mínimo aceptable de gestión y efectividad estatal.*")
+        st.altair_chart(radar_chart + puntos_radar, use_container_width=True)
+        st.caption("🕸️ *El gráfico de radar evalúa de forma multidimensional el balance de las capacidades institucionales clave frente al límite porcentual de desempeño.*")
     else:
-        st.warning("No hay registros suficientes para renderizar las gráficas de déficits.")
+        st.warning("No hay registros suficientes para renderizar el gráfico de radar.")
     
     st.divider()
     
@@ -590,18 +578,24 @@ else:
             c_m3.metric("Con errores", len(sadci_review) - valid_count)
             
             st.divider()
-            st.subheader("Informe de validación y cálculo")
-            st.dataframe(sadci_review, use_container_width=True, hide_index=True)
-            st.download_button("Descargar informe de validación SADCI", sadci_review.to_csv(index=False).encode("utf-8-sig"), "revision_sadci.csv", "text/csv")
             
-            if valid_count != len(sadci_review) or sadci_review.empty:
-                st.error("Corrige los códigos, periodos y valores numéricos indicados en el informe antes de confirmar.")
-            else:
-                st.info("Los valores importados están listos para ser incorporados.")
-                if st.button("Confirmar actualización SADCI en esta sesión", key="confirm_sadci_import", type="primary"):
-                    st.session_state.sigo_sadci_importado = sadci_review.drop(columns=["errores_validacion", "valido_revision_tecnica"]).copy()
-                    st.success(f"Se incorporaron {len(sadci_review)} filas SADCI a la sesión actual.")
-                    st.rerun()
+            # Distribución en columnas: Informe de validación a la izquierda y Botón de confirmación a la derecha
+            col_inf_izq, col_inf_der = st.columns([2, 1])
+            with col_inf_izq:
+                st.subheader("Informe de validación y cálculo")
+                st.dataframe(sadci_review, use_container_width=True, hide_index=True)
+                st.download_button("Descargar informe de validación SADCI", sadci_review.to_csv(index=False).encode("utf-8-sig"), "revision_sadci.csv", "text/csv")
+            
+            with col_inf_der:
+                st.markdown("### 📥 Confirmación")
+                if valid_count != len(sadci_review) or sadci_review.empty:
+                    st.error("Corrige los códigos, periodos y valores numéricos indicados en el informe antes de confirmar.")
+                else:
+                    st.info("Los valores importados están listos para ser incorporados.")
+                    if st.button("Confirmar actualización SADCI en esta sesión", key="confirm_sadci_import", type="primary", use_container_width=True):
+                        st.session_state.sigo_sadci_importado = sadci_review.drop(columns=["errores_validacion", "valido_revision_tecnica"]).copy()
+                        st.success(f"Se incorporaron {len(sadci_review)} filas SADCI a la sesión actual.")
+                        st.rerun()
                     
         except (ValueError, UnicodeDecodeError, pd.errors.ParserError) as exc:
             st.error(f"No se pudo leer la plantilla cargada: {exc}")
