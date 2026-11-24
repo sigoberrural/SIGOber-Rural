@@ -19,6 +19,7 @@ from pathlib import Path
 
 import altair as alt
 import folium
+from branca.element import MacroElement, Template
 import pandas as pd
 import streamlit as st
 from streamlit_folium import st_folium
@@ -57,30 +58,6 @@ PBOT_CAPAS = [
 
 # Servicios OGC/WMS con capas identificadas en los directorios oficiales.
 CARTOGRAFIA_WMS = {
-    "IGAC — Vías, puentes y límites viales (1:10.000)": {
-        "url": "https://mapas2.igac.gov.co/server3/services/carto/carto10000puertorico18592/MapServer/WMSServer",
-        "layers": "6,8,9,10", "attribution": "IGAC · Cartografía básica Puerto Rico, Caquetá · 1:10.000"
-    },
-    "IGAC — Drenajes y cuerpos de agua (1:10.000)": {
-        "url": "https://mapas2.igac.gov.co/server3/services/carto/carto10000puertorico18592/MapServer/WMSServer",
-        "layers": "13,14,17,18", "attribution": "IGAC · Cartografía básica Puerto Rico, Caquetá · 1:10.000"
-    },
-    "IGAC — Construcciones y zonas duras (1:10.000)": {
-        "url": "https://mapas2.igac.gov.co/server3/services/carto/carto10000puertorico18592/MapServer/WMSServer",
-        "layers": "0,15,16", "attribution": "IGAC · Cartografía básica Puerto Rico, Caquetá · 1:10.000"
-    },
-    "IGAC — Curvas de nivel, piscinas y bosque (1:10.000)": {
-        "url": "https://mapas2.igac.gov.co/server3/services/carto/carto10000puertorico18592/MapServer/WMSServer",
-        "layers": "7,19,20", "attribution": "IGAC · Cartografía básica Puerto Rico, Caquetá · 1:10.000"
-    },
-    "IGAC — Nombres geográficos y unidades administrativas (1:10.000)": {
-        "url": "https://mapas2.igac.gov.co/server3/services/carto/carto10000puertorico18592/MapServer/WMSServer",
-        "layers": "1,2", "attribution": "IGAC · Cartografía básica Puerto Rico, Caquetá · 1:10.000"
-    },
-    "IGAC — Elementos de servicios públicos (1:10.000)": {
-        "url": "https://mapas2.igac.gov.co/server3/services/carto/carto10000puertorico18592/MapServer/WMSServer",
-        "layers": "3,4", "attribution": "IGAC · Cartografía básica Puerto Rico, Caquetá · 1:10.000"
-    },
     "SGC — Amenaza sísmica nacional (PGA75)": {
         "url": "https://geoportal.sgc.gov.co/arcgis/services/Amenaza_Sismica/Amenaza_Sismica_Nacional/MapServer/WMSServer",
         "layers": "10", "attribution": "Servicio Geológico Colombiano · Amenaza sísmica nacional"
@@ -101,6 +78,68 @@ CARTOGRAFIA_WMS = {
 
 # UPRA publica estos productos como servicios ArcGIS MapServer con caché de teselas,
 # no se presentan como WMS. Se mantienen en un selector independiente.
+IGAC_MAPSERVER_URL = "https://mapas2.igac.gov.co/server3/rest/services/carto/carto10000puertorico18592/MapServer"
+CARTOGRAFIA_IGAC = {
+    "IGAC — Vías, puentes y límites viales (1:10.000)": "6,8,9,10",
+    "IGAC — Drenajes y cuerpos de agua (1:10.000)": "13,14,17,18",
+    "IGAC — Construcciones y zonas duras (1:10.000)": "0,15,16",
+    "IGAC — Curvas de nivel, piscinas y bosque (1:10.000)": "7,19,20",
+    "IGAC — Nombres geográficos y unidades administrativas (1:10.000)": "1,2",
+    "IGAC — Elementos de servicios públicos (1:10.000)": "3,4",
+}
+
+class ArcGISExportLayer(folium.map.Layer):
+    """Capa dinámica ArcGIS REST: solicita una imagen por tesela y reproyecta a EPSG:3857."""
+    _template = Template(r"""
+    {% macro script(this, kwargs) %}
+    var {{ this.get_name() }} = L.gridLayer({
+        tileSize: 256,
+        opacity: {{ this.opacity }},
+        attribution: {{ this.attribution|tojson }}
+    });
+    {{ this.get_name() }}.createTile = function(coords, done) {
+        var tile = document.createElement('img');
+        tile.alt = {{ this.layer_name|tojson }};
+        tile.setAttribute('role', 'presentation');
+        var map = {{ this._parent.get_name() }};
+        var nw = map.unproject(L.point(coords.x * 256, coords.y * 256), coords.z);
+        var se = map.unproject(L.point((coords.x + 1) * 256, (coords.y + 1) * 256), coords.z);
+        var nw3857 = map.options.crs.project(nw);
+        var se3857 = map.options.crs.project(se);
+        var bbox = [
+            Math.min(nw3857.x, se3857.x),
+            Math.min(nw3857.y, se3857.y),
+            Math.max(nw3857.x, se3857.x),
+            Math.max(nw3857.y, se3857.y)
+        ].join(',');
+        var params = new URLSearchParams({
+            bbox: bbox,
+            bboxSR: '3857',
+            imageSR: '3857',
+            size: '256,256',
+            format: 'png32',
+            transparent: 'true',
+            layers: 'show:' + {{ this.layers|tojson }},
+            f: 'image'
+        });
+        tile.onload = function() { done(null, tile); };
+        tile.onerror = function(error) { done(error, tile); };
+        tile.src = {{ this.service_url|tojson }} + '/export?' + params.toString();
+        return tile;
+    };
+    {{ this.get_name() }}.addTo({{ this._parent.get_name() }});
+    {% endmacro %}
+    """)
+
+    def __init__(self, name, layers, service_url=IGAC_MAPSERVER_URL, attribution="IGAC · Cartografía básica 1:10.000", opacity=0.82, overlay=True, control=True, show=True):
+        super().__init__(name=name, overlay=overlay, control=control, show=show)
+        self.layer_name = name
+        self.layers = layers
+        self.service_url = service_url
+        self.attribution = attribution
+        self.opacity = opacity
+
+
 CARTOGRAFIA_ARCGIS = {
     "UPRA — Frontera agrícola nacional (1:100.000)": {
         "url": "https://sig.upra.gov.co/server/rest/services/ordenamiento_productivo/frontera_agricola/MapServer",
@@ -291,7 +330,7 @@ def preparar_topo_para_eventos(topo, resumen):
 def construir_mapa(
     topo, eventos_historicos, conflictos=None, codigo_seleccionado="",
     mostrar_veredas=True, mostrar_situaciones=False, mostrar_conflictos=False,
-    pbot_seleccionadas=(), wms_seleccionadas=(), arcgis_seleccionadas=(),
+    pbot_seleccionadas=(), wms_seleccionadas=(), igac_seleccionadas=(), arcgis_seleccionadas=(),
     cartografia_local_seleccionada=(),
 ):
     inicio = time.perf_counter()
@@ -424,6 +463,16 @@ def construir_mapa(
             version="1.1.1", attr=config["attribution"], show=True,
             opacity=0.78,
         ).add_to(m)
+
+    # Cartografía IGAC: MapServer dinámico sin caché XYZ; se consume con Export Map.
+    for nombre_capa in igac_seleccionadas:
+        ids_capa = CARTOGRAFIA_IGAC.get(nombre_capa)
+        if ids_capa:
+            ArcGISExportLayer(
+                name=nombre_capa, layers=ids_capa,
+                attribution="IGAC · Cartografía básica Puerto Rico, Caquetá · escala 1:10.000",
+                opacity=0.82,
+            ).add_to(m)
 
     # Servicios UPRA servidos como teselas ArcGIS REST (no son WMS).
     for nombre_capa in arcgis_seleccionadas:
@@ -638,15 +687,15 @@ with st.sidebar:
             st.caption("Selecciona servicios WMS oficiales. Cada capa se añade visible y se puede desactivar por separado en el control del mapa.")
 
             catalogo_wms_disponible, estados_wms = validar_catalogo_wms()
-            opciones_igac = [n for n in catalogo_wms_disponible if n.startswith("IGAC —")]
+            opciones_igac = list(CARTOGRAFIA_IGAC.keys())
             opciones_sgc = [n for n in catalogo_wms_disponible if n.startswith("SGC —")]
             opciones_pnn = [n for n in catalogo_wms_disponible if n.startswith("Parques Nacionales —")]
 
             capas_igac = st.multiselect(
                 "IGAC · cartografía básica municipal 1:10.000",
                 options=opciones_igac,
-                key="sb_cartografia_wms_igac_v3",
-                help="Solo se ofrecen capas cuyos identificadores aparecen en GetCapabilities.",
+                key="sb_cartografia_igac_export_v1",
+                help="Servicio oficial ArcGIS MapServer dinámico. Cada capa solicita imágenes reproyectadas a EPSG:3857 para el visor.",
             )
             capas_sgc = st.multiselect(
                 "SGC · geología y amenazas",
@@ -692,6 +741,7 @@ with st.sidebar:
         st.session_state["map_cs"] = cs
         st.session_state["map_pbot"] = pbot_sel_sb
         st.session_state["map_wms"] = wms_sel_sb
+        st.session_state["map_igac_export"] = capas_igac
         st.session_state["map_arcgis"] = capas_upra
         st.session_state["map_cartografia_local"] = capas_locales_sb
         # Los widgets con key propia actualizan session_state automáticamente.
@@ -780,6 +830,7 @@ if st.session_state["sidebar_seccion_activa"] == "Exploración":
         mostrar_conflictos=mostrar_conflictos_main,
         pbot_seleccionadas=capas_pbot_main,
         wms_seleccionadas=capas_wms_main,
+        igac_seleccionadas=tuple(st.session_state.get("map_igac_export", [])),
         arcgis_seleccionadas=tuple(st.session_state.get("map_arcgis", [])),
         cartografia_local_seleccionada=tuple(st.session_state.get("map_cartografia_local", [])),
     )
