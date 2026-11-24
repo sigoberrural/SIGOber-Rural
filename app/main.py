@@ -158,6 +158,22 @@ CARTOGRAFIA_ARCGIS = {
         "url": "https://mapas.parquesnacionales.gov.co/arcgis/rest/services/pnn/runap/MapServer",
         "layers": "0", "attribution": "Parques Nacionales Naturales · Registro Único Nacional de Áreas Protegidas", "modo": "export"
     },
+    "UPRA — Unidades físicas homogéneas": {
+        "url": "https://geoportal.ant.gov.co/servidor/rest/services/MIGO/Determinantes_UPRA/MapServer",
+        "layers": "1", "attribution": "UPRA · Unidades físicas homogéneas · MIGO", "modo": "export"
+    },
+    "UPRA — Precios comerciales de tierra": {
+        "url": "https://geoportal.ant.gov.co/servidor/rest/services/MIGO/Determinantes_UPRA/MapServer",
+        "layers": "2", "attribution": "UPRA · Precios comerciales de tierra · MIGO", "modo": "export"
+    },
+    "UPRA — Índice de informalidad municipal": {
+        "url": "https://geoportal.ant.gov.co/servidor/rest/services/MIGO/Determinantes_UPRA/MapServer",
+        "layers": "3", "attribution": "UPRA · Índice de informalidad municipal · escala municipal", "modo": "export"
+    },
+    "UPRA — Áreas de mercado de tierras": {
+        "url": "https://geoportal.ant.gov.co/servidor/rest/services/MIGO/Determinantes_UPRA/MapServer",
+        "layers": "10", "attribution": "UPRA · Áreas de mercado de tierras · MIGO", "modo": "export"
+    },
     "UPRA — Determinantes: frontera agrícola": {
         "url": "https://geoportal.ant.gov.co/servidor/rest/services/MIGO/Determinantes_UPRA/MapServer",
         "layers": "4", "attribution": "UPRA · Determinantes territoriales · MIGO", "modo": "export"
@@ -188,7 +204,7 @@ CARTOGRAFIA_ARCGIS = {
     },
     "IGAC — Atlas 2024: remoción en masa": {
         "url": "https://mapas.igac.gov.co/server/rest/services/atlas/geologicogeomorfologico/MapServer",
-        "layers": "2", "attribution": "IGAC · Atlas de Colombia 2024 · fenómenos geológicos", "modo": "teselas"
+        "layers": "2", "attribution": "IGAC · Atlas de Colombia 2024 · fenómenos geológicos", "modo": "export"
     },
 }
 
