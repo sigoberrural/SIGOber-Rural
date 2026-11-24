@@ -481,7 +481,7 @@ with st.sidebar:
         wms_sel_sb = st.multiselect(
             "Cartografía oficial en línea · IGAC / UPRA",
             options=list(cartografia_oficial_sb),
-            key="sb_wms",
+            key="sb_cartografia_oficial",
             help="IGAC se consume como WMS y UPRA mediante teselas ArcGIS REST.",
         )
         
