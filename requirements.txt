@@ -9,3 +9,4 @@ streamlit-js-eval
 shapely
 topojson
 plotly
+openpyxl
