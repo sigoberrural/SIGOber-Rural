@@ -19,9 +19,8 @@ CAMPOS_PROBLEMATICAS = [
 
 # Campos ajustados estrictamente a las variables de cálculo requeridas por el DCI
 CAMPOS_SADCI = [
-    "codigo_variable", "nombre_variable_o_indicador", "periodo", 
-    "valor_ingresado", "unidad_medida", "fuente_informacion", 
-    "responsable_reporte", "fecha_corte", "observaciones"
+    "codigo", "periodo", "valor_numerador", "valor_denominador",
+    "fuentes", "responsable", "fecha_corte", "observaciones",
 ]
 
 
@@ -116,9 +115,13 @@ def leer_archivo_tabular(archivo: Any) -> pd.DataFrame:
     if nombre.endswith(".csv"):
         return pd.read_csv(BytesIO(contenido), dtype=str, keep_default_na=False)
     if nombre.endswith((".xlsx", ".xls")):
-        # Leemos explícitamente la hoja operativa de variables de cálculo
+        # Selecciona la hoja de datos, nunca la portada de instrucciones.
         xls = pd.ExcelFile(BytesIO(contenido))
-        hoja_objetivo = "Variables de Cálculo" if "Variables de Cálculo" in xls.sheet_names else xls.sheet_names[0]
+        hojas_operativas = ("Actualización SADCI", "Variables de Cálculo", "Datos")
+        hoja_objetivo = next(
+            (nombre for nombre in hojas_operativas if nombre in xls.sheet_names),
+            xls.sheet_names[0],
+        )
         return pd.read_excel(xls, sheet_name=hoja_objetivo, dtype=str).fillna("")
     raise ValueError("Formato no admitido: utiliza CSV o Excel (.xlsx).")
 
