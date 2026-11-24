@@ -110,7 +110,7 @@ class ArcGISExportLayer(folium.map.Layer):
     {% endmacro %}
     """)
 
-    def __init__(self, name, layers, service_url=IGAC_MAPSERVER_URL, attribution="IGAC · Cartografía básica 1:10.000", opacity=0.82, overlay=True, control=True, show=True):
+    def __init__(self, name, layers, service_url=None, attribution="Cartografía oficial · ArcGIS REST", opacity=0.82, overlay=True, control=True, show=True):
         super().__init__(name=name, overlay=overlay, control=control, show=show)
         self.layer_name = name
         self.layers = layers
