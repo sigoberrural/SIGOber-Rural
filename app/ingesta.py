@@ -123,13 +123,16 @@ def crear_excel_plantilla(tipo: str, catalogo: list[dict[str, Any]] | None = Non
 
 
 def leer_archivo_tabular(archivo: Any) -> pd.DataFrame:
-    """Lee CSV o Excel sin mutar el archivo original."""
+    """Lee CSV o Excel apuntando a la hoja correcta de variables de cálculo."""
     nombre = str(getattr(archivo, "name", "")).lower()
     contenido = archivo.getvalue() if hasattr(archivo, "getvalue") else archivo
     if nombre.endswith(".csv"):
         return pd.read_csv(BytesIO(contenido), dtype=str, keep_default_na=False)
     if nombre.endswith((".xlsx", ".xls")):
-        return pd.read_excel(BytesIO(contenido), dtype=str).fillna("")
+        # Leemos explícitamente la hoja operativa de variables de cálculo
+        xls = pd.ExcelFile(BytesIO(contenido))
+        hoja_objetivo = "Variables de Cálculo" if "Variables de Cálculo" in xls.sheet_names else xls.sheet_names[0]
+        return pd.read_excel(xls, sheet_name=hoja_objetivo, dtype=str).fillna("")
     raise ValueError("Formato no admitido: utiliza CSV o Excel (.xlsx).")
 
 
