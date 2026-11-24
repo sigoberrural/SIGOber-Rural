@@ -592,6 +592,8 @@ if st.session_state["sidebar_seccion_activa"] == "Exploración":
     )
     if vista_actual == "Situaciones documentadas":
         st.caption("Leyenda: gris = sin registros veredales validados; naranja = 1 registro; rojo = 2 o más registros. Los colores expresan volumen documental, no nivel de riesgo.")
+    elif vista_actual == "Ordenamiento PBOT 2015":
+        st.caption("Ordenamiento Territorial — cartografía de formulación PBOT 2015. No implica actualización al PBOT 2023.")
 
     st.caption(f"Generación del mapa en servidor: {segundos_mapa:.2f} s")
     st_folium(mapa_render, width="100%", height=680, returned_objects=["last_active_drawing"])
