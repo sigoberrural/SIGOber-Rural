@@ -104,22 +104,23 @@ class ArcGISExportLayer(folium.map.Layer):
         var map = {{ this._parent.get_name() }};
         var nw = map.unproject(L.point(coords.x * 256, coords.y * 256), coords.z);
         var se = map.unproject(L.point((coords.x + 1) * 256, (coords.y + 1) * 256), coords.z);
-        var nw3857 = map.options.crs.project(nw);
-        var se3857 = map.options.crs.project(se);
+        // El servicio IGAC trabaja nativamente en MAGNA-SIRGAS / Origen-Nacional (EPSG:9377).
+        // Se envía el BBOX geográfico y se solicita la imagen final en Web Mercator.
         var bbox = [
-            Math.min(nw3857.x, se3857.x),
-            Math.min(nw3857.y, se3857.y),
-            Math.max(nw3857.x, se3857.x),
-            Math.max(nw3857.y, se3857.y)
+            Math.min(nw.lng, se.lng),
+            Math.min(nw.lat, se.lat),
+            Math.max(nw.lng, se.lng),
+            Math.max(nw.lat, se.lat)
         ].join(',');
         var params = new URLSearchParams({
             bbox: bbox,
-            bboxSR: '3857',
+            bboxSR: '4326',
             imageSR: '3857',
             size: '256,256',
             format: 'png32',
             transparent: 'true',
             layers: 'show:' + {{ this.layers|tojson }},
+            dpi: '96',
             f: 'image'
         });
         tile.onload = function() { done(null, tile); };
@@ -684,7 +685,7 @@ with st.sidebar:
             )
 
         with st.expander("05 · Cartografía oficial complementaria", expanded=False):
-            st.caption("Selecciona servicios WMS oficiales. Cada capa se añade visible y se puede desactivar por separado en el control del mapa.")
+            st.caption("Selecciona cartografía oficial. IGAC se consulta mediante imágenes dinámicas ArcGIS REST; SGC y Parques Nacionales mediante WMS. Cada capa es independiente.")
 
             catalogo_wms_disponible, estados_wms = validar_catalogo_wms()
             opciones_igac = list(CARTOGRAFIA_IGAC.keys())
@@ -692,7 +693,7 @@ with st.sidebar:
             opciones_pnn = [n for n in catalogo_wms_disponible if n.startswith("Parques Nacionales —")]
 
             capas_igac = st.multiselect(
-                "IGAC · cartografía básica municipal 1:10.000",
+                "IGAC · cartografía básica municipal 1:10.000 (servicio dinámico)",
                 options=opciones_igac,
                 key="sb_cartografia_igac_export_v1",
                 help="Servicio oficial ArcGIS MapServer dinámico. Cada capa solicita imágenes reproyectadas a EPSG:3857 para el visor.",
