@@ -527,40 +527,42 @@ else:
 veredas_df=propiedades_veredas(topo); nombres=veredas_df[["CODIGO_VER","NOMBRE_VER"]].drop_duplicates().copy(); nombres["etiqueta"]=nombres["NOMBRE_VER"].astype(str)+" — "+nombres["CODIGO_VER"].astype(str); opciones=["Todas las veredas"]+sorted(nombres["etiqueta"].tolist())
 
 def render_mapa_interactivo():
-    st.markdown("<div class='sigo-section'>Mapa territorial</div>", unsafe_allow_html=True)
-    st.write("Elige primero qué información quieres ver. El mapa funciona con la configuración inicial; los filtros y las capas adicionales son opcionales.")
-    vista = st.radio(
-        "Selecciona el contenido del mapa",
-        ["Veredas y territorio", "Situaciones documentadas", "Ordenamiento PBOT 2015"],
-        horizontal=True,
-        key="vista_principal_mapa",
-        help="Veredas: límites y atributos. Situaciones: registros territoriales disponibles. PBOT: cartografía de formulación 2015.",
-    )
-
-    controles, detalle = st.columns([1.1, 2.9], gap="large")
-    with controles:
-        st.markdown("**Localiza un territorio**")
-        seleccion = st.selectbox("Vereda que quieres consultar", opciones, index=0, key="vereda_principal")
+    # La configuración se concentra en el panel lateral; el área principal queda
+    # reservada para indicadores, explicaciones y resultados cartográficos.
+    eventos_f = historicos.copy()
+    mostrar_conflictos = True
+    with st.sidebar:
+        st.divider()
+        st.markdown("### Configurar consulta")
+        st.caption("Selecciona qué deseas consultar y ajusta los filtros si los necesitas.")
+        vista = st.radio(
+            "Información que se mostrará",
+            ["Veredas y territorio", "Situaciones documentadas", "Ordenamiento PBOT 2015"],
+            key="vista_principal_mapa",
+            help="Veredas: límites y atributos. Situaciones: registros territoriales disponibles. PBOT: cartografía de formulación 2015.",
+        )
+        st.markdown("**Ámbito territorial**")
+        seleccion = st.selectbox("Vereda", opciones, index=0, key="vereda_principal")
         codigo_sel = "" if seleccion == "Todas las veredas" else seleccion.split(" — ")[-1]
-        st.caption("Puedes consultar el municipio completo o resaltar una vereda.")
+        st.caption("Consulta el municipio completo o selecciona una vereda.")
+
         pbot_opciones = {archivo: titulo for archivo, titulo, _, _ in cargar_pbot_capas()}
         pbot_seleccionada = None
         if vista == "Ordenamiento PBOT 2015":
-            st.markdown("**Elige la información de ordenamiento**")
+            st.markdown("**Cartografía de ordenamiento**")
             opciones_pbot = {"": "Selecciona una capa…"}
             opciones_pbot.update({archivo: titulo for archivo, titulo in pbot_opciones.items()})
             pbot_seleccionada = st.selectbox(
-                "Capa del PBOT 2015",
+                "Capa PBOT 2015",
                 options=list(opciones_pbot.keys()),
                 format_func=lambda x: opciones_pbot[x],
                 key="pbot_principal",
-                help="Esta cartografía corresponde a la formulación PBOT 2015; no implica actualización al PBOT 2023.",
+                help="Corresponde a la formulación PBOT 2015; no implica actualización al PBOT 2023.",
             )
             if not pbot_opciones:
                 st.warning("No hay capas PBOT locales disponibles en esta versión.")
-        eventos_f = historicos.copy()
-        mostrar_conflictos = True
-        with st.expander("Filtros de situaciones (opcional)", expanded=False):
+
+        with st.expander("Filtros de situaciones", expanded=False):
             if not eventos_f.empty:
                 anios = sorted([x for x in eventos_f.get("anio", pd.Series(dtype=str)).astype(str).unique() if x], reverse=True)
                 tipos = sorted([x for x in eventos_f.get("tipo_conflicto", pd.Series(dtype=str)).astype(str).unique() if x])
@@ -577,61 +579,62 @@ def render_mapa_interactivo():
             else:
                 st.info("La fuente local de situaciones no contiene registros disponibles.")
             mostrar_conflictos = st.checkbox(
-                "Incluir puntos de la hoja institucional Conflictos",
+                "Incluir puntos institucionales de Conflictos",
                 value=True,
                 disabled=vista != "Situaciones documentadas",
-                help="Es una fuente institucional independiente de los registros históricos asociados a veredas.",
+                help="Fuente independiente de los registros históricos asociados a veredas.",
                 key="mostrar_puntos_conflictos",
             )
+
         cartografia_local_disponible = nombres_cartografia_local_disponible()
-        with st.expander("Capas cartográficas adicionales (opcional)", expanded=False):
-            st.caption("Las capas oficiales IGAC/UPRA requieren conexión a internet. Las capas locales solo aparecen si sus archivos están disponibles en el repositorio.")
+        with st.expander("Capas cartográficas adicionales", expanded=False):
+            st.caption("Las capas oficiales IGAC/UPRA requieren conexión a internet.")
             cartografia_oficial_seleccionada = st.multiselect(
                 "Capas oficiales en línea · IGAC / UPRA",
                 options=list(CARTOGRAFIA_OFICIAL.keys()),
                 default=[],
                 key="capas_remotas_principal",
-                help="Activa una o más capas para añadir información de referencia al mapa.",
+                help="Añade información cartográfica oficial de referencia.",
             )
             cartografia_local_seleccionada = st.multiselect(
                 "Capas IGAC disponibles localmente",
                 options=cartografia_local_disponible,
                 default=[],
                 key="capas_locales_principal",
-                help="Solo aparecen archivos locales que existen en el repositorio.",
+                help="Solo aparecen archivos que existen en el repositorio.",
             )
 
-    with detalle:
-        if vista == "Veredas y territorio":
-            st.markdown("**Vista del territorio**")
-            st.write("Consulta los límites y atributos de las veredas. Pasa el cursor sobre una vereda para ver su nombre, código, área y fuente cartográfica.")
-        elif vista == "Situaciones documentadas":
-            st.markdown("**Vista de situaciones registradas**")
-            st.write("El color de cada vereda resume los registros históricos enlazados a ella. Los puntos institucionales, cuando están disponibles, aparecen como una capa independiente.")
+    st.markdown("<div class='sigo-section'>Resultados de la consulta</div>", unsafe_allow_html=True)
+    if vista == "Veredas y territorio":
+        st.markdown("**Veredas y territorio**")
+        st.write("Consulta los límites y atributos de las veredas. Pasa el cursor sobre una vereda para ver su nombre, código, área y fuente cartográfica.")
+    elif vista == "Situaciones documentadas":
+        st.markdown("**Situaciones documentadas**")
+        st.write("El color de cada vereda resume los registros históricos enlazados a ella. Los puntos institucionales, cuando están disponibles, aparecen como una capa independiente.")
+    else:
+        st.markdown("**Ordenamiento territorial · PBOT 2015**")
+        st.write("Consulta las geometrías y atributos de la capa seleccionada. La superposición espacial orienta la lectura, pero no demuestra por sí sola relaciones causales.")
+    m1, m2, m3 = st.columns(3)
+    total_veredas = len(topo.get("objects", {}).get("Veredas", {}).get("geometries", []))
+    if vista == "Veredas y territorio":
+        m1.metric("Veredas en el mapa", total_veredas)
+        m2.metric("Selección", "Una vereda" if codigo_sel else "Municipio")
+        m3.metric("Fuente territorial", "Cargada" if total_veredas else "No disponible")
+    elif vista == "Ordenamiento PBOT 2015":
+        m1.metric("Capas PBOT disponibles", len(pbot_opciones))
+        m2.metric("Capa seleccionada", "Sí" if pbot_seleccionada else "Pendiente")
+        m3.metric("Vereda resaltada", "Sí" if codigo_sel else "No")
+    else:
+        veredas_con_registros = eventos_f["codigo_ver_resuelto"].nunique() if not eventos_f.empty and "codigo_ver_resuelto" in eventos_f.columns else 0
+        if codigo_sel and not eventos_f.empty and "codigo_ver_resuelto" in eventos_f.columns:
+            registros_vereda = int(eventos_f["codigo_ver_resuelto"].astype(str).str.strip().eq(codigo_sel).sum())
         else:
-            st.markdown("**Vista de ordenamiento territorial**")
-            st.write("Selecciona una capa PBOT 2015 para consultar sus geometrías y atributos. La superposición espacial orienta la consulta, pero no demuestra por sí sola relaciones causales.")
-        m1, m2, m3 = st.columns(3)
-        total_veredas = len(topo.get("objects", {}).get("Veredas", {}).get("geometries", []))
-        if vista == "Veredas y territorio":
-            m1.metric("Veredas en el mapa", total_veredas)
-            m2.metric("Selección", "Una vereda" if codigo_sel else "Municipio")
-            m3.metric("Fuente territorial", "Cargada" if total_veredas else "No disponible")
-        elif vista == "Ordenamiento PBOT 2015":
-            m1.metric("Capas PBOT disponibles", len(pbot_opciones))
-            m2.metric("Capa seleccionada", "Sí" if pbot_seleccionada else "Pendiente")
-            m3.metric("Vereda resaltada", "Sí" if codigo_sel else "No")
-        else:
-            veredas_con_registros = eventos_f["codigo_ver_resuelto"].nunique() if not eventos_f.empty and "codigo_ver_resuelto" in eventos_f.columns else 0
-            if codigo_sel and not eventos_f.empty and "codigo_ver_resuelto" in eventos_f.columns:
-                registros_vereda = int(eventos_f["codigo_ver_resuelto"].astype(str).str.strip().eq(codigo_sel).sum())
-            else:
-                registros_vereda = len(eventos_f)
-            m1.metric("Registros en la consulta", len(eventos_f))
-            m2.metric("Veredas con registros", veredas_con_registros)
-            m3.metric("Registros de la selección", registros_vereda if codigo_sel else "Todas")
-            if eventos_f.empty:
-                st.info("No hay registros en esta consulta con los filtros actuales. Esto no demuestra ausencia de situaciones en el territorio.")
+            registros_vereda = len(eventos_f)
+        m1.metric("Registros en la consulta", len(eventos_f))
+        m2.metric("Veredas con registros", veredas_con_registros)
+        m3.metric("Registros de la selección", registros_vereda if codigo_sel else "Todas")
+        if eventos_f.empty:
+            st.info("No hay registros en esta consulta con los filtros actuales. Esto no demuestra ausencia de situaciones en el territorio.")
 
     conflictos = normalizar_conflictos(gd["Conflictos"]) if isinstance(gd.get("Conflictos"), pd.DataFrame) else pd.DataFrame()
     capas_pbot = (pbot_seleccionada,) if vista == "Ordenamiento PBOT 2015" and pbot_seleccionada else ()
@@ -647,7 +650,7 @@ def render_mapa_interactivo():
         cartografia_oficial_seleccionada=tuple(cartografia_oficial_seleccionada),
         cartografia_local_seleccionada=tuple(cartografia_local_seleccionada),
     )
-    st_folium(mapa, width="100%", height=650, returned_objects=["last_active_drawing"])
+    st_folium(mapa, width="100%", height=700, returned_objects=["last_active_drawing"])
     st.caption(f"Mapa generado en {segundos_mapa:.2f} s. Las capas de ordenamiento corresponden a PBOT 2015; los datos ausentes no se interpretan como ausencia del fenómeno.")
 
 render_mapa_interactivo()
