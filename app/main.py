@@ -160,7 +160,7 @@ def preparar_topo_para_eventos(topo, resumen):
             p["SIGOber_confianza"] = "Sin registros"
     return copia
 
-def construir_mapa(topo, eventos_historicos, conflictos=None, codigo_seleccionado="", mostrar_conflictos=True, pbot_seleccionadas=()):
+def construir_mapa(topo, eventos_historicos, conflictos=None, codigo_seleccionado="", mostrar_conflictos=True, pbot_seleccionadas=(), wms_seleccionadas=()):
     inicio = time.perf_counter()
     resumen = resumenes_por_vereda(eventos_historicos)
     topo_mapa = preparar_topo_para_eventos(topo, resumen)
@@ -242,84 +242,34 @@ def construir_mapa(topo, eventos_historicos, conflictos=None, codigo_seleccionad
         grupo_pbot.add_to(m)
         
     # =========================================================================
-    # CAPAS WMS OFICIALES (IDEAM, SGC, MINAMBIENTE)
+    # RENDERIZADO DINÁMICO DE CAPAS WMS SELECCIONADAS
     # =========================================================================
-    
-    # 1. Estado de Ecosistemas (IDEAM)
-    folium.raster_layers.WmsTileLayer(
-        url="https://visualizador.ideam.gov.co/gisserver/services/Estado_Ecosistemas/MapServer/WMSServer",
-        name="Estado de Ecosistemas (IDEAM)",
-        layers="0",
-        fmt="image/png",
-        transparent=True,
-        overlay=True,
-        control=True,
-        attr="IDEAM - Instituto de Hidrología, Meteorología y Estudios Ambientales"
-    ).add_to(m)
+    wms_diccionario = {
+        "wms_ecosistemas": ("https://visualizador.ideam.gov.co/gisserver/services/Estado_Ecosistemas/MapServer/WMSServer", "Estado de Ecosistemas (IDEAM)", "IDEAM"),
+        "wms_masas": ("https://sigeo.sgc.gov.co/arcgis/services/Amenaza_Movimientos_Masa/MapServer/WMSServer", "Amenaza Movimientos en Masa (SGC)", "SGC"),
+        "wms_forestal": ("https://portalmapas.minambiente.gov.co/arcgis/services/Bosques/Ley_2_1959/MapServer/WMSServer", "Zonas de Reserva Forestal Ley 2 (MinAmbiente)", "MinAmbiente"),
+        "wms_hidro": ("https://visualizador.ideam.gov.co/gisserver/services/Red_Hidrografica/MapServer/WMSServer", "Red Hidrográfica (IDEAM)", "IDEAM"),
+        "wms_minero": ("https://gis.anm.gov.co/arcgis/services/Catastro/CatastroMineroNacional/MapServer/WMSServer", "Catastro Minero (ANM)", "ANM"),
+        "wms_upra": ("https://portalmapas.upra.gov.co/arcgis/services/Aptitud/Aptitud_Agricola/MapServer/WMSServer", "Aptitud Agropecuaria (UPRA)", "UPRA")
+    }
 
-    # 2. Amenaza por Movimientos en Masa (SGC)
-    folium.raster_layers.WmsTileLayer(
-        url="https://sigeo.sgc.gov.co/arcgis/services/Amenaza_Movimientos_Masa/MapServer/WMSServer",
-        name="Amenaza Movimientos en Masa (SGC)",
-        layers="0",
-        fmt="image/png",
-        transparent=True,
-        overlay=True,
-        control=True,
-        attr="Servicio Geológico Colombiano - SGC"
-    ).add_to(m)
-
-    # 3. Zonas de Reserva Forestal - Ley 2 de 1959 (MinAmbiente)
-    folium.raster_layers.WmsTileLayer(
-        url="https://portalmapas.minambiente.gov.co/arcgis/services/Bosques/Ley_2_1959/MapServer/WMSServer",
-        name="Zonas de Reserva Forestal Ley 2 (MinAmbiente)",
-        layers="0",
-        fmt="image/png",
-        transparent=True,
-        overlay=True,
-        control=True,
-        attr="Ministerio de Ambiente y Desarrollo Sostenible"
-    ).add_to(m)
-
-  # 4. Red Hidrográfica (IDEAM)
-    folium.raster_layers.WmsTileLayer(
-        url="https://visualizador.ideam.gov.co/gisserver/services/Red_Hidrografica/MapServer/WMSServer",
-        name="Red Hidrográfica (IDEAM)",
-        layers="0",
-        fmt="image/png",
-        transparent=True,
-        overlay=True,
-        control=True,
-        attr="IDEAM"
-    ).add_to(m)
-
-    # 5. Catastro Minero (ANM)
-    folium.raster_layers.WmsTileLayer(
-        url="https://gis.anm.gov.co/arcgis/services/Catastro/CatastroMineroNacional/MapServer/WMSServer",
-        name="Catastro Minero (ANM)",
-        layers="0",
-        fmt="image/png",
-        transparent=True,
-        overlay=True,
-        control=True,
-        attr="Agencia Nacional de Minería - ANM"
-    ).add_to(m)
-
-  # 6. Aptitud Agrícola / Pecuaria / Forestal (UPRA)
-    folium.raster_layers.WmsTileLayer(
-        url="https://portalmapas.upra.gov.co/arcgis/services/Aptitud/Aptitud_Agricola/MapServer/WMSServer",
-        name="Aptitud Agropecuaria (UPRA)",
-        layers="0",
-        fmt="image/png",
-        transparent=True,
-        overlay=True,
-        control=True,
-        attr="UPRA - Unidad de Planificación Rural Agropecuaria"
-    ).add_to(m)
+    for wms_key in wms_seleccionadas:
+        if wms_key in wms_diccionario:
+            url, nombre_capa, atrib = wms_diccionario[wms_key]
+            folium.raster_layers.WmsTileLayer(
+                url=url,
+                name=nombre_capa,
+                layers="0",
+                fmt="image/png",
+                transparent=True,
+                overlay=True,
+                control=True,
+                attr=atrib
+            ).add_to(m)
 
     folium.LayerControl(collapsed=False).add_to(m)
-    return m, time.perf_counter() - initialise if 'initialise' in locals() else time.perf_counter() - inicio
-  
+    return m, time.perf_counter() - inicio
+
 def resumen_sadci(sadci):
     if not isinstance(sadci, pd.DataFrame) or sadci.empty: return None
     out = {}
@@ -483,8 +433,21 @@ with st.sidebar:
             cs = st.multiselect("Confianza", confs_l, default=[], key="sb_confs")
             
         mostrar_gsheets = st.checkbox("Mostrar conflictos de Sheets", value=True, key="sb_mostrar_conflictos")
+        
+        # Capas locales PBOT 2015
         pbot_opciones_sb = {archivo: titulo for archivo, titulo, _, _ in cargar_pbot_capas()}
         pbot_sel_sb = st.multiselect("Capas PBOT 2015", options=list(pbot_opciones_sb.keys()), format_func=lambda x: pbot_opciones_sb[x], key="sb_pbot")
+        
+        # Capas WMS oficiales nacionales
+        wms_opciones_sb = {
+            "wms_ecosistemas": "Estado de Ecosistemas (IDEAM)",
+            "wms_masas": "Amenaza Movimientos en Masa (SGC)",
+            "wms_forestal": "Zonas de Reserva Forestal Ley 2 (MinAmbiente)",
+            "wms_hidro": "Red Hidrográfica (IDEAM)",
+            "wms_minero": "Catastro Minero (ANM)",
+            "wms_upra": "Aptitud Agropecuaria (UPRA)"
+        }
+        wms_sel_sb = st.multiselect("Capas Institucionales WMS", options=list(wms_opciones_sb.keys()), format_func=lambda x: wms_opciones_sb[x], key="sb_wms")
         
         st.session_state["map_vereda"] = vereda_seleccionada
         st.session_state["map_ys"] = ys
@@ -492,6 +455,7 @@ with st.sidebar:
         st.session_state["map_cs"] = cs
         st.session_state["map_mostrar_gsheets"] = mostrar_gsheets
         st.session_state["map_pbot"] = pbot_sel_sb
+        st.session_state["map_wms"] = wms_sel_sb
         
     else:
         st.markdown("### 📥 Controles SADCI")
@@ -560,10 +524,11 @@ if st.session_state["sidebar_seccion_activa"] == "Exploración":
     codigo_sel_main = "" if vereda_activa == "Todas las veredas" else vereda_activa.split(" — ")[-1]
     mostrar_conflictos_main = st.session_state.get("map_mostrar_gsheets", True)
     capas_pbot_main = tuple(st.session_state.get("map_pbot", []))
+    capas_wms_main = tuple(st.session_state.get("map_wms", []))
     
     conflictos_main = normalizar_conflictos(gd_main.get("Conflictos")) if isinstance(gd_main.get("Conflictos"), pd.DataFrame) else pd.DataFrame()
     
-    mapa_render, segundos_mapa = construir_mapa(topo_main, eventos_f, conflictos_main, codigo_sel_main, mostrar_conflictos_main, capas_pbot_main)
+    mapa_render, segundos_mapa = construir_mapa(topo_main, eventos_f, conflictos_main, codigo_sel_main, mostrar_conflictos_main, capas_pbot_main, capas_wms_main)
     st.caption(f"Generación del mapa en servidor: {segundos_mapa:.2f} s")
     st_folium(mapa_render, width="100%", height=680, returned_objects=["last_active_drawing"])
 
@@ -614,7 +579,6 @@ else:
             {"Dimensión": "Calificación MEPI", "Valor": r_sadci.get("calificacion_mepi", 0) or 0}
         ])
         
-        # Gráfico de barras horizontales optimizado para lectura de capacidades DCI con umbral
         bar_chart = alt.Chart(df_radar_base).mark_bar(cornerRadiusTopRight=4, cornerRadiusBottomRight=4).encode(
             x=alt.X('Valor:Q', scale=alt.Scale(domain=[0, 100]), title="Grado de Cumplimiento (%)"),
             y=alt.Y('Dimensión:N', sort='-x', title="Dimensión Institucional"),
@@ -628,7 +592,6 @@ else:
             height=240
         )
         
-        # Línea de referencia del umbral óptimo (70%)
         linea_meta = alt.Chart(pd.DataFrame({'x': [70]})).mark_rule(strokeDash=[5, 5], color='orange').encode(x='x')
 
         st.altair_chart(bar_chart + linea_meta, use_container_width=True)
