@@ -44,48 +44,32 @@ st.session_state.setdefault("sigo_sadci_importado", None)
 
 
 # =============================================================================
-# 2. BARRA LATERAL (SIDEBAR) Y NAVEGACIÓN DINÁMICA
+# 2. BARRA LATERAL (SIDEBAR) - ESPACIOS FIJOS Y PANEL INFERIOR DESPLEGABLE
 # =============================================================================
-
-# Inicializamos el estado de la sección activa en el sidebar si no existe
-if "sidebar_seccion" not in st.session_state:
-    st.session_state["sidebar_seccion"] = "Exploración cartográfica"
 
 with st.sidebar:
     st.markdown("### SIGOber-Rural")
     st.caption("Sistema de información territorial")
     st.divider()
     
+    # 1. Espacios de trabajo siempre visibles en la parte superior
     st.markdown("**Espacios de trabajo**")
+    st.markdown("📥 **Ingesta y gestión de datos** *(Activo)*")
+    st.page_link("pages/01_Exploracion.py", label="Visualización de resultados", icon="🗺️")
     
-    # Menú de selección que actúa como acordeón exclusivo
-    seccion_seleccionada = st.radio(
-        "Selecciona un espacio",
-        options=["Exploración cartográfica", "SADCI (Capacidad institucional)"],
-        key="menu_espacios_trabajo",
-        label_visibility="collapsed"
-    )
-    
-    st.session_state["sidebar_seccion"] = seccion_seleccionada
     st.divider()
     
-    # Contenido desplegable dinámico según la sección seleccionada
-    if st.session_state["sidebar_seccion"] == "Exploración cartográfica":
-        st.markdown("🗺️ **Configuración de Exploración**")
-        st.caption("Filtros y capas espaciales disponibles en el mapa principal.")
-        # Aquí puedes añadir los controles específicos de exploración si lo requieres
-        st.page_link("pages/01_Exploracion.py", label="Abrir visualizador completo", icon="🚀")
+    # 2. Parte inferior desplegable con la configuración del espacio actual
+    with st.expander("⚙️ Opciones y configuración", expanded=True):
+        st.markdown("**Módulo de Ingesta**")
+        st.caption("Herramientas activas en esta vista:")
+        st.markdown("• Plantilla de problemáticas")
+        st.markdown("• Actualización institucional SADCI")
+        st.markdown("• Gestión de archivos temporales")
         
-    else:
-        st.markdown("🏛️ **Configuración SADCI**")
-        st.caption("Gestión y parámetros de capacidad institucional.")
-        st.markdown("• Actualización de indicadores")
-        st.markdown("• Revisión de metas y fuentes")
-    
     st.divider()
     st.caption("Puerto Rico · Caquetá")
     st.caption("Versión 1.0 en preparación")
-
 
 # =============================================================================
 # 3. INTERFAZ DE USUARIO - CABECERA Y ESTILOS CSS
