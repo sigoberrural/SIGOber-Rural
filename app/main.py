@@ -260,6 +260,8 @@ def resumen_sadci(sadci):
                 if not vals.empty: out[c] = float(vals.mean())
     return out
 
+def indicador_pct(valor):
+    return "—" if valor is None or pd.isna(valor) else f"{float(valor):.0f}%"
 
 # =============================================================================
 # 3. BARRA LATERAL (SIDEBAR) - CONTROLES Y PARÁMETROS DE INTERACCIÓN
