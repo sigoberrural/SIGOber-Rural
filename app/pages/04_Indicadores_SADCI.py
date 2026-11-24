@@ -15,7 +15,10 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from app.sadci import cargar_catalogo, evaluar_catalogo
-from app.ingesta import (\n    aplicar_actualizacion_sadci, crear_excel_plantilla,\n    leer_archivo_tabular, validar_importacion_sadci,\n)
+from app.ingesta import (
+    aplicar_actualizacion_sadci, crear_excel_plantilla,
+    leer_archivo_tabular, validar_importacion_sadci,
+)
 
 st.set_page_config(page_title="SADCI · SIGOber-Rural", page_icon="📊", layout="wide")
 
