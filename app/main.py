@@ -12,6 +12,9 @@ from datetime import datetime
 import html
 import json
 import time
+import urllib.request
+import urllib.parse
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 import altair as alt
@@ -123,6 +126,57 @@ def nombres_cartografia_local_disponible():
         nombre for nombre, (archivo, _, _) in CARTOGRAFIA_LOCAL.items()
         if (carpeta / archivo).is_file()
     ]
+
+@st.cache_data(show_spinner=False, ttl=3600, max_entries=32)
+def comprobar_capacidades_wms(url):
+    """Devuelve nombres WMS publicados por el servicio; cachea 1 hora."""
+    try:
+        parametros = urllib.parse.urlencode({
+            "service": "WMS", "request": "GetCapabilities", "version": "1.1.1"
+        })
+        separador = "&" if "?" in url else "?"
+        solicitud = urllib.request.Request(
+            url + separador + parametros,
+            headers={"User-Agent": "SIGOber-Rural/1.0"},
+        )
+        with urllib.request.urlopen(solicitud, timeout=8) as respuesta:
+            xml = respuesta.read(3_000_000)
+        raiz = ET.fromstring(xml)
+        nombres = set()
+        for nodo in raiz.iter():
+            if nodo.tag.split("}")[-1] == "Layer":
+                for hijo in nodo:
+                    if hijo.tag.split("}")[-1] == "Name" and hijo.text:
+                        nombres.add(hijo.text.strip())
+        if not nombres:
+            return {"ok": False, "layers": [], "error": "El servicio no publicó nombres de capa WMS."}
+        return {"ok": True, "layers": sorted(nombres), "error": ""}
+    except Exception as exc:
+        return {"ok": False, "layers": [], "error": f"{type(exc).__name__}: {exc}"}
+
+
+def validar_catalogo_wms():
+    """Comprueba servicios y nombres de capa; excluye del selector lo no publicado."""
+    estados = {}
+    for nombre, config in CARTOGRAFIA_WMS.items():
+        url = config["url"]
+        if url not in estados:
+            estados[url] = comprobar_capacidades_wms(url)
+        estado = estados[url]
+        solicitadas = {x.strip() for x in config["layers"].split(",") if x.strip()}
+        publicadas = set(estado["layers"])
+        faltantes = sorted(solicitadas - publicadas) if estado["ok"] else sorted(solicitadas)
+        config["capas_disponibles"] = estado["ok"] and not faltantes
+        config["detalle_validacion"] = (
+            "" if config["capas_disponibles"] else
+            (estado["error"] or "El servidor no publica los identificadores: " + ", ".join(faltantes))
+        )
+    return {
+        nombre: config for nombre, config in CARTOGRAFIA_WMS.items()
+        if config.get("capas_disponibles", False)
+    }, {
+        url: estado for url, estado in estados.items()
+    }
 
 
 
@@ -362,7 +416,7 @@ def construir_mapa(
 
     for nombre_capa in wms_seleccionadas:
         config = CARTOGRAFIA_WMS.get(nombre_capa)
-        if not config:
+        if not config or not config.get("capas_disponibles", False):
             continue
         folium.raster_layers.WmsTileLayer(
             url=config["url"], name=nombre_capa, layers=config["layers"],
@@ -583,27 +637,38 @@ with st.sidebar:
         with st.expander("05 · Cartografía oficial complementaria", expanded=False):
             st.caption("Selecciona servicios WMS oficiales. Cada capa se añade visible y se puede desactivar por separado en el control del mapa.")
 
-            opciones_igac = [n for n in CARTOGRAFIA_WMS if n.startswith("IGAC —")]
+            catalogo_wms_disponible, estados_wms = validar_catalogo_wms()
+            opciones_igac = [n for n in catalogo_wms_disponible if n.startswith("IGAC —")]
+            opciones_sgc = [n for n in catalogo_wms_disponible if n.startswith("SGC —")]
+            opciones_pnn = [n for n in catalogo_wms_disponible if n.startswith("Parques Nacionales —")]
+
             capas_igac = st.multiselect(
                 "IGAC · cartografía básica municipal 1:10.000",
                 options=opciones_igac,
-                key="sb_cartografia_wms_igac_v2",
-                help="Servicio cartográfico del municipio de Puerto Rico, Caquetá.",
+                key="sb_cartografia_wms_igac_v3",
+                help="Solo se ofrecen capas cuyos identificadores aparecen en GetCapabilities.",
             )
-            opciones_sgc = [n for n in CARTOGRAFIA_WMS if n.startswith("SGC —")]
             capas_sgc = st.multiselect(
                 "SGC · geología y amenazas",
                 options=opciones_sgc,
-                key="sb_cartografia_wms_sgc_v2",
-                help="Amenaza sísmica, movimientos en masa y amenaza volcánica. Respetar escala y alcance.",
+                key="sb_cartografia_wms_sgc_v3",
+                help="Solo se ofrecen capas WMS publicadas por el servicio.",
             )
-            opciones_pnn = [n for n in CARTOGRAFIA_WMS if n.startswith("Parques Nacionales —")]
             capas_pnn = st.multiselect(
                 "Parques Nacionales · áreas protegidas",
                 options=opciones_pnn,
-                key="sb_cartografia_wms_pnn_v2",
+                key="sb_cartografia_wms_pnn_v3",
             )
             wms_sel_sb = capas_igac + capas_sgc + capas_pnn
+
+            if not catalogo_wms_disponible:
+                st.warning("No se pudo validar ningún servicio WMS en este momento. Comprueba la conexión o inténtalo más tarde.")
+            for url, estado in estados_wms.items():
+                if not estado["ok"]:
+                    st.caption(f"Servicio WMS no disponible: {url} — {estado['error']}")
+            for nombre, config in CARTOGRAFIA_WMS.items():
+                if not config.get("capas_disponibles", False):
+                    st.caption(f"Capa no ofrecida: {nombre}. {config.get('detalle_validacion', 'No validada')}")
 
             capas_upra = st.multiselect(
                 "UPRA · servicios ArcGIS REST (teselas, no WMS)",
