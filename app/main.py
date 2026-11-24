@@ -246,7 +246,6 @@ def construir_mapa(topo, eventos_historicos, conflictos=None, codigo_seleccionad
 def resumen_sadci(sadci):
     if not isinstance(sadci, pd.DataFrame) or sadci.empty: return None
     out = {}
-    # Soporte para formato vertical (plantilla de variables) o ancho (Google Sheets)
     if "codigo_variable" in sadci.columns and "valor_ingresado" in sadci.columns:
         for _, row in sadci.iterrows():
             k = str(row.get("codigo_variable", "")).strip()
@@ -325,7 +324,6 @@ with st.sidebar:
             
     st.divider()
     
-    # Controles exclusivos para Exploración Cartográfica
     if st.session_state["sidebar_seccion_activa"] == "Exploración":
         st.markdown("### 🗺️ Parámetros de Mapa")
         st.caption("Filtros y capas para la lectura territorial:")
@@ -359,7 +357,6 @@ with st.sidebar:
         st.session_state["map_mostrar_gsheets"] = mostrar_gsheets
         st.session_state["map_pbot"] = pbot_sel_sb
         
-    # Controles exclusivos para Ingesta y Gestión SADCI (Izquierda)
     else:
         st.markdown("### 📥 Controles SADCI")
         st.caption("Gestión y cálculo de indicadores DCI:")
@@ -443,12 +440,10 @@ else:
     </div>
     """, unsafe_allow_html=True)
     
-    # Asegurar conexión a Google Sheets para obtener los datos base de SADCI si no están cargados
     if "google_data" not in st.session_state:
         st.session_state["google_data"] = leer_google_sheets()
     gd_sadci_base = st.session_state["google_data"].get("SADCI")
     
-    # Determinar qué fuente usar para las métricas (priorizando lo importado en sesión o la base de Google Sheets)
     active_sadci_df = st.session_state.get("sigo_sadci_importado")
     if active_sadci_df is not None and not active_sadci_df.empty:
         r_sadci = resumen_sadci(active_sadci_df)
@@ -457,7 +452,6 @@ else:
     else:
         r_sadci = None
         
-    # Renderizado de los 6 indicadores métricos principales en la parte derecha
     col1, col2, col3, col4, col5, col6 = st.columns(6)
     col1.metric("Presupuesto rural", f"{r_sadci.get('presupuesto_anual_rural', 0):,.0f}" if r_sadci and r_sadci.get("presupuesto_anual_rural") is not None else "—")
     col2.metric("Personal planta", f"{r_sadci.get('num_personal_planta', 0):.0f}" if r_sadci and r_sadci.get("num_personal_planta") is not None else "—")
@@ -468,14 +462,12 @@ else:
     
     st.divider()
     
-    # NUEVO: Bloque de Descripción Dinámica basada en los indicadores actuales
     st.markdown("### 🤖 Síntesis y Análisis Dinámico Institucional")
     descripcion_ia = generar_descripcion_dinamica_sadci(r_sadci)
     st.info(descripcion_ia)
     
     st.divider()
     
-    # Gestión de archivos cargados desde el panel izquierdo (Controles)
     sadci_file = st.session_state.get("sb_sadci_file_obj")
     catalogo_sadci = st.session_state.get("sb_catalogo_sadci")
     
@@ -496,4 +488,24 @@ else:
             st.download_button("Descargar informe de validación SADCI", sadci_review.to_csv(index=False).encode("utf-8-sig"), "revision_sadci.csv", "text/csv")
             
             if valid_count != len(sadci_review) or sadci_review.empty:
-                st.error("Corrige los códigos, periodos y valores numéricos
+                st.error("Corrige los códigos, periodos y valores numéricos indicados en el informe antes de confirmar.")
+            else:
+                st.info("Los valores importados están listos para ser incorporados.")
+                if st.button("Confirmar actualización SADCI en esta sesión", key="confirm_sadci_import", type="primary"):
+                    st.session_state.sigo_sadci_importado = sadci_review.drop(columns=["errores_validacion", "valido_revision_tecnica"]).copy()
+                    st.success(f"Se incorporaron {len(sadci_review)} filas SADCI a la sesión actual.")
+                    st.rerun()
+                    
+        except (ValueError, UnicodeDecodeError, pd.errors.ParserError) as exc:
+            st.error(f"No se pudo leer la plantilla cargada: {exc}")
+    else:
+        st.info("👈 Selecciona y carga tu plantilla completada en el panel izquierdo (Controles SADCI) para visualizar aquí los resultados detallados e informe de validación técnica.")
+        
+    if st.session_state.sigo_sadci_importado is not None:
+        st.divider()
+        st.subheader("Registros SADCI activos en la sesión actual")
+        current = st.session_state.sigo_sadci_importado
+        st.dataframe(current, use_container_width=True, hide_index=True)
+        if st.button("Retirar actualización SADCI de esta sesión", key="clear_sadci_import"):
+            st.session_state.sigo_sadci_importado = None
+            st.rerun()
