@@ -1,10 +1,10 @@
 """
 =============================================================================
 PROYECTO: SIGOber-Rural
-ARCHIVO: main.py (Rama Develope - Exploración y SADCI con Controles a la Izq y Resultados a la Der)
+ARCHIVO: main.py (Rama Develope - Exploración y SADCI con Métricas y Resultados)
 DESCRIPCIÓN: Aplicación principal con navegación dinámica en barra lateral 
              para alternar entre Exploración Cartográfica y el módulo de Gestión SADCI,
-             separando controles de interacción y paneles de resultados.
+             mostrando métricas de indicadores y resultados consolidados a la derecha.
 =============================================================================
 """
 
@@ -392,9 +392,32 @@ else:
     <div style='padding:.2rem 0 .6rem'>
         <div style='font-size:.72rem;font-weight:750;letter-spacing:.14em;text-transform:uppercase;opacity:.62'>Capacidad institucional</div>
         <div style='font-size:2.25rem;font-weight:820;line-height:1.04;margin:.1rem 0 .25rem'>Resultados e Indicadores SADCI</div>
-        <div style='font-size:.96rem;opacity:.72'>Visualización de resultados de validación técnica y cálculo de indicadores DCI.</div>
+        <div style='font-size:.96rem;opacity:.72'>Visualización de resultados de validación técnica, métricas institucionales y cálculo de indicadores DCI.</div>
     </div>
     """, unsafe_allow_html=True)
+    
+    # Obtener datos de Google Sheets o de la sesión para mostrar métricas generales
+    if "google_data" not in st.session_state:
+        st.session_state["google_data"] = leer_google_sheets()
+    gd_sadci_base = st.session_state["google_data"].get("SADCI")
+    
+    # Si hay datos importados en sesión, priorizarlos para las métricas
+    active_sadci_df = st.session_state.get("sigo_sadci_importado")
+    if active_sadci_df is not None and not active_sadci_df.empty:
+        r_sadci = resumen_sadci(active_sadci_df)
+    else:
+        r_sadci = resumen_sadci(gd_sadci_base)
+        
+    # Paneles de Métricas Principales (Indicadores DCI / SADCI)
+    col1, col2, col3, col4, col5, col6 = st.columns(6)
+    col1.metric("Presupuesto rural", f"{r_sadci.get('presupuesto_anual_rural', 0):,.0f}" if r_sadci and r_sadci.get("presupuesto_anual_rural") is not None else "—")
+    col2.metric("Personal planta", f"{r_sadci.get('num_personal_planta', 0):.0f}" if r_sadci and r_sadci.get("num_personal_planta") is not None else "—")
+    col3.metric("Contratistas", f"{r_sadci.get('num_personal_contratista', 0):.0f}" if r_sadci and r_sadci.get("num_personal_contratista") is not None else "—")
+    col4.metric("Ejecución", indicador_pct(r_sadci.get("ejecucion_presupuestal_pct") if r_sadci else None))
+    col5.metric("Cumplimiento PDT", indicador_pct(r_sadci.get("cumplimiento_pdt_pct") if r_sadci else None))
+    col6.metric("MEPI", f"{r_sadci.get('calificacion_mepi', 0):.1f}" if r_sadci and r_sadci.get("calificacion_mepi") is not None else "—")
+    
+    st.divider()
     
     sadci_file = st.session_state.get("sb_sadci_file_obj")
     catalogo_sadci = st.session_state.get("sb_catalogo_sadci")
@@ -427,7 +450,7 @@ else:
         except (ValueError, UnicodeDecodeError, pd.errors.ParserError) as exc:
             st.error(f"No se pudo leer la plantilla cargada: {exc}")
     else:
-        st.info("👈 Selecciona y carga tu plantilla completada en el panel izquierdo (Controles SADCI) para visualizar aquí los resultados, métricas e informe de validación.")
+        st.info("👈 Selecciona y carga tu plantilla completada en el panel izquierdo (Controles SADCI) para visualizar aquí los resultados, métricas de validación e informe técnico.")
         
     if st.session_state.sigo_sadci_importado is not None:
         st.divider()
