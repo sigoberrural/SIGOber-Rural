@@ -191,7 +191,8 @@ def construir_mapa(topo, eventos_historicos, conflictos=None, codigo_seleccionad
         ),
         show=True
     ).add_to(grupo_territorio)
-    grupo_territorio.add_to(m)
+    if perspectiva == "Territorio":
+        grupo_territorio.add_to(m)
     
     grupo_situaciones = folium.FeatureGroup(name="Situaciones documentadas — evidencia validada", show=(perspectiva == "Situaciones documentadas"))
     def estilo_situaciones(feature):
@@ -212,9 +213,10 @@ def construir_mapa(topo, eventos_historicos, conflictos=None, codigo_seleccionad
         ),
         show=True
     ).add_to(grupo_situaciones)
-    grupo_situaciones.add_to(m)
+    if perspectiva == "Situaciones documentadas":
+        grupo_situaciones.add_to(m)
     
-    if mostrar_conflictos and conflictos is not None and not conflictos.empty:
+    if perspectiva == "Situaciones documentadas" and mostrar_conflictos and conflictos is not None and not conflictos.empty:
         validos = conflictos.loc[conflictos["precision_coordenada"].eq("VALIDA")]
         grupo = folium.FeatureGroup(name="Conflictos — Google Sheets", show=True)
         for row in validos.itertuples(index=False):
