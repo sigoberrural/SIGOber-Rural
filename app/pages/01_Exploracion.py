@@ -19,7 +19,10 @@ with st.sidebar:
     st.divider()
     st.markdown("**Espacios de trabajo**")
     st.page_link("main.py", label="Ingesta y gestión de datos", icon="📥")
-    st.markdown("🗺️ **Exploración de resultados**")
+    st.markdown("🗺️ **Visualización de resultados**")
+    st.caption("Consultas dentro de este espacio")
+    st.page_link("pages/04_Indicadores_SADCI.py", label="Indicadores SADCI", icon="📊")
+    st.page_link("pages/02_Ordenamiento_PBOT2015.py", label="Ordenamiento PBOT 2015", icon="🧭")
     st.divider()
     st.caption("Puerto Rico · Caquetá")
     st.caption("Versión 1.0 en preparación")
@@ -442,15 +445,16 @@ div[data-testid="stMetricLabel"]{font-size:.83rem}
 </style>""",unsafe_allow_html=True)
 st.markdown("<div class='sigo-hero'><div class='sigo-kicker'>Sistema de información territorial · versión en preparación</div><div class='sigo-title'>SIGOber-Rural</div><div class='sigo-subtitle'>Una lectura integrada de la gobernabilidad rural de Puerto Rico, Caquetá: territorio, situaciones documentadas, ordenamiento y capacidades institucionales.</div></div>",unsafe_allow_html=True)
 
-st.markdown("### Consultas especializadas")
-st.caption("Estas herramientas forman parte de la exploración de resultados; el menú lateral conserva solo los dos espacios principales.")
+st.markdown("### Herramientas de consulta")
+st.caption("Además del mapa territorial, puedes consultar los indicadores institucionales y la cartografía de ordenamiento.")
 special1, special2 = st.columns(2, gap="medium")
 with special1:
     st.page_link("pages/02_Ordenamiento_PBOT2015.py", label="Consultar ordenamiento PBOT 2015", icon="🧭")
 with special2:
     st.page_link("pages/04_Indicadores_SADCI.py", label="Consultar indicadores SADCI", icon="📊")
 
-st.markdown("### Panorama territorial")
+st.markdown("### Consulta territorial")
+st.caption("Empieza con una de las tres vistas. Los filtros adicionales y las capas de referencia son opcionales.")
 st.caption(
     "Esta página reúne el mapa municipal y un resumen de los registros disponibles. "
     "Usa el menú lateral para cambiar de módulo; aquí no repetimos esos accesos."
