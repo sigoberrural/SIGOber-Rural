@@ -20,7 +20,7 @@ class EventosTerritorialesTests(unittest.TestCase):
             ENCABEZADO + "\n"
             "EV-1,2024-01-01,2024,Vereda A,001,VEREDA A,Conflicto,Acción,ALTA,"
             "VEREDA,Fuente,Oficial,https://fuente.gov,VALIDADA_EN_CAPA\n"
-            "EV-2,2024-01-01,2024,Vereda B,,VEREDA B,,,,ALTA,VEREDA,Fuente,Oficial,"
+            "EV-2,2024-01-01,2024,Vereda B,,VEREDA B,,,ALTA,VEREDA,Fuente,Oficial,"
             "PENDIENTE\n"
         )
         with tempfile.TemporaryDirectory() as temporal:
@@ -49,6 +49,15 @@ class EventosTerritorialesTests(unittest.TestCase):
 
         self.assertEqual(resumen["codigo_ver_resuelto"].tolist(), ["001"])
         self.assertEqual(int(resumen.iloc[0]["SIGOber_situaciones"]), 1)
+
+
+    def test_archivo_real_reporta_quince_filas_incompletas_sin_repararlas(self):
+        ruta = Path(__file__).resolve().parents[1] / "data" / "SITUACIONES_TERRITORIALES_eventos.csv"
+        datos, auditoria = leer_eventos_territoriales(ruta)
+        self.assertEqual(auditoria["filas_leidas"], 40)
+        self.assertEqual(auditoria["filas_validas_estructura"], 25)
+        self.assertEqual(len(auditoria["filas_incompletas"]), 15)
+        self.assertNotIn("PRC-2018-002", set(datos["id"]))
 
     def test_no_agrega_si_faltan_columnas_de_validacion(self):
         resumen = resumir_eventos_por_vereda(
