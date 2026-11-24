@@ -54,60 +54,47 @@ def crear_excel_plantilla(tipo: str, catalogo: list[dict[str, Any]] | None = Non
             cell.fill = fill_header
 
     elif tipo == "sadci":
-        # 1. Pestaña de Instrucciones y Glosario conceptual (separado de los datos operativos)
         ws_inst = wb.active
-        ws_inst.title = "Glosario y Guía"
-        
-        instrucciones_sadci = [
-            ["GUÍA DE DILIGENCIAMIENTO — VARIABLES DE CÁLCULO DCI"],
-            ["1. Ingrese únicamente los valores numéricos o porcentuales requeridos para cada variable."],
-            ["2. No altere los códigos de las variables para garantizar el procesamiento automático."],
-            [""],
-            ["GLOSARIO DE REFERENCIA (QUÉ MIDE CADA COMPONENTE):"],
-            ["Variable / Indicador", "Definición conceptual"],
-            ["Presupuesto Anual Rural", "Recursos financieros asignados para la inversión y atención en la zona rural."],
-            ["Personal de Planta (Rural)", "Talento humano vinculado de planta con funciones orientadas al sector rural."],
-            ["Personal Contratista", "Apoyo técnico y operativo temporal contratado para proyectos rurales."],
-            ["Ejecución Presupuestal (%)", "Porcentaje de gestión financiera ejecutada frente a la asignación."],
-            ["Cumplimiento PDT (%)", "Grado de avance en las metas del Plan de Desarrollo Territorial rural."],
-            ["Calificación MEPI", "Puntaje oficial de desempeño institucional y gestión fiscal."]
+        ws_inst.title = "Instrucciones"
+        instrucciones = [
+            ["ACTUALIZACIÓN DE INDICADORES SADCI"],
+            ["Una fila por indicador y periodo. No modifique los códigos ni las fórmulas del catálogo."],
+            ["Complete numerador, denominador, periodo, fuente, responsable y fecha de corte."],
+            ["Los datos cargados quedan pendientes de verificación documental."],
+            ["Código", "Indicador", "Numerador", "Denominador"],
         ]
-        for row in instrucciones_sadci:
+        for row in instrucciones:
             ws_inst.append(row)
 
-        # 2. Pestaña de Datos Operativa (Estrictamente las variables de cálculo)
-        ws_datos = wb.create_sheet(title="Variables de Cálculo")
-        ws_datos.append(CAMPOS_SADCI)
-        for col_num in range(1, len(CAMPOS_SADCI) + 1):
-            cell = ws_datos.cell(row=1, column=col_num)
+        ws_datos = wb.create_sheet(title="Actualización SADCI")
+        encabezados = [
+            "codigo", "periodo", "valor_numerador", "valor_denominador",
+            "fuentes", "responsable", "fecha_corte", "observaciones",
+        ]
+        ws_datos.append(encabezados)
+        for cell in ws_datos[1]:
             cell.font = font_header
             cell.fill = fill_header
             cell.alignment = Alignment(horizontal="center", vertical="center")
 
-        # Variables base preconfiguradas para el cálculo del DCI
-        variables_base = [
-            ("presupuesto_anual_rural", "Presupuesto Anual Rural", "COP ($)"),
-            ("num_personal_planta", "Personal de Planta (Rural)", "Número de personas"),
-            ("num_personal_contratista", "Personal Contratista", "Número de personas"),
-            ("ejecucion_presupuestal_pct", "Ejecución Presupuestal", "Porcentaje (%)"),
-            ("cumplimiento_pdt_pct", "Cumplimiento PDT", "Porcentaje (%)"),
-            ("calificacion_mepi", "Calificación MEPI", "Puntaje (0 - 100)")
-        ]
+        for indicador in (catalogo or []):
+            ws_datos.append([
+                str(indicador.get("codigo", "")).strip(),
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+            ])
+            ws_inst.append([
+                str(indicador.get("codigo", "")),
+                str(indicador.get("nombre", "")),
+                str(indicador.get("numerador", "")),
+                str(indicador.get("denominador", "")),
+            ])
 
-        for codigo_var, nombre_var, unidad in variables_base:
-            fila = [
-                codigo_var,
-                nombre_var,
-                "2026",          # Periodo por defecto
-                "",              # Valor a diligenciar por el usuario
-                unidad,          # Unidad de medida clara para el cálculo
-                "",              # Fuente
-                "",              # Responsable
-                "2026-06-30",    # Fecha de corte estándar
-                ""               # Observaciones
-            ]
-            ws_datos.append(fila)
-            
     else:
         raise ValueError("Tipo de plantilla no admitido.")
 
@@ -171,44 +158,110 @@ def validar_problematicas(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def validar_importacion_sadci(df: pd.DataFrame, catalogo: list[dict[str, Any]]) -> pd.DataFrame:
-    """Valida filas de actualización enfocadas en las variables de cálculo."""
+    """Valida actualizaciones por indicador sin modificar fórmulas ni metas del catálogo."""
     resultado = df.copy()
+    # Compatibilidad de nombres de código usados por plantillas anteriores.
+    if "codigo" not in resultado.columns and "codigo_variable" in resultado.columns:
+        resultado = resultado.rename(columns={"codigo_variable": "codigo"})
+
+    codigos_validos = {
+        str(item.get("codigo", "")).strip()
+        for item in catalogo
+        if str(item.get("codigo", "")).strip()
+    }
     errores = []
     for _, fila in resultado.iterrows():
         fila_errores = []
-        codigo = str(fila.get("codigo_variable", "")).strip()
+        codigo = str(fila.get("codigo", "")).strip()
+        periodo = str(fila.get("periodo", "")).strip()
+
         if not codigo:
-            fila_errores.append("Falta código de variable")
-        if not str(fila.get("periodo", "")).strip():
+            fila_errores.append("Falta código de indicador")
+        elif codigo not in codigos_validos:
+            fila_errores.append("Código de indicador no reconocido")
+
+        if not periodo:
             fila_errores.append("Falta periodo")
-        valor = str(fila.get("valor_ingresado", "")).strip()
-        if not valor:
-            fila_errores.append("Falta valor ingresado")
-        else:
+
+        valores = {}
+        for campo, etiqueta in (
+            ("valor_numerador", "numerador"),
+            ("valor_denominador", "denominador"),
+        ):
+            bruto = str(fila.get(campo, "")).strip()
+            if not bruto:
+                fila_errores.append(f"Falta {etiqueta}")
+                continue
             try:
-                float(valor)
-            except ValueError:
-                fila_errores.append("El valor ingresado debe ser numérico")
+                numero = float(bruto.replace(",", "."))
+                valores[campo] = numero
+            except (TypeError, ValueError):
+                fila_errores.append(f"El {etiqueta} debe ser numérico")
+
+        if "valor_numerador" in valores and valores["valor_numerador"] < 0:
+            fila_errores.append("El numerador no puede ser negativo")
+        if "valor_denominador" in valores and valores["valor_denominador"] <= 0:
+            fila_errores.append("El denominador debe ser mayor que cero")
+
         errores.append("; ".join(fila_errores))
+
     resultado["errores_validacion"] = errores
     resultado["valido_revision_tecnica"] = resultado["errores_validacion"].eq("")
+
+    if {"codigo", "periodo"}.issubset(resultado.columns):
+        codigos = resultado["codigo"].astype(str).str.strip()
+        periodos = resultado["periodo"].astype(str).str.strip()
+        duplicados = (
+            pd.DataFrame({"codigo": codigos, "periodo": periodos})
+            .duplicated(keep=False)
+            & codigos.ne("")
+            & periodos.ne("")
+        )
+        resultado.loc[duplicados, "valido_revision_tecnica"] = False
+        resultado.loc[duplicados, "errores_validacion"] = resultado.loc[
+            duplicados, "errores_validacion"
+        ].map(lambda x: (x + "; " if x else "") + "Indicador y periodo duplicados")
+
     return resultado
 
-
-def aplicar_actualizacion_sadci(catalogo: list[dict[str, Any]], filas: pd.DataFrame, periodo: str | None = None) -> list[dict[str, Any]]:
-    """Aplica los valores de las variables validadas a la estructura en memoria."""
+def aplicar_actualizacion_sadci(
+    catalogo: list[dict[str, Any]],
+    filas: pd.DataFrame,
+    periodo: str | None = None,
+) -> list[dict[str, Any]]:
+    """Aplica numeradores y denominadores a una copia del catálogo en memoria."""
     salida = [dict(item) for item in catalogo]
-    # Mapeo de variables operativas hacia las métricas que consume el resumen SADCI
+    por_codigo = {str(item.get("codigo", "")).strip(): item for item in salida}
+
     for fila in filas.to_dict(orient="records"):
-        codigo = str(fila.get("codigo_variable", "")).strip()
-        valor_str = str(fila.get("valor_ingresado", "")).strip()
-        try:
-            val_num = float(valor_str)
-        except ValueError:
+        codigo = str(fila.get("codigo", fila.get("codigo_variable", ""))).strip()
+        periodo_fila = str(fila.get("periodo", "")).strip()
+        if periodo and periodo_fila != str(periodo).strip():
             continue
-        
-        # Actualizamos directamente la propiedad correspondiente en el diccionario en memoria
-        for item in salida:
-            if str(item.get("codigo", "")).strip() == codigo or codigo in item:
-                item[codigo] = val_num
+        indicador = por_codigo.get(codigo)
+        if indicador is None:
+            continue
+
+        try:
+            numerador = float(str(fila.get("valor_numerador", "")).strip().replace(",", "."))
+            denominador = float(str(fila.get("valor_denominador", "")).strip().replace(",", "."))
+        except (TypeError, ValueError):
+            continue
+        if numerador < 0 or denominador <= 0:
+            continue
+
+        indicador["valor_numerador"] = numerador
+        indicador["valor_denominador"] = denominador
+        indicador["estado_dato"] = "PENDIENTE_VERIFICACION"
+        indicador["periodo_actualizacion"] = periodo_fila
+        for campo_origen, campo_destino in (
+            ("fuentes", "fuentes"),
+            ("responsable", "responsable"),
+            ("fecha_corte", "fecha_corte"),
+            ("observaciones", "observaciones_actualizacion"),
+        ):
+            valor = str(fila.get(campo_origen, "")).strip()
+            if valor:
+                indicador[campo_destino] = valor
+
     return salida
