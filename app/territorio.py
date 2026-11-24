@@ -64,7 +64,7 @@ def resumir_eventos_por_vereda(eventos, codigos_veredas):
         return pd.DataFrame(columns=COLUMNAS_RESUMEN)
 
     requeridas = {
-        "codigo_ver_resuelto", "estado_territorial", "precision_espacial",
+        "id", "codigo_ver_resuelto", "estado_territorial", "precision_espacial",
         "anio", "tipo_conflicto", "confianza",
     }
     if not requeridas.issubset(eventos.columns):
