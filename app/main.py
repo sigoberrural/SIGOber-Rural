@@ -891,7 +891,7 @@ with st.sidebar:
                 seleccionadas_ficha.append("Mostrar puntos con coordenadas válidas")
             seleccionadas_ficha.extend(capas_upra)
             if seleccionadas_ficha:
-                with st.expander("ℹ️ Guía para interpretar las capas seleccionadas", expanded=False):
+                with st.expander("ℹ️ Guía para interpretar las capas seleccionadas", expanded=True):
                     for nombre_ficha in seleccionadas_ficha:
                         ficha = FICHAS_CAPAS.get(nombre_ficha)
                         if ficha is None:
