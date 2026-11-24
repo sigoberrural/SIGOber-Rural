@@ -6,6 +6,13 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
+# Streamlit Cloud can launch this script with app/ as the working import root.
+# Ensure the repository root is available before importing the local app package.
+import sys
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
 from app.ingesta import (
     crear_excel_plantilla, leer_archivo_tabular,
     validar_importacion_sadci, validar_problematicas,
