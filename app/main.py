@@ -106,8 +106,6 @@ st.session_state.setdefault("sigo_upload_widget_version", 0)
 st.session_state.setdefault("sigo_problematicas_validadas", None)
 st.session_state.setdefault("sigo_sadci_importado", None)
 st.session_state.setdefault("sidebar_seccion_activa", "Exploración")
-st.session_state.setdefault("map_mostrar_veredas", True)
-st.session_state.setdefault("map_mostrar_situaciones", False)
 st.session_state.setdefault("map_mostrar_conflictos", False)
 
 
@@ -585,8 +583,8 @@ with st.sidebar:
         st.session_state["map_pbot"] = pbot_sel_sb
         st.session_state["map_wms"] = wms_sel_sb
         st.session_state["map_cartografia_local"] = capas_locales_sb
-        st.session_state["map_mostrar_veredas"] = mostrar_veredas
-        st.session_state["map_mostrar_situaciones"] = mostrar_situaciones
+        # Los widgets con key propia actualizan session_state automáticamente.
+        # Solo copiamos el control cuyo key histórico es distinto.
         st.session_state["map_mostrar_gsheets"] = mostrar_gsheets
         
     else:
