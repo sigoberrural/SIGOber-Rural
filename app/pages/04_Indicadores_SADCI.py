@@ -70,7 +70,7 @@ with st.sidebar:
     try:
         st.download_button(
             "Descargar plantilla SADCI",
-            data=crear_excel_plantilla("sadci", catalogo),
+            data=crear_excel_plantilla("sadci_indicadores", catalogo),
             file_name="plantilla_actualizacion_sadci.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             use_container_width=True,
