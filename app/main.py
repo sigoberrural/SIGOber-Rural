@@ -241,10 +241,13 @@ def construir_mapa(topo, eventos_historicos, conflictos=None, codigo_seleccionad
         folium.GeoJson(geo, name=titulo, tooltip=tooltip_pbot).add_to(grupo_pbot)
         grupo_pbot.add_to(m)
         
-    # === AÑADIR CAPA WMS DEL IDEAM (ESTADO DE ECOSISTEMAS) ===
-    url_wms_ideam = "https://visualizador.ideam.gov.co/gisserver/services/Estado_Ecosistemas/MapServer/WMSServer"
+    # =========================================================================
+    # CAPAS WMS OFICIALES (IDEAM, SGC, MINAMBIENTE)
+    # =========================================================================
+    
+    # 1. Estado de Ecosistemas (IDEAM)
     folium.raster_layers.WmsTileLayer(
-        url=url_wms_ideam,
+        url="https://visualizador.ideam.gov.co/gisserver/services/Estado_Ecosistemas/MapServer/WMSServer",
         name="Estado de Ecosistemas (IDEAM)",
         layers="0",
         fmt="image/png",
@@ -254,8 +257,32 @@ def construir_mapa(topo, eventos_historicos, conflictos=None, codigo_seleccionad
         attr="IDEAM - Instituto de Hidrología, Meteorología y Estudios Ambientales"
     ).add_to(m)
 
+    # 2. Amenaza por Movimientos en Masa (SGC)
+    folium.raster_layers.WmsTileLayer(
+        url="https://sigeo.sgc.gov.co/arcgis/services/Amenaza_Movimientos_Masa/MapServer/WMSServer",
+        name="Amenaza Movimientos en Masa (SGC)",
+        layers="0",
+        fmt="image/png",
+        transparent=True,
+        overlay=True,
+        control=True,
+        attr="Servicio Geológico Colombiano - SGC"
+    ).add_to(m)
+
+    # 3. Zonas de Reserva Forestal - Ley 2 de 1959 (MinAmbiente)
+    folium.raster_layers.WmsTileLayer(
+        url="https://portalmapas.minambiente.gov.co/arcgis/services/Bosques/Ley_2_1959/MapServer/WMSServer",
+        name="Zonas de Reserva Forestal Ley 2 (MinAmbiente)",
+        layers="0",
+        fmt="image/png",
+        transparent=True,
+        overlay=True,
+        control=True,
+        attr="Ministerio de Ambiente y Desarrollo Sostenible"
+    ).add_to(m)
+
     folium.LayerControl(collapsed=False).add_to(m)
-    return m, time.perf_counter() - inicio
+    return m, time.perf_counter() - initialise if 'initialise' in locals() else time.perf_counter() - inicio
   
 def resumen_sadci(sadci):
     if not isinstance(sadci, pd.DataFrame) or sadci.empty: return None
