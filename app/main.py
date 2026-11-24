@@ -33,23 +33,39 @@ with st.sidebar:
     st.divider()
     st.markdown("**Espacios de trabajo**")
     st.markdown("📥 **Ingesta y gestión de datos**")
-    st.page_link("pages/01_Exploracion.py", label="Exploración de resultados", icon="🗺️")
+    st.page_link("pages/01_Exploracion.py", label="Visualización de resultados", icon="🗺️")
     st.divider()
     st.caption("Puerto Rico · Caquetá")
     st.caption("Versión 1.0 en preparación")
 
 st.markdown("""
-<div style="padding:1.2rem 1.35rem;border:1px solid rgba(128,128,128,.22);border-radius:1rem;
-background:linear-gradient(115deg,rgba(31,91,75,.12),rgba(91,128,108,.025));margin:.2rem 0 1rem">
-  <div style="font-size:.74rem;letter-spacing:.12em;text-transform:uppercase;font-weight:750;opacity:.65">SIGOber-Rural · espacio de trabajo</div>
-  <h1 style="margin:.25rem 0 .4rem">Ingesta y gestión de datos</h1>
-  <p style="margin:0;opacity:.8;max-width:900px">Descarga plantillas, incorpora problemáticas territoriales y actualizaciones SADCI, revisa errores y confirma los datos antes de utilizarlos.</p>
+<style>
+.ingesta-hero{padding:1.35rem 1.5rem;border:1px solid rgba(128,128,128,.2);border-radius:1.1rem;background:linear-gradient(118deg,rgba(38,105,78,.14),rgba(122,143,102,.035));margin:.25rem 0 1rem}
+.ingesta-kicker{font-size:.72rem;letter-spacing:.13em;text-transform:uppercase;font-weight:750;opacity:.65}
+.ingesta-hero h1{font-size:2.15rem;line-height:1.15;margin:.25rem 0 .4rem}
+.ingesta-hero p{max-width:850px;margin:0;opacity:.8}
+.ingesta-step{padding:.75rem .85rem;border:1px solid rgba(128,128,128,.2);border-radius:.8rem;background:rgba(128,128,128,.025);min-height:94px}
+.ingesta-step strong{display:block;margin-bottom:.2rem}
+.ingesta-step span{font-size:.84rem;opacity:.75}
+</style>
+<div class="ingesta-hero">
+  <div class="ingesta-kicker">SIGOber-Rural · Puerto Rico, Caquetá</div>
+  <h1>Ingesta y gestión de datos</h1>
+  <p>Incorpora información territorial mediante plantillas guiadas. Revisa los datos antes de confirmarlos y consulta después los resultados en el espacio de visualización.</p>
 </div>
 """, unsafe_allow_html=True)
 
-st.warning("**Alcance de esta versión:** las importaciones se mantienen en la sesión activa de la aplicación. No se escriben automáticamente en Google Sheets, el repositorio ni una base de datos compartida; al terminar la sesión, la información importada no queda guardada como registro persistente.")
+paso1, paso2, paso3 = st.columns(3, gap="small")
+with paso1:
+    st.markdown('<div class="ingesta-step"><strong>1 · Descarga</strong><span>Elige la plantilla del tipo de información que vas a registrar.</span></div>', unsafe_allow_html=True)
+with paso2:
+    st.markdown('<div class="ingesta-step"><strong>2 · Completa y carga</strong><span>Rellena los campos y sube el archivo Excel o CSV.</span></div>', unsafe_allow_html=True)
+with paso3:
+    st.markdown('<div class="ingesta-step"><strong>3 · Revisa y confirma</strong><span>Corrige errores técnicos y confirma la incorporación a la sesión.</span></div>', unsafe_allow_html=True)
 
-tab_social, tab_sadci, tab_archivos = st.tabs(["Problemáticas por vereda", "Indicadores SADCI", "Otros archivos"])
+st.info("**Importante:** los archivos confirmados permanecen disponibles durante la sesión activa. Esta versión todavía no los guarda en una base de datos compartida ni garantiza su conservación al cerrar la sesión.")
+
+tab_social, tab_sadci, tab_archivos = st.tabs(["Problemáticas por vereda", "Capacidad institucional · SADCI", "Archivos de apoyo"])
 
 with tab_social:
     st.subheader("1. Descargar plantilla de problemáticas")
