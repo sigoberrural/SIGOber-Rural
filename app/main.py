@@ -351,19 +351,6 @@ def generar_analisis_dci_oszlak(r_sadci):
 # =============================================================================
 # FUNCION PARA GENERAR PDF PROFESIONAL (REPORTE DCI)
 # =============================================================================
-def limpiar_texto_pdf(texto):
-    """Reemplaza caracteres especiales o tildes para evitar errores de codificación latin1 en FPDF."""
-    if not isinstance(texto, str):
-        return str(texto)
-    reemplazos = {
-        'á': 'a', 'é': 'e', 'í': 'i', 'ó': 'o', 'ú': 'u',
-        'Á': 'A', 'É': 'E', 'Í': 'I', 'Ó': 'O', 'Ú': 'U',
-        'ñ': 'n', 'Ñ': 'N', 'º': 'o', '°': 'o', '$': 'COP '
-    }
-    for k, v in reemplazos.items():
-        texto = texto.replace(k, v)
-    return texto
-
 class PDFReporteDCI(FPDF):
     def header(self):
         self.set_font('Arial', 'B', 12)
@@ -371,14 +358,14 @@ class PDFReporteDCI(FPDF):
         self.cell(0, 10, 'SIGOber-Rural | Reporte Institucional DCI', 0, 1, 'L')
         self.set_font('Arial', 'I', 8)
         self.set_text_color(100, 100, 100)
-        self.cell(0, 4, 'Diagnostico de Capacidad e Indicadores SADCI (Basado en Oszlak y Orellana)', 0, 1, 'L')
+        self.cell(0, 4, 'Diagnóstico de Capacidad e Indicadores SADCI (Basado en Oszlak y Orellana)', 0, 1, 'L')
         self.ln(5)
 
     def footer(self):
         self.set_y(-15)
         self.set_font('Arial', 'I', 8)
         self.set_text_color(150, 150, 150)
-        self.cell(0, 10, f'Pagina {self.page_no()} | Generado automaticamente por SIGOber-Rural', 0, 0, 'C')
+        self.cell(0, 10, f'Página {self.page_no()} | Generado automáticamente por SIGOber-Rural', 0, 0, 'C')
 
 def generar_pdf_reporte(r_sadci):
     pdf = PDFReporteDCI()
@@ -388,23 +375,23 @@ def generar_pdf_reporte(r_sadci):
     # Título del Reporte
     pdf.set_font('Arial', 'B', 16)
     pdf.set_text_color(30, 30, 30)
-    pdf.cell(0, 10, limpiar_texto_pdf('Informe Técnico: Déficits de Capacidad Institucional (DCI)'), 0, 1, 'L')
+    pdf.cell(0, 10, 'Informe Técnico: Déficits de Capacidad Institucional (DCI)', 0, 1, 'L')
     pdf.set_font('Arial', '', 10)
     pdf.set_text_color(100, 100, 100)
-    pdf.cell(0, 6, limpiar_texto_pdf(f'Fecha de emisión: {datetime.now().strftime("%Y-%m-%d %H:%M")}'), 0, 1, 'L')
+    pdf.cell(0, 6, f'Fecha de emisión: {datetime.now().strftime("%Y-%m-%d %H:%M")}', 0, 1, 'L')
     pdf.ln(5)
     
     if not r_sadci:
         pdf.set_font('Arial', '', 11)
-        pdf.cell(0, 10, limpiar_texto_pdf('No hay datos suficientes cargados en la sesión actual para renderizar métricas.'), 0, 1, 'L')
-        return pdf.output(dest='S').encode('latin1')
+        pdf.cell(0, 10, 'No hay datos suficientes cargados en la sesión actual para renderizar métricas.', 0, 1, 'L')
+        return bytes(pdf.output())
 
     calc = calcular_indicadores_dci_avanzados(r_sadci)
     
     # Sección 1: Métricas Principales
     pdf.set_font('Arial', 'B', 12)
     pdf.set_text_color(38, 105, 78)
-    pdf.cell(0, 8, limpiar_texto_pdf('1. Resumen de Métricas Base e Indicadores Calculados'), 0, 1, 'L')
+    pdf.cell(0, 8, '1. Resumen de Métricas Base e Indicadores Calculados', 0, 1, 'L')
     pdf.set_font('Arial', '', 10)
     pdf.set_text_color(50, 50, 50)
     
@@ -416,7 +403,7 @@ def generar_pdf_reporte(r_sadci):
     mepi = r_sadci.get("calificacion_mepi", 0) or 0
 
     metricas_txt = [
-        f"Presupuesto Anual Rural: {presupuesto:,.0f} COP",
+        f"Presupuesto Anual Rural: ${presupuesto:,.0f} COP",
         f"Personal de Planta: {int(planta)} | Contratistas: {int(contratistas)} (Total: {int(calc.get('total_personal',0))})",
         f"Porcentaje de Contratistas: {calc.get('pct_contratistas', 0):.1f}%",
         f"Ejecución Presupuestal: {ejecucion:.0f}%",
@@ -426,13 +413,13 @@ def generar_pdf_reporte(r_sadci):
     ]
     
     for m in metricas_txt:
-        pdf.cell(0, 6, limpiar_texto_pdf(f"- {m}"), 0, 1, 'L')
+        pdf.cell(0, 6, f"- {m}", 0, 1, 'L')
     pdf.ln(5)
     
     # Sección 2: Análisis Detallado DCI
     pdf.set_font('Arial', 'B', 12)
     pdf.set_text_color(38, 105, 78)
-    pdf.cell(0, 8, limpiar_texto_pdf('2. Diagnóstico Multidimensional (Oszlak & Orellana)'), 0, 1, 'L')
+    pdf.cell(0, 8, '2. Diagnóstico Multidimensional (Oszlak & Orellana)', 0, 1, 'L')
     pdf.set_font('Arial', '', 10)
     pdf.set_text_color(50, 50, 50)
     
@@ -441,7 +428,7 @@ def generar_pdf_reporte(r_sadci):
     texto_limpio = texto_analisis.replace("### ", "").replace("**", "").replace("*", "")
     for linea in texto_limpio.split('\n'):
         if linea.strip():
-            pdf.multi_cell(0, 5, limpiar_texto_pdf(linea))
+            pdf.multi_cell(0, 5, linea)
             pdf.ln(2)
             
     pdf.ln(5)
@@ -449,7 +436,7 @@ def generar_pdf_reporte(r_sadci):
     # Sección 3: Recomendaciones estratégicas
     pdf.set_font('Arial', 'B', 12)
     pdf.set_text_color(38, 105, 78)
-    pdf.cell(0, 8, limpiar_texto_pdf('3. Recomendaciones de Política Institucional'), 0, 1, 'L')
+    pdf.cell(0, 8, '3. Recomendaciones de Política Institucional', 0, 1, 'L')
     pdf.set_font('Arial', '', 10)
     pdf.set_text_color(50, 50, 50)
     
@@ -459,9 +446,10 @@ def generar_pdf_reporte(r_sadci):
         "Articular los instrumentos de gestión del PDT con las problemáticas socio-territoriales identificadas en Puerto Rico, Caquetá."
     ]
     for r in recomendaciones:
-        pdf.multi_cell(0, 6, limpiar_texto_pdf(f"* {r}"))
+        pdf.multi_cell(0, 6, f"* {r}")
         
-    return pdf.output(dest='S').encode('latin1')
+    return bytes(pdf.output())
+
 # =============================================================================
 # 3. BARRA LATERAL (SIDEBAR) - CONTROLES Y PARÁMETROS DE INTERACCIÓN
 # =============================================================================
