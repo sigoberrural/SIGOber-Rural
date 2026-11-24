@@ -264,12 +264,14 @@ def indicador_pct(valor):
 
 def generar_descripcion_dinamica_sadci(r_sadci):
     """
-    Genera una descripción narrativa y dinámica basada en los valores 
-    actuales de los indicadores SADCI y métricas institucionales.
+    Genera una descripción analítica y detallada indicador por indicador,
+    fundamentada en la metodología de Déficits de Capacidad Institucional (DCI)
+    de Oscar Oszlak y Edgardo Orellana.
     """
     if not r_sadci:
-        return "No hay datos institucionales suficientes en la sesión actual para generar una síntesis dinámica de capacidad institucional."
+        return "No hay datos institucionales suficientes en la sesión actual para realizar el diagnóstico de capacidades según el enfoque de Oszlak y Orellana."
     
+    # Extracción de métricas base
     presupuesto = r_sadci.get("presupuesto_anual_rural", 0) or 0
     planta = r_sadci.get("num_personal_planta", 0) or 0
     contratistas = r_sadci.get("num_personal_contratista", 0) or 0
@@ -277,29 +279,52 @@ def generar_descripcion_dinamica_sadci(r_sadci):
     cumplimiento = r_sadci.get("cumplimiento_pdt_pct")
     mepi = r_sadci.get("calificacion_mepi")
     
-    parrafos = []
+    analisis = []
     
+    # 1. Análisis Financiero (Déficits de capacidad financiera y física)
     presupuesto_str = f"{presupuesto:,.0f} COP" if presupuesto > 0 else "sin asignación registrada"
-    ejecucion_str = f"{ejecucion:.0f}%" if ejecucion is not None and not pd.isna(ejecucion) else "pendiente de medición"
-    parrafos.append(
-        f"En el componente financiero, se observa un presupuesto anual rural de **{presupuesto_str}** "
-        f"con un nivel de ejecución presupuestal del **{ejecucion_str}**."
-    )
+    if presupuesto > 0:
+        fin_val = f"El presupuesto anual rural asciende a **{presupuesto_str}**, lo que configura la base material de sustentación para la intervención estatal en el territorio."
+    else:
+        fin_val = f"Se detecta una restricción crítica o ausencia de asignación en el presupuesto anual rural (**{presupuesto_str}**), configurando un potencial *déficit financiero estructural* (Oszlak & Orellana)."
+    analisis.append(fin_val)
     
+    # 2. Análisis de Ejecución Presupuestal (Eficiencia en la asignación y gestión)
+    if ejecucion is not None and not pd.isna(ejecucion):
+        if ejecucion >= 70:
+            ejec_val = f"En cuanto a la **Ejecución Presupuestal ({ejecucion:.0f}%)**, el indicador muestra una adecuada capacidad de conversión de los recursos financieros en acciones operativas efectivas."
+        else:
+            ejec_val = f"El indicador de **Ejecución Presupuestal se ubica en un bajo {ejecucion:.0f}%**, evidenciando un *déficit en la capacidad de gestión y absorción financiera* para cumplir los objetivos programados."
+        analisis.append(ejec_val)
+    
+    # 3. Análisis de Talento Humano: Planta vs Contratistas (Políticas de personal y burocracia)
     total_personal = planta + contratistas
-    parrafos.append(
-        f"La capacidad operativa cuenta con un total de **{int(total_personal)} colaboradores** "
-        f"({int(planta)} en planta y {int(contratistas)} bajo modalidad de contratación temporal) orientados a la gestión territorial."
-    )
+    if total_personal > 0:
+        proporcion_contratistas = (contratistas / total_personal) * 100 if total_personal > 0 else 0
+        humano_val = (
+            f"Respecto al **Talento Humano**, la organización cuenta con **{int(total_personal)} colaboradores en total** "
+            f"({int(planta)} en planta y {int(contratistas)} contratistas). "
+        )
+        if proporcion_contratistas > 50:
+            humano_val += f"La alta dependencia de personal externo ({proporcion_contratistas:.0f}% contratistas) sugiere un riesgo de fragilidad institucional y debilidad en la carrera administrativa y estabilidad técnica."
+        else:
+            humano_val += f"La estructura refleja un equilibrio razonable entre el cuadro permanente y el apoyo externo para la ejecución de políticas rurales."
+        analisis.append(humano_val)
     
-    cumplimiento_str = f"{cumplimiento:.0f}%" if cumplimiento is not None and not pd.isna(cumplimiento) else "sin consolidar"
-    mepi_str = f"{mepi:.1f} puntos" if mepi is not None and not pd.isna(mepi) else "por evaluar"
-    parrafos.append(
-        f"Respecto al cumplimiento de metas del Plan de Desarrollo Territorial (PDT), el avance se sitúa en **{cumplimiento_str}**, "
-        f"acompañado de una calificación MEPI de **{mepi_str}**, reflejando el estado actual de gobernabilidad y gestión fiscal."
-    )
-    
-    return " ".join(parrafos)
+    # 4. Análisis de Cumplimiento del PDT (Eficacia en el logro de metas públicas)
+    if cumplimiento is not None and not pd.isna(cumplimiento):
+        if cumplimiento >= 70:
+            pdt_val = f"El **Cumplimiento del PDT ({cumplimiento:.0f}%)** refleja una alta eficacia estatal para cristalizar las decisiones de política pública en bienes y servicios para la ciudadanía rural."
+        else:
+            pdt_val = f"El **Cumplimiento del PDT ({cumplimiento:.0f}%)** revela brechas significativas o retrasos en las metas proyectadas, señalando un *déficit de efectividad en la gestión de resultados*."
+        analisis.append(pdt_val)
+        
+    # 5. Análisis MEPI (Desempeño Institucional y Calidad de la Gestión Fiscal)
+    if mepi is not None and not pd.isna(mepi):
+        mepi_val = f"Finalmente, la **Calificación MEPI ({mepi:.1f} puntos)** sintetiza el desempeño institucional global, permitiendo dimensionar los arreglos de gobernanza y la calidad institucional frente a las demandas del entorno territorial."
+        analisis.append(mepi_val)
+        
+    return " ".join(analisis)
 
 # =============================================================================
 # 3. BARRA LATERAL (SIDEBAR) - CONTROLES Y PARÁMETROS DE INTERACCIÓN
