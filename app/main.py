@@ -1,322 +1,1173 @@
+"""
+=============================================================================
+PROYECTO: SIGOber-Rural
+ARCHIVO: main.py (Rama Develope - Exploración y SADCI con Métricas y Resultados Integrados)
+DESCRIPCIÓN: Aplicación principal con navegación dinámica en barra lateral 
+             para alternar entre Exploración Cartográfica y el módulo de Gestión SADCI,
+             mostrando de forma permanente las métricas de indicadores y resultados a la derecha.
+=============================================================================
+"""
+
+from datetime import datetime
 import html
+import base64
 import json
-import re
 import time
-import urllib.error
 import urllib.request
+import urllib.parse
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
+import altair as alt
 import folium
+from branca.element import MacroElement, Template
 import pandas as pd
 import streamlit as st
 from streamlit_folium import st_folium
 
+# =============================================================================
+# 1. CONFIGURACIÓN DEL ENTORNO Y RUTAS DEL SISTEMA
+# =============================================================================
+
+import sys
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from app.ingesta import (
+    crear_excel_plantilla, leer_archivo_tabular,
+    validar_importacion_sadci, validar_problematicas,
+)
+from app.sadci import cargar_catalogo
+from app.territorio import leer_eventos_territoriales, resumir_eventos_por_vereda
+
 st.set_page_config(page_title="SIGOber-Rural", page_icon="🗺️", layout="wide")
+
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"
 PBOT_DIR = DATA_DIR / "PBOT2015"
 
-PBOT_CAPAS = [("PBOT2015_ZONIFICACION_USO_SUELO_RURAL.geojson", "Zonificación de uso del suelo rural", ["UGOT", "Aptitud", "area_ha"]),("PBOT2015_PROTECCION_RURAL.geojson", "Suelos de protección rural", ["Aptitud", "Area_ha"]),("PBOT2015_PERIMETRO_EXPANSION.geojson", "Perímetro y expansión urbana", ["Tipo", "area_m2", "Id"]),("PBOT2015_TRATAMIENTOS_URBANOS.geojson", "Tratamientos urbanos", ["Tipo", "area_m2", "Id"]),("PBOT2015_ZONAS_HOMOGENEAS_URBANAS.geojson", "Zonas homogéneas urbanas", ["Tipo", "area_m2", "Id"]),("PBOT2015_PUNTOS_EXPANSION.geojson", "Puntos de expansión urbana", ["Tipo", "area_m2", "Id"]),("PBOT2015_MANZANAS_INSPECCIONES.geojson", "Manzanas e inspecciones", ["codigo", "sector_cat", "tipo_avalu", "Reporte"])]
-GIGAPP_DIMENSIONES = {
-    "Territorio": {"pregunta":"¿Dónde?", "descripcion":"Veredas como unidad de lectura territorial."},
-    "Situaciones": {"pregunta":"¿Qué ocurre?", "descripcion":"Evidencia territorial documentada."},
-    "Ordenamiento territorial": {"pregunta":"¿Qué territorio tenemos previsto?", "descripcion":"Lectura de las capas PBOT 2015."},
-    "Cartografía social": {"pregunta":"¿Cómo lo interpreta la comunidad?", "descripcion":"Problemas, recursos y percepciones participativas."},
+PBOT_CAPAS = [
+    ("PBOT2015_ZONIFICACION_USO_SUELO_RURAL.geojson", "Zonificación de uso del suelo rural", ["UGOT", "Aptitud", "area_ha"]),
+    ("PBOT2015_PROTECCION_RURAL.geojson", "Suelos de protección rural", ["Aptitud", "Area_ha"]),
+    ("PBOT2015_PERIMETRO_EXPANSION.geojson", "Perímetro y expansión urbana", ["Tipo", "area_m2", "Id"]),
+    ("PBOT2015_TRATAMIENTOS_URBANOS.geojson", "Tratamientos urbanos", ["Tipo", "area_m2", "Id"]),
+    ("PBOT2015_ZONAS_HOMOGENEAS_URBANAS.geojson", "Zonas homogéneas urbanas", ["Tipo", "area_m2", "Id"]),
+    ("PBOT2015_PUNTOS_EXPANSION.geojson", "Puntos de expansión urbana", ["Tipo", "area_m2", "Id"]),
+    ("PBOT2015_MANZANAS_INSPECCIONES.geojson", "Manzanas e inspecciones", ["codigo", "sector_cat", "tipo_avalu", "Reporte"])
+]
+
+# Servicios OGC/WMS con capas identificadas en los directorios oficiales.
+CARTOGRAFIA_WMS = {
+    "Parques Nacionales — Áreas protegidas (RUNAP)": {
+        "url": "https://mapas.parquesnacionales.gov.co/arcgis/rest/services/pnn/Limites_oficiales_Poligono/MapServer/WMSServer",
+        "layers": "0", "attribution": "Parques Nacionales Naturales de Colombia · Límites oficiales de áreas protegidas"
+    },
 }
-PBOT_PERSPECTIVA_DEFAULT = "PBOT2015_ZONIFICACION_USO_SUELO_RURAL.geojson"
+
+# UPRA publica estos productos como servicios ArcGIS MapServer con caché de teselas,
+# no se presentan como WMS. Se mantienen en un selector independiente.
+class ArcGISExportLayer(folium.map.Layer):
+    """Capa dinámica ArcGIS REST: solicita una imagen por tesela y reproyecta a EPSG:3857."""
+    _template = Template(r"""
+    {% macro script(this, kwargs) %}
+    var {{ this.get_name() }} = L.gridLayer({
+        tileSize: 256,
+        opacity: {{ this.opacity }},
+        attribution: {{ this.attribution|tojson }}
+    });
+    {{ this.get_name() }}.createTile = function(coords, done) {
+        var tile = document.createElement('img');
+        tile.alt = {{ this.layer_name|tojson }};
+        tile.setAttribute('role', 'presentation');
+        var map = {{ this._parent.get_name() }};
+        var nw = map.unproject(L.point(coords.x * 256, coords.y * 256), coords.z);
+        var se = map.unproject(L.point((coords.x + 1) * 256, (coords.y + 1) * 256), coords.z);
+        // El servicio IGAC trabaja nativamente en MAGNA-SIRGAS / Origen-Nacional (EPSG:9377).
+        // Se envía el BBOX geográfico y se solicita la imagen final en Web Mercator.
+        var bbox = [
+            Math.min(nw.lng, se.lng),
+            Math.min(nw.lat, se.lat),
+            Math.max(nw.lng, se.lng),
+            Math.max(nw.lat, se.lat)
+        ].join(',');
+        var params = new URLSearchParams({
+            bbox: bbox,
+            bboxSR: '4326',
+            imageSR: '3857',
+            size: '256,256',
+            format: 'png32',
+            transparent: 'true',
+            layers: 'show:' + {{ this.layers|tojson }},
+            dpi: '96',
+            f: 'image'
+        });
+        tile.onload = function() { done(null, tile); };
+        tile.onerror = function(error) { done(error, tile); };
+        tile.src = {{ this.service_url|tojson }} + '/export?' + params.toString();
+        return tile;
+    };
+    {{ this.get_name() }}.addTo({{ this._parent.get_name() }});
+    {% endmacro %}
+    """)
+
+    def __init__(self, name, layers, service_url=None, attribution="Cartografía oficial · ArcGIS REST", opacity=0.82, overlay=True, control=True, show=True):
+        super().__init__(name=name, overlay=overlay, control=control, show=show)
+        self.layer_name = name
+        self.layers = layers
+        self.service_url = service_url
+        self.attribution = attribution
+        self.opacity = opacity
+
+
+CARTOGRAFIA_ARCGIS = {
+    "UPRA — Frontera agrícola nacional (1:100.000)": {
+        "url": "https://sig.upra.gov.co/server/rest/services/ordenamiento_productivo/frontera_agricola/MapServer",
+        "attribution": "UPRA · Frontera agrícola nacional · 1:100.000", "modo": "teselas"
+    },
+    "UPRA — Frontera agrícola condicionada": {
+        "url": "https://sig.upra.gov.co/server/rest/services/ordenamiento_productivo/frontera_agricola_condicionada/MapServer",
+        "attribution": "UPRA · Frontera agrícola y frontera agrícola condicionada", "modo": "teselas"
+    },
+    "Parques Nacionales — Áreas protegidas RUNAP": {
+        "url": "https://mapas.parquesnacionales.gov.co/arcgis/rest/services/pnn/runap/MapServer",
+        "layers": "0", "attribution": "Parques Nacionales Naturales · Registro Único Nacional de Áreas Protegidas", "modo": "export"
+    },
+    "UPRA — Unidades físicas homogéneas": {
+        "url": "https://geoportal.ant.gov.co/servidor/rest/services/MIGO/Determinantes_UPRA/MapServer",
+        "layers": "1", "attribution": "UPRA · Unidades físicas homogéneas · MIGO", "modo": "export"
+    },
+    "UPRA — Precios comerciales de tierra": {
+        "url": "https://geoportal.ant.gov.co/servidor/rest/services/MIGO/Determinantes_UPRA/MapServer",
+        "layers": "2", "attribution": "UPRA · Precios comerciales de tierra · MIGO", "modo": "export"
+    },
+    "UPRA — Índice de informalidad municipal": {
+        "url": "https://geoportal.ant.gov.co/servidor/rest/services/MIGO/Determinantes_UPRA/MapServer",
+        "layers": "3", "attribution": "UPRA · Índice de informalidad municipal · escala municipal", "modo": "export"
+    },
+    "UPRA — Áreas de mercado de tierras": {
+        "url": "https://geoportal.ant.gov.co/servidor/rest/services/MIGO/Determinantes_UPRA/MapServer",
+        "layers": "10", "attribution": "UPRA · Áreas de mercado de tierras · MIGO", "modo": "export"
+    },
+    "UPRA — Determinantes: frontera agrícola": {
+        "url": "https://geoportal.ant.gov.co/servidor/rest/services/MIGO/Determinantes_UPRA/MapServer",
+        "layers": "4", "attribution": "UPRA · Determinantes territoriales · MIGO", "modo": "export"
+    },
+    "UPRA — Restricciones agropecuarias de frontera": {
+        "url": "https://geoportal.ant.gov.co/servidor/rest/services/MIGO/Determinantes_UPRA/MapServer",
+        "layers": "5", "attribution": "UPRA · Restricciones agropecuarias · MIGO", "modo": "export"
+    },
+    "UPRA — Frontera agrícola condicionada": {
+        "url": "https://geoportal.ant.gov.co/servidor/rest/services/MIGO/Determinantes_UPRA/MapServer",
+        "layers": "6,12", "attribution": "UPRA · Frontera agrícola condicionada · MIGO", "modo": "export"
+    },
+    "UPRA — Distritos de adecuación de tierras": {
+        "url": "https://geoportal.ant.gov.co/servidor/rest/services/MIGO/Determinantes_UPRA/MapServer",
+        "layers": "7,8", "attribution": "UPRA · Distritos de adecuación de tierras · MIGO", "modo": "export"
+    },
+    "UPRA — Áreas de referencia ZIDRES": {
+        "url": "https://geoportal.ant.gov.co/servidor/rest/services/MIGO/Determinantes_UPRA/MapServer",
+        "layers": "9", "attribution": "UPRA · Áreas de referencia ZIDRES · MIGO", "modo": "export"
+    },
+    "UPRA — Adjudicabilidad UAF": {
+        "url": "https://geoportal.ant.gov.co/servidor/rest/services/MIGO/Determinantes_UPRA/MapServer",
+        "layers": "11", "attribution": "UPRA · Adjudicabilidad UAF · MIGO", "modo": "export"
+    },
+    "SGC — Amenaza por movimientos en masa (mapa nacional 1:100.000)": {
+        "url": "https://srvags.sgc.gov.co/arcgis/rest/services/Mapa_Nacional_Amenaza_Mov_Masa_100K/Mapa_Nacional_Amenaza_Movimientos_Masa_100K/MapServer",
+        "layers": "3", "attribution": "Servicio Geológico Colombiano · mapa nacional 2015 · escala 1:100.000", "modo": "export"
+    },
+    "IGAC — Atlas 2024: remoción en masa": {
+        "url": "https://mapas.igac.gov.co/server/rest/services/atlas/geologicogeomorfologico/MapServer",
+        "layers": "2", "attribution": "IGAC · Atlas de Colombia 2024 · fenómenos geológicos", "modo": "export"
+    },
+}
+
+CARTOGRAFIA_LOCAL = {
+    "IGAC local — Vías y puentes": ("igac_vias.geojson", "#1769aa", 2.4),
+    "IGAC local — Drenajes": ("igac_drenajes.geojson", "#168aad", 1.8),
+    "IGAC local — Construcciones": ("igac_construcciones.geojson", "#9c2f2f", 1.2),
+    "IGAC local — Curvas y piscinas": ("igac_curvas_piscinas.geojson", "#8c6d31", 1.0),
+    "IGAC local — Bosque": ("igac_bosque.geojson", "#2e7d32", 1.0),
+}
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def obtener_leyenda_arcgis(url_servicio, ids_seleccionados):
+    """Consulta la leyenda publicada por ArcGIS REST; no inventa símbolos."""
+    try:
+        url = url_servicio.rstrip("/") + "/legend?f=pjson"
+        req = urllib.request.Request(url, headers={"User-Agent": "SIGOber-Rural/1.0"})
+        with urllib.request.urlopen(req, timeout=6) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+        if payload.get("error"):
+            return []
+        ids = {int(x) for x in str(ids_seleccionados).split(",") if str(x).strip().isdigit()}
+        salida = []
+        for layer in payload.get("layers", []):
+            if ids and int(layer.get("layerId", -1)) not in ids:
+                continue
+            for item in layer.get("legend", []):
+                salida.append({
+                    "capa": layer.get("layerName", "Capa"),
+                    "etiqueta": item.get("label") or "Símbolo sin etiqueta publicada",
+                    "imagen": item.get("imageData"),
+                    "tipo": item.get("contentType", "image/png"),
+                })
+        return salida
+    except Exception:
+        return []
+
+
+# Fichas interpretativas: alcance, lectura y límites de cada capa.
+FICHAS_CAPAS = {
+    "Límites y nombres de veredas": {
+        "qué": "Polígonos que delimitan las unidades veredales usadas como referencia territorial.",
+        "lectura": "Permite ubicar y comparar información por vereda. Es la geometría base; las capas temáticas se dibujan encima y no la reemplazan.",
+        "límites": "La delimitación depende de la fuente y escala del archivo. No equivale por sí sola a deslinde catastral ni resuelve conflictos de límites."
+    },
+    "Zonificación de uso del suelo rural": {
+        "qué": "Zonificación rural contenida en la cartografía de formulación del PBOT municipal de 2015.",
+        "lectura": "Interprétese según la categoría y atributos de cada polígono, consultando el documento técnico del PBOT para conocer el régimen aplicable.",
+        "límites": "Es cartografía de formulación 2015; no acredita actualización, vigencia normativa ni determinantes posteriores al PBOT 2023."
+    },
+    "Suelos de protección rural": {
+        "qué": "Áreas identificadas como suelos de protección en la cartografía del PBOT 2015.",
+        "lectura": "La geometría señala áreas clasificadas por el instrumento municipal. Revise atributos y texto normativo para conocer la razón y alcance de la protección.",
+        "límites": "No sustituye consulta de determinantes ambientales vigentes ni certificación de autoridad competente."
+    },
+    "Perímetro y expansión urbana": {
+        "qué": "Delimitación del perímetro y áreas de expansión representadas en el PBOT 2015.",
+        "lectura": "Permite reconocer la estructura urbana prevista por ese instrumento y su relación espacial con el suelo rural.",
+        "límites": "No confirma que una expansión se haya ejecutado, habilitado o siga vigente."
+    },
+    "Tratamientos urbanos": {
+        "qué": "Polígonos de tratamientos urbanísticos incluidos en el PBOT 2015.",
+        "lectura": "Las categorías deben leerse con la leyenda y las normas urbanísticas del PBOT.",
+        "límites": "No extrapolar estas categorías al suelo rural ni asumir que reflejan modificaciones posteriores."
+    },
+    "Zonas homogéneas urbanas": {
+        "qué": "Unidades urbanas homogéneas representadas en la cartografía del PBOT 2015.",
+        "lectura": "Sirven para reconocer sectores con características similares según la clasificación original.",
+        "límites": "No son una actualización catastral ni una valoración comercial vigente."
+    },
+    "Puntos de expansión urbana": {
+        "qué": "Elementos puntuales asociados a la representación de expansión urbana del PBOT 2015.",
+        "lectura": "Ubican referencias puntuales definidas en la capa; consulte sus atributos y el documento de origen.",
+        "límites": "Un punto no representa por sí solo un polígono habilitado ni una obra ejecutada."
+    },
+    "Manzanas e inspecciones": {
+        "qué": "Unidades y referencias urbanas incluidas en la cartografía PBOT disponible.",
+        "lectura": "Los atributos describen la codificación y clasificación conservada en el archivo.",
+        "límites": "No debe tratarse como catastro actualizado ni como certificación predial."
+    },
+    "Mostrar situaciones validadas por vereda": {
+        "qué": "Conteo de registros documentales que cumplen validación territorial explícita a escala de vereda.",
+        "lectura": "Gris indica cero registros validados; naranja, uno; rojo, dos o más. Los filtros de año, tipo y confianza modifican el conjunto representado.",
+        "límites": "El conteo refleja documentación disponible, no incidencia, prevalencia, intensidad ni ausencia real de conflicto. Registros municipales o corregimentales no se asignan automáticamente a veredas."
+    },
+    "Mostrar puntos con coordenadas válidas": {
+        "qué": "Puntos de la hoja de conflictos institucionales de Google Sheets que pasan controles básicos de coordenadas.",
+        "lectura": "Cada punto permite consultar los atributos registrados en la fuente, como tipo, descripción y vereda declarada.",
+        "límites": "La validez numérica de latitud/longitud no certifica exactitud del levantamiento ni veracidad del evento. Revise fecha, fuente y precisión."
+    },
+    "Parques Nacionales — Áreas protegidas (RUNAP)": {
+        "qué": "Representación de límites oficiales de áreas protegidas publicados por Parques Nacionales Naturales.",
+        "lectura": "Permite identificar posibles relaciones espaciales del municipio con áreas protegidas registradas.",
+        "límites": "La ausencia de polígonos visibles no demuestra ausencia de determinantes. Confirme categoría, acto administrativo, fecha y geometría en la autoridad ambiental."
+    },
+    "Parques Nacionales — Áreas protegidas RUNAP": {
+        "qué": "Capa de áreas protegidas del Registro Único Nacional de Áreas Protegidas.",
+        "lectura": "Úsese como contexto para identificar áreas registradas y posibles relaciones espaciales con las veredas.",
+        "límites": "La escala y visibilidad dependen del servicio remoto. Verifique el registro oficial y su acto de declaratoria antes de tomar decisiones."
+    },
+    "UPRA — Frontera agrícola nacional (1:100.000)": {
+        "qué": "Delimitación nacional de frontera agrícola a escala 1:100.000, publicada por UPRA.",
+        "lectura": "Diferencia áreas de referencia para orientar planificación agropecuaria y ordenamiento productivo.",
+        "límites": "Es una capa de escala regional/nacional: no define aptitud de un predio ni sustituye estudios de suelo o determinantes ambientales locales."
+    },
+    "UPRA — Frontera agrícola condicionada": {
+        "qué": "Capa de referencia UPRA relacionada con áreas de frontera agrícola condicionada.",
+        "lectura": "Señala ámbitos que requieren considerar condiciones o restricciones antes de interpretar su potencial productivo.",
+        "límites": "La categoría y sus efectos dependen de la versión y metadatos. No equivale automáticamente a prohibición o autorización de uso."
+    },
+    "UPRA — Unidades físicas homogéneas": {
+        "qué": "Unidades de territorio agrupadas por características físicas dentro del producto MIGO/UPRA.",
+        "lectura": "Sirven como unidades de referencia para análisis territorial y rural; consulte atributos y metodología del producto.",
+        "límites": "No representan por sí solas aptitud predial ni reemplazan análisis biofísicos detallados."
+    },
+    "UPRA — Precios comerciales de tierra": {
+        "qué": "Información de referencia sobre precios comerciales de tierra publicada en el producto MIGO.",
+        "lectura": "Permite contextualizar patrones de mercado de tierras en la unidad espacial y periodo definidos por la fuente.",
+        "límites": "No es avalúo comercial individual, precio de transacción garantizado ni valoración catastral."
+    },
+    "UPRA — Índice de informalidad municipal": {
+        "qué": "Indicador agregado de informalidad de la propiedad a escala municipal.",
+        "lectura": "Describe una condición general del municipio según la metodología de UPRA.",
+        "límites": "No permite inferir qué predios o veredas son informales ni debe desagregarse sin datos específicos."
+    },
+    "UPRA — Áreas de mercado de tierras": {
+        "qué": "Ámbitos espaciales de referencia para el análisis del mercado de tierras del producto MIGO.",
+        "lectura": "Ayudan a contextualizar relaciones y dinámicas territoriales de mercado.",
+        "límites": "No equivalen a límites administrativos ni a zonas homogéneas de precio de cada predio."
+    },
+    "UPRA — Determinantes: frontera agrícola": {
+        "qué": "Representación de determinantes asociados a la frontera agrícola en MIGO.",
+        "lectura": "Consúltese junto con la capa de frontera agrícola y sus metadatos.",
+        "límites": "No sustituye la consulta de actos y autoridades que originan cada determinante."
+    },
+    "UPRA — Restricciones agropecuarias de frontera": {
+        "qué": "Elementos de restricción relacionados con la frontera agrícola según MIGO.",
+        "lectura": "Advierte ámbitos donde la planificación agropecuaria debe considerar condiciones adicionales.",
+        "límites": "No interpretar como prohibición jurídica específica sin revisar atributo, fuente normativa y vigencia."
+    },
+    "UPRA — Distritos de adecuación de tierras": {
+        "qué": "Referencias espaciales a distritos de adecuación de tierras publicados en MIGO.",
+        "lectura": "Ayuda a ubicar áreas vinculadas a infraestructura y servicios de adecuación de tierras.",
+        "límites": "No certifica operación, cobertura efectiva del servicio ni estado actual de infraestructura."
+    },
+    "UPRA — Áreas de referencia ZIDRES": {
+        "qué": "Áreas de referencia relacionadas con ZIDRES en el producto MIGO.",
+        "lectura": "Úsese para identificar ámbitos de referencia y orientar consultas institucionales.",
+        "límites": "La representación no constituye declaratoria ni certifica que un predio sea ZIDRES."
+    },
+    "UPRA — Adjudicabilidad UAF": {
+        "qué": "Información de referencia vinculada a adjudicabilidad y Unidad Agrícola Familiar (UAF) en MIGO.",
+        "lectura": "Orienta la consulta sobre condiciones territoriales generales asociadas a adjudicación y UAF.",
+        "límites": "No determina derechos, adjudicación efectiva, tamaño de UAF aplicable ni situación jurídica de un predio."
+    },
+    "SGC — Amenaza por movimientos en masa (mapa nacional 1:100.000)": {
+        "qué": "Cartografía nacional de amenaza por movimientos en masa del SGC, a escala 1:100.000.",
+        "lectura": "Permite reconocer zonas de contexto con categorías de amenaza definidas por la fuente.",
+        "límites": "No es estudio detallado de riesgo, no identifica automáticamente predios afectados y no sustituye estudios geotécnicos o gestión local del riesgo."
+    },
+    "IGAC — Atlas 2024: remoción en masa": {
+        "qué": "Capa temática del Atlas de Colombia 2024 relacionada con fenómenos de remoción en masa.",
+        "lectura": "Aporta contexto geomorfológico nacional/regional según clasificación y leyenda del atlas.",
+        "límites": "No debe interpretarse como diagnóstico predial ni como mapa de riesgo detallado."
+    },
+}
+
+def nombres_cartografia_local_disponible():
+    carpeta = DATA_DIR / "cartografia_oficial" / "igac"
+    return [
+        nombre for nombre, (archivo, _, _) in CARTOGRAFIA_LOCAL.items()
+        if (carpeta / archivo).is_file()
+    ]
+
+@st.cache_data(show_spinner=False, ttl=3600, max_entries=32)
+def comprobar_capacidades_wms(url):
+    """Devuelve nombres WMS publicados por el servicio; cachea 1 hora."""
+    try:
+        parametros = urllib.parse.urlencode({
+            "service": "WMS", "request": "GetCapabilities", "version": "1.1.1"
+        })
+        separador = "&" if "?" in url else "?"
+        solicitud = urllib.request.Request(
+            url + separador + parametros,
+            headers={"User-Agent": "SIGOber-Rural/1.0"},
+        )
+        with urllib.request.urlopen(solicitud, timeout=8) as respuesta:
+            xml = respuesta.read(3_000_000)
+        raiz = ET.fromstring(xml)
+        nombres = set()
+        for nodo in raiz.iter():
+            if nodo.tag.split("}")[-1] == "Layer":
+                for hijo in nodo:
+                    if hijo.tag.split("}")[-1] == "Name" and hijo.text:
+                        nombres.add(hijo.text.strip())
+        if not nombres:
+            return {"ok": False, "layers": [], "error": "El servicio no publicó nombres de capa WMS."}
+        return {"ok": True, "layers": sorted(nombres), "error": ""}
+    except Exception as exc:
+        return {"ok": False, "layers": [], "error": f"{type(exc).__name__}: {exc}"}
+
+
+def validar_catalogo_wms():
+    """Comprueba servicios y nombres de capa; excluye del selector lo no publicado."""
+    estados = {}
+    for nombre, config in CARTOGRAFIA_WMS.items():
+        url = config["url"]
+        if url not in estados:
+            estados[url] = comprobar_capacidades_wms(url)
+        estado = estados[url]
+        solicitadas = {x.strip() for x in config["layers"].split(",") if x.strip()}
+        publicadas = set(estado["layers"])
+        faltantes = sorted(solicitadas - publicadas) if estado["ok"] else sorted(solicitadas)
+        config["capas_disponibles"] = estado["ok"] and not faltantes
+        config["detalle_validacion"] = (
+            "" if config["capas_disponibles"] else
+            (estado["error"] or "El servidor no publica los identificadores: " + ", ".join(faltantes))
+        )
+    return {
+        nombre: config for nombre, config in CARTOGRAFIA_WMS.items()
+        if config.get("capas_disponibles", False)
+    }, {
+        url: estado for url, estado in estados.items()
+    }
+
+
+
+# Inicialización de variables de estado en la sesión
+st.session_state.setdefault("sigo_uploads", {})
+st.session_state.setdefault("sigo_upload_widget_version", 0)
+st.session_state.setdefault("sigo_problematicas_validadas", None)
+st.session_state.setdefault("sigo_sadci_importado", None)
+st.session_state.setdefault("sidebar_seccion_activa", "Exploración")
+st.session_state.setdefault("map_mostrar_conflictos", False)
+
+
+# =============================================================================
+# 2. FUNCIONES DE CARGA Y PROCESAMIENTO ESPACIAL Y DE DATOS
+# =============================================================================
 
 @st.cache_data(show_spinner=False)
 def cargar_json(nombre):
-    ruta=DATA_DIR/nombre
+    ruta = DATA_DIR / nombre
     if not ruta.exists(): return None
-    with open(ruta,"r",encoding="utf-8") as f: return json.load(f)
+    with open(ruta, "r", encoding="utf-8") as f: return json.load(f)
+
 @st.cache_data(show_spinner=False)
 def cargar_pbot_capas():
-    capas=[]
-    for archivo,titulo,campos in PBOT_CAPAS:
-        ruta=PBOT_DIR/archivo
+    capas = []
+    for archivo, titulo, campos in PBOT_CAPAS:
+        ruta = PBOT_DIR / archivo
         if not ruta.exists(): continue
         try:
-            with open(ruta,"r",encoding="utf-8") as f: geo=json.load(f)
-            if geo.get("type")=="FeatureCollection": capas.append((archivo,titulo,geo,campos))
+            with open(ruta, "r", encoding="utf-8") as f: geo = json.load(f)
+            if geo.get("type") == "FeatureCollection": capas.append((archivo, titulo, geo, campos))
         except Exception: continue
     return capas
+
 @st.cache_data(show_spinner=False)
+def _leer_eventos_locales():
+    ruta = DATA_DIR / "SITUACIONES_TERRITORIALES_eventos.csv"
+    if not ruta.exists():
+        return pd.DataFrame(), {"filas_leidas": 0, "filas_validas_estructura": 0, "filas_incompletas": []}
+    return leer_eventos_territoriales(ruta)
+
 def cargar_eventos_locales():
-    for nombre in ("SITUACIONES_TERRITORIALES_eventos.csv",):
-        ruta=DATA_DIR/nombre
-        if ruta.exists(): return pd.read_csv(ruta,dtype=str).fillna("")
-    return pd.DataFrame()
+    eventos, auditoria = _leer_eventos_locales()
+    st.session_state["sigo_auditoria_eventos"] = auditoria
+    return eventos
+
 @st.cache_data(show_spinner=False)
 def cargar_veredas_topo():
-    topo=cargar_json("veredas_puerto_rico.json")
-    if not topo or topo.get("type")!="Topology" or "Veredas" not in topo.get("objects",{}): raise RuntimeError("No se encontró un TopoJSON válido con el objeto Veredas.")
+    topo = cargar_json("veredas_puerto_rico.json")
+    if not topo or topo.get("type") != "Topology" or "Veredas" not in topo.get("objects", {}): 
+        raise RuntimeError("No se encontró un TopoJSON válido con el objeto Veredas.")
     return topo
+
 @st.cache_data(show_spinner=False)
-def propiedades_veredas(topo): return pd.DataFrame([g.get("properties",{}) or {} for g in topo.get("objects",{}).get("Veredas",{}).get("geometries",[])]).fillna("")
+def propiedades_veredas(topo): 
+    return pd.DataFrame([g.get("properties", {}) or {} for g in topo.get("objects", {}).get("Veredas", {}).get("geometries", [])]).fillna("")
+
 @st.cache_data(show_spinner=False)
-def resumenes_por_vereda(eventos):
-    vacio=pd.DataFrame(columns=["codigo_ver_resuelto","SIGOber_situaciones","SIGOber_anios","SIGOber_tipos","SIGOber_confianza"])
-    if eventos is None or eventos.empty or "codigo_ver_resuelto" not in eventos.columns: return vacio
-    df=eventos.copy(); df["codigo_ver_resuelto"]=df["codigo_ver_resuelto"].astype(str).str.strip(); df=df[df["codigo_ver_resuelto"]!=""]
-    if df.empty: return vacio
-    def valores(col): return df[col].astype(str).str.strip() if col in df.columns else pd.Series("",index=df.index)
-    df["_anio"],df["_tipo"],df["_conf"]=valores("anio"),valores("tipo_conflicto"),valores("confianza")
-    def uniq(series): return ", ".join(sorted(x for x in series.unique() if x))
-    return df.groupby("codigo_ver_resuelto",sort=False).agg(SIGOber_situaciones=("codigo_ver_resuelto","size"),SIGOber_anios=("_anio",uniq),SIGOber_tipos=("_tipo",uniq),SIGOber_confianza=("_conf",uniq)).reset_index()
+def resumenes_por_vereda(eventos, codigos_veredas):
+    return resumir_eventos_por_vereda(eventos, codigos_veredas)
+
 def normalizar_conflictos(df):
     if df is None or df.empty: return pd.DataFrame()
-    out=df.copy().fillna(""); out["lat_num"]=pd.to_numeric(out["lat"],errors="coerce") if "lat" in out.columns else pd.NA; out["lon_num"]=pd.to_numeric(out["lon"],errors="coerce") if "lon" in out.columns else pd.NA
-    out["precision_coordenada"]="VALIDA"; out.loc[out[["lat_num","lon_num"]].isna().any(axis=1),"precision_coordenada"]="SIN_COORDENADA"
-    inval=(out["lat_num"].abs()>90)|(out["lon_num"].abs()>180); out.loc[inval & out[["lat_num","lon_num"]].notna().all(axis=1),"precision_coordenada"]="REQUIERE_REVISION"; return out
-def config_gsheets():
-    try:
-        c=st.secrets.get("connections",{}); x=c.get("gsheets",{}) if hasattr(c,"get") else {}; return dict(x) if hasattr(x,"items") else {}
-    except Exception: return {}
-def spreadsheet_id_desde_config(cfg):
-    raw=str(cfg.get("spreadsheet","") or cfg.get("spreadsheet_url","")).strip(); m=re.search(r"/spreadsheets/d/([A-Za-z0-9_-]+)",raw); return m.group(1) if m else raw
-@st.cache_data(ttl=300,max_entries=4,show_spinner=False)
-def leer_google_hoja(nombre_hoja):
-    from streamlit_gsheets import GSheetsConnection
-    conn=st.connection("gsheets",type=GSheetsConnection); return conn.read(worksheet=nombre_hoja,ttl=300).fillna("")
-def leer_google_sheets():
-    resultado={}
-    for hoja in ("Conflictos","Actores","SADCI","Relación Interinstitucional"):
-        try: resultado[hoja]=leer_google_hoja(hoja)
-        except Exception as e: resultado[hoja]=e
-    return resultado
-def popup_conflicto(row):
-    v=lambda c: html.escape(str(row.get(c,"") or "")); return ("<div style='width:280px;font-family:Arial'><h4>Situación registrada</h4>" f"<b>ID:</b> {v('id_conflicto')}<br><b>Tipo:</b> {v('tipo_conflicto')}<br><b>Vereda:</b> {v('vereda')}<br><b>Descripción:</b> {v('descripcion')}<br><b>Registrado por:</b> {v('registrado_por')}<br><b>Estado coordenada:</b> {v('precision_coordenada')}<br><b>Lat/Lon fuente:</b> {v('lat')} / {v('lon')}</div>")
-@st.cache_data(show_spinner=False,max_entries=32)
-def preparar_topo_para_eventos(topo,resumen):
-    copia=json.loads(json.dumps(topo)); tabla=resumen.set_index("codigo_ver_resuelto") if not resumen.empty else pd.DataFrame()
-    for g in copia.get("objects",{}).get("Veredas",{}).get("geometries",[]):
-        p=g.setdefault("properties",{}); codigo=str(p.get("CODIGO_VER","")).strip()
-        if not tabla.empty and codigo in tabla.index:
-            r=tabla.loc[codigo]; p["SIGOber_situaciones"]=int(r["SIGOber_situaciones"]); p["SIGOber_anios"]=str(r["SIGOber_anios"]); p["SIGOber_tipos"]=str(r["SIGOber_tipos"]); p["SIGOber_confianza"]=str(r["SIGOber_confianza"])
-        else: p["SIGOber_situaciones"]=0; p["SIGOber_anios"]="Sin registros"; p["SIGOber_tipos"]="Sin registros"; p["SIGOber_confianza"]="Sin registros"
-    return copia
-
-def construir_mapa(topo,eventos_historicos,conflictos=None,codigo_seleccionado="",mostrar_conflictos=True,pbot_seleccionadas=(),perspectiva="Territorio"):
-    inicio=time.perf_counter(); resumen=resumenes_por_vereda(eventos_historicos); topo_mapa=preparar_topo_para_eventos(topo,resumen); conteo=resumen.set_index("codigo_ver_resuelto")["SIGOber_situaciones"].to_dict() if not resumen.empty else {}; perspectiva=perspectiva or "Territorio"
-    m=folium.Map(location=[1.9123,-75.1842],zoom_start=10,tiles="OpenStreetMap",prefer_canvas=True)
-    grupo_territorio=folium.FeatureGroup(name="Territorio — Veredas",show=True)
-    folium.Marker([1.9123,-75.1842],tooltip="Puerto Rico, Caquetá").add_to(grupo_territorio)
-    def estilo_territorio(feature):
-        p=feature.get("properties",{}); codigo=str(p.get("CODIGO_VER","")).strip(); sel=bool(codigo) and codigo==str(codigo_seleccionado).strip()
-        return {"fillColor":"#eeeeee","color":"#111111" if sel else "#555555","weight":2.8 if sel else .8,"fillOpacity":.22}
-    folium.TopoJson(data=topo_mapa,object_path="objects.Veredas",name="Veredas",style_function=estilo_territorio,tooltip=folium.GeoJsonTooltip(fields=["NOMBRE_VER","CODIGO_VER","AREA_HA","FUENTE"],aliases=["Vereda","Código","Área (ha)","Fuente cartográfica"],localize=True,sticky=True,labels=True,style="background-color:white;color:#222;font-family:Arial;font-size:12px;padding:8px;"),show=True).add_to(grupo_territorio)
-    grupo_territorio.add_to(m)
-    grupo_situaciones=folium.FeatureGroup(name="Situaciones — evidencia territorial",show=True)
-    def estilo_situaciones(feature):
-        p=feature.get("properties",{}); codigo=str(p.get("CODIGO_VER","")).strip(); n=int(conteo.get(codigo,0)); sel=bool(codigo) and codigo==str(codigo_seleccionado).strip()
-        fill="#d73027" if n>=2 else ("#fc8d59" if n==1 else "#eeeeee"); opacity=.72 if n else .10
-        return {"fillColor":fill,"color":"#111111" if sel else "#a94442","weight":2.8 if sel else (1.0 if n else .35),"fillOpacity":.78 if sel else opacity}
-    folium.TopoJson(data=topo_mapa,object_path="objects.Veredas",name="Situaciones",style_function=estilo_situaciones,tooltip=folium.GeoJsonTooltip(fields=["NOMBRE_VER","CODIGO_VER","SIGOber_situaciones","SIGOber_anios","SIGOber_tipos","SIGOber_confianza"],aliases=["Vereda","Código","Situaciones documentadas","Años","Tipos de situación","Confianza"],localize=True,sticky=True,labels=True,style="background-color:white;color:#222;font-family:Arial;font-size:12px;padding:8px;"),show=True).add_to(grupo_situaciones)
-    grupo_situaciones.add_to(m)
-    if mostrar_conflictos and conflictos is not None and not conflictos.empty:
-        validos=conflictos.loc[conflictos["precision_coordenada"].eq("VALIDA")]; grupo=folium.FeatureGroup(name="Conflictos — Google Sheets",show=True)
-        for row in validos.itertuples(index=False):
-            data=row._asdict(); folium.CircleMarker(location=[float(data["lat_num"]),float(data["lon_num"])],radius=7,weight=2,fill=True,fill_opacity=.85,tooltip=f"{data.get('tipo_conflicto','Situación')} — {data.get('vereda','')}",popup=folium.Popup(popup_conflicto(data),max_width=340)).add_to(grupo)
-        grupo.add_to(m)
-    aliases_pbot={"UGOT":"UGOT","Aptitud":"Aptitud","area_ha":"Área (ha)","Area_ha":"Área (ha)","Tipo":"Tipo","area_m2":"Área (m²)","Id":"ID","codigo":"Código","sector_cat":"Sector catastral","tipo_avalu":"Tipo avalúo","Reporte":"Reporte"}; disponibles={x[0]:x for x in cargar_pbot_capas()}
-    for archivo in pbot_seleccionadas:
-        capa=disponibles.get(archivo)
-        if not capa: continue
-        _,titulo,geo,campos_preferidos=capa; grupo_pbot=folium.FeatureGroup(name=f"{titulo} — PBOT 2015",show=True); features=geo.get("features",[]); props=(features[0].get("properties",{}) or {}) if features else {}; campos=[campo for campo in campos_preferidos if campo in props]; tooltip_pbot=folium.GeoJsonTooltip(fields=campos,aliases=[aliases_pbot.get(campo,campo) for campo in campos],localize=True,labels=True,sticky=True,style="background-color:white;color:#222;font-family:Arial;font-size:12px;padding:8px;") if campos else None; folium.GeoJson(geo,name=titulo,tooltip=tooltip_pbot).add_to(grupo_pbot); grupo_pbot.add_to(m)
-    folium.LayerControl(collapsed=False).add_to(m); return m,time.perf_counter()-inicio
-
-def resumen_sadci(sadci):
-    if not isinstance(sadci,pd.DataFrame) or sadci.empty: return None
-    out={}
-    for c in ("presupuesto_anual_rural","num_personal_planta","num_personal_contratista","ejecucion_presupuestal_pct","cumplimiento_pdt_pct","calificacion_mepi"):
-        if c in sadci.columns:
-            vals=pd.to_numeric(sadci[c],errors="coerce").dropna()
-            if not vals.empty: out[c]=float(vals.mean())
+    out = df.copy().fillna("")
+    out["lat_num"] = pd.to_numeric(out["lat"], errors="coerce") if "lat" in out.columns else pd.NA
+    out["lon_num"] = pd.to_numeric(out["lon"], errors="coerce") if "lon" in out.columns else pd.NA
+    out["precision_coordenada"] = "VALIDA"
+    out.loc[out[["lat_num", "lon_num"]].isna().any(axis=1), "precision_coordenada"] = "SIN_COORDENADA"
+    inval = (out["lat_num"].abs() > 90) | (out["lon_num"].abs() > 180)
+    out.loc[inval & out[["lat_num", "lon_num"]].notna().all(axis=1), "precision_coordenada"] = "REQUIERE_REVISION"
     return out
 
-def indicador_pct(valor): return "—" if valor is None or pd.isna(valor) else f"{float(valor):.0f}%"
+@st.cache_data(ttl=300, max_entries=4, show_spinner=False)
+def leer_google_hoja(nombre_hoja):
+    from streamlit_gsheets import GSheetsConnection
+    conn = st.connection("gsheets", type=GSheetsConnection)
+    return conn.read(worksheet=nombre_hoja, ttl=300).fillna("")
 
-def mostrar_indicadores_sadci(sadci):
-    r=resumen_sadci(sadci)
-    st.markdown("<div class='sigo-section'>Indicadores SADCI</div>",unsafe_allow_html=True)
-    if not r:
-        st.caption("Sin datos SADCI disponibles para mostrar indicadores.")
-        return
-    a,b,c,d,e,f=st.columns(6)
-    a.metric("Presupuesto rural",f"{r.get('presupuesto_anual_rural',0):,.0f}" if r.get("presupuesto_anual_rural") is not None else "—")
-    b.metric("Personal planta",f"{r.get('num_personal_planta',0):.0f}" if r.get("num_personal_planta") is not None else "—")
-    c.metric("Contratistas",f"{r.get('num_personal_contratista',0):.0f}" if r.get("num_personal_contratista") is not None else "—")
-    d.metric("Ejecución",indicador_pct(r.get("ejecucion_presupuestal_pct")))
-    e.metric("Cumplimiento PDT",indicador_pct(r.get("cumplimiento_pdt_pct")))
-    f.metric("MEPI",f"{r.get('calificacion_mepi',0):.1f}" if r.get("calificacion_mepi") is not None else "—")
+def leer_google_sheets():
+    resultado = {}
+    for hoja in ("Conflictos", "Actores", "SADCI", "Relación Interinstitucional"):
+        try: resultado[hoja] = leer_google_hoja(hoja)
+        except Exception as e: resultado[hoja] = e
+    return resultado
 
-def mostrar_contexto_gobernabilidad(actores,sadci,relacion):
-    st.markdown("<div class='sigo-section'>Gobernabilidad</div>",unsafe_allow_html=True)
-    st.markdown("<div class='sigo-note'><b>Actores</b> + <b>Capacidades</b> → interpretación institucional → <b>Decisiones</b><br><span style='opacity:.72'>Estas dimensiones permanecen como contexto de gobernabilidad y no se convierten en capas geográficas hasta disponer de datos espaciales propios.</span></div>",unsafe_allow_html=True)
-    a,b,c=st.columns(3); a.metric("Actores registrados",len(actores) if isinstance(actores,pd.DataFrame) else 0); r=resumen_sadci(sadci); b.metric("Ejecución",indicador_pct(r.get("ejecucion_presupuestal_pct")) if r else "—"); c.metric("Relaciones interinstitucionales",len(relacion) if isinstance(relacion,pd.DataFrame) else 0)
+def popup_conflicto(row):
+    v = lambda c: html.escape(str(row.get(c, "") or ""))
+    return (f"<div style='width:280px;font-family:Arial'><h4>Situación registrada</h4>"
+            f"<b>ID:</b> {v('id_conflicto')}<br><b>Tipo:</b> {v('tipo_conflicto')}<br>"
+            f"<b>Vereda:</b> {v('vereda')}<br><b>Descripción:</b> {v('descripcion')}<br>"
+            f"<b>Registrado por:</b> {v('registrado_por')}<br><b>Estado coordenada:</b> {v('precision_coordenada')}<br>"
+            f"<b>Lat/Lon fuente:</b> {v('lat')} / {v('lon')}</div>")
 
-def contexto_interpretacion_ia(historicos,codigo_sel,dimension,pbot_seleccionadas,sadci):
-    codigo=str(codigo_sel or "").strip()
-    df=historicos.copy() if isinstance(historicos,pd.DataFrame) else pd.DataFrame()
-    if codigo and "codigo_ver_resuelto" in df.columns:
-        df=df[df["codigo_ver_resuelto"].astype(str).str.strip()==codigo]
-    resumen={"dimension_seleccionada":dimension,"codigo_vereda":codigo or "Todas las veredas","situaciones":int(len(df)),"tipos":[],"anios":[],"fuente_situaciones":"SITUACIONES_TERRITORIALES_eventos.csv","pbot":[],"sadci":{}}
-    for col,key in (("tipo_conflicto","tipos"),("anio","anios")):
-        if col in df.columns: resumen[key]=sorted({str(x).strip() for x in df[col].tolist() if str(x).strip()})[:20]
-    titulos={archivo:titulo for archivo,titulo,_,_ in cargar_pbot_capas()}
-    resumen["pbot"]=[titulos.get(x,x) for x in pbot_seleccionadas]
-    r=resumen_sadci(sadci)
-    if r: resumen["sadci"]={k:round(v,2) for k,v in r.items()}
-    return resumen
-
-def interpretar_localmente(contexto):
-    """Fallback determinista sin conexión ni API."""
-    n=int(contexto.get("situaciones",0) or 0)
-    vereda=str(contexto.get("codigo_vereda","Todas las veredas"))
-    tipos=[str(x) for x in contexto.get("tipos",[]) if str(x).strip()]
-    anios=[str(x) for x in contexto.get("anios",[]) if str(x).strip()]
-    pbot=[str(x) for x in contexto.get("pbot",[]) if str(x).strip()]
-    lineas=[f"Se registran {n} situaciones documentadas para {vereda}."]
-    if tipos:
-        lineas.append("Los tipos registrados incluyen: "+", ".join(tipos[:6])+".")
-    if anios:
-        lineas.append("La evidencia disponible comprende los años: "+", ".join(anios[:8])+".")
-    if pbot:
-        lineas.append("La lectura puede contrastarse con: "+", ".join(pbot[:4])+".")
-    if contexto.get("sadci"):
-        lineas.append("También hay indicadores institucionales SADCI disponibles como contexto de capacidad.")
-    relaciones=[]
-    if n and len(tipos)>1:
-        relaciones.append("La coexistencia de distintos tipos de situación sugiere investigar si comparten factores territoriales, institucionales o temporales.")
-    if n and len(anios)>1:
-        relaciones.append("Los registros de varios años permiten investigar persistencias, cambios de concentración o secuencias temporales.")
-    if n and pbot:
-        relaciones.append("La superposición con el PBOT puede orientar una hipótesis sobre posibles relaciones entre situaciones y condiciones previstas por el ordenamiento; no demuestra causalidad.")
-    if not relaciones:
-        relaciones.append("La evidencia disponible no permite establecer causalidad; conviene ampliar o contrastar los datos antes de afirmar un patrón.")
-    preguntas=[
-        "¿La relación observada se mantiene al comparar otras veredas o periodos?",
-        "¿Qué información adicional permitiría contrastar esta hipótesis?",
-        "¿Qué fuente independiente podría confirmarla o refutarla?"
-    ]
-    texto=("### Síntesis territorial\n"+" ".join(lineas)+
-           "\n\n### Relaciones e hipótesis para investigar\n"+
-           "\n".join("- "+x for x in relaciones)+
-           "\n\n### Preguntas para profundizar\n"+
-           "\n".join("- "+x for x in preguntas)+
-           "\n\n> **Interpretación local:** generada sin API y exclusivamente a partir de las evidencias estructuradas disponibles en SIGOber-Rural.")
-    return texto,None
-
-def interpretar_con_ia(contexto):
-    cfg=st.secrets.get("openai",{}) if hasattr(st.secrets,"get") else {}
-    api_key=str(cfg.get("api_key","") or st.secrets.get("OPENAI_API_KEY","")).strip()
-    if not api_key:
-        return interpretar_localmente(contexto)
-    modelo=str(cfg.get("model","gpt-5.6-luna")).strip() or "gpt-5.6-luna"
-    system=("Eres una capa de interpretación territorial de SIGOber-Rural. Usa EXCLUSIVAMENTE el JSON entregado. "
-            "No inventes hechos, ubicaciones ni causalidades. Distingue evidencia, interpretación e hipótesis. "
-            "Puedes proponer relaciones o hipótesis causales como líneas de investigación cuando surjan de patrones o coincidencias presentes en los datos, pero debes etiquetarlas claramente como hipótesis, no como hechos. "
-            "Para cada hipótesis, explica brevemente qué evidencia del contexto la motiva y qué información adicional ayudaría a contrastarla. "
-            "No conviertas correlación, coincidencia temporal o proximidad territorial en causalidad demostrada. "
-            "No hagas recomendaciones de política pública ni tomes decisiones por la institución. "
-            "Devuelve exactamente tres secciones breves en español: Síntesis territorial, Relaciones e hipótesis para investigar, Preguntas para profundizar. "
-            "Las preguntas deben orientar investigación y verificación, no ordenar acciones. No uses información externa.")
-    payload={"model":modelo,"input":[{"role":"system","content":system},{"role":"user","content":"Contexto controlado de SIGOber-Rural:\n"+json.dumps(contexto,ensure_ascii=False)}],"max_output_tokens":700}
-    req=urllib.request.Request("https://api.openai.com/v1/responses",data=json.dumps(payload).encode("utf-8"),headers={"Authorization":f"Bearer {api_key}","Content-Type":"application/json"},method="POST")
-    try:
-        with urllib.request.urlopen(req,timeout=25) as response: data=json.loads(response.read().decode("utf-8"))
-        texto=data.get("output_text","")
-        if not texto:
-            partes=[]
-            for item in data.get("output",[]):
-                for content in item.get("content",[]):
-                    if content.get("type")=="output_text": partes.append(content.get("text",""))
-            texto="\n".join(partes).strip()
-        return texto or None,"La respuesta de IA no contenía texto utilizable."
-    except (urllib.error.HTTPError,urllib.error.URLError,TimeoutError):
-        return interpretar_localmente(contexto)
-
-def panel_interpretacion_ia(historicos,codigo_sel,dimension,pbot_seleccionadas,sadci):
-    st.markdown("### Interpretación asistida por IA")
-    st.caption("La IA interpreta únicamente las evidencias que SIGOber-Rural le entrega; no agrega hechos externos.")
-    if st.button("Interpretar con IA",key="interpretar_ia",use_container_width=True):
-        contexto=contexto_interpretacion_ia(historicos,codigo_sel,dimension,pbot_seleccionadas,sadci)
-        with st.spinner("Interpretando las evidencias seleccionadas…"):
-            texto,error=interpretar_con_ia(contexto)
-        if texto:
-            st.session_state["ia_resultado"]={"texto":texto,"contexto":contexto}
+@st.cache_data(show_spinner=False, max_entries=32)
+def preparar_topo_para_eventos(topo, resumen):
+    copia = json.loads(json.dumps(topo)); tabla = resumen.set_index("codigo_ver_resuelto") if not resumen.empty else pd.DataFrame()
+    for g in copia.get("objects", {}).get("Veredas", {}).get("geometries", []):
+        p = g.setdefault("properties", {}); codigo = str(p.get("CODIGO_VER", "")).strip()
+        if not tabla.empty and codigo in tabla.index:
+            r = tabla.loc[codigo]
+            p["SIGOber_situaciones"] = int(r["SIGOber_situaciones"])
+            p["SIGOber_anios"] = str(r["SIGOber_anios"])
+            p["SIGOber_tipos"] = str(r["SIGOber_tipos"])
+            p["SIGOber_confianza"] = str(r["SIGOber_confianza"])
         else:
-            st.warning(error)
-    resultado=st.session_state.get("ia_resultado")
-    if resultado:
-        st.markdown(resultado["texto"])
-        st.caption("Fuentes utilizadas: situaciones territoriales locales, capas PBOT seleccionadas y/o indicadores SADCI disponibles. La interpretación no agrega hechos que no estén presentes en las fuentes.")
+            p["SIGOber_situaciones"] = 0
+            p["SIGOber_anios"] = "Sin registros"
+            p["SIGOber_tipos"] = "Sin registros"
+            p["SIGOber_confianza"] = "Sin registros"
+    return copia
 
-st.markdown("""<style>.sigo-hero{padding:.2rem 0 .6rem}.sigo-kicker{font-size:.72rem;font-weight:750;letter-spacing:.14em;text-transform:uppercase;opacity:.62}.sigo-title{font-size:2.25rem;font-weight:820;line-height:1.04;margin:.1rem 0 .25rem}.sigo-subtitle{font-size:.96rem;opacity:.72;max-width:920px}.sigo-section{margin-top:.55rem;margin-bottom:.15rem;font-size:1.1rem;font-weight:760}.sigo-note{padding:.75rem 1rem;border-radius:.75rem;border:1px solid rgba(128,128,128,.2);background:rgba(128,128,128,.045)}.gigapp-card{padding:.35rem .5rem;border:1px solid rgba(128,128,128,.18);border-radius:.55rem;background:rgba(128,128,128,.025);margin-bottom:.3rem}.gigapp-card h4{margin:0;font-size:.86rem}.gigapp-q{font-size:.72rem;opacity:.62}.gigapp-card p{margin:.12rem 0 0;font-size:.74rem;opacity:.7}.gigapp-caption{font-size:.82rem;opacity:.72;text-align:center;margin:.1rem auto .6rem;max-width:680px}div[data-testid="stMetric"]{padding:.4rem .65rem;border:1px solid rgba(128,128,128,.17);border-radius:.62rem;background:rgba(128,128,128,.03)}</style>""",unsafe_allow_html=True)
+def construir_mapa(
+    topo, eventos_historicos, conflictos=None, codigo_seleccionado="",
+    mostrar_veredas=True, mostrar_situaciones=False, mostrar_conflictos=False,
+    pbot_seleccionadas=(), wms_seleccionadas=(), igac_seleccionadas=(), arcgis_seleccionadas=(),
+    cartografia_local_seleccionada=(),
+):
+    inicio = time.perf_counter()
+    codigos_veredas = {
+        str(g.get("properties", {}).get("CODIGO_VER", "")).strip()
+        for g in topo.get("objects", {}).get("Veredas", {}).get("geometries", [])
+        if str(g.get("properties", {}).get("CODIGO_VER", "")).strip()
+    }
+    resumen = resumenes_por_vereda(eventos_historicos, tuple(sorted(codigos_veredas)))
+    topo_mapa = preparar_topo_para_eventos(topo, resumen)
+    conteo = resumen.set_index("codigo_ver_resuelto")["SIGOber_situaciones"].to_dict() if not resumen.empty else {}
+    
+    m = folium.Map(location=[1.9123, -75.1842], zoom_start=10, tiles="OpenStreetMap", prefer_canvas=True)
+    
+    grupo_territorio = folium.FeatureGroup(name="01 · Base territorial — Veredas", show=True)
+    folium.Marker([1.9123, -75.1842], tooltip="Puerto Rico, Caquetá").add_to(grupo_territorio)
+    
+    def estilo_territorio(feature):
+        p = feature.get("properties", {}); codigo = str(p.get("CODIGO_VER", "")).strip()
+        sel = bool(codigo) and codigo == str(codigo_seleccionado).strip()
+        return {"fillColor": "#eeeeee", "color": "#111111" if sel else "#555555", "weight": 2.8 if sel else 0.8, "fillOpacity": 0.22}
+    
+    folium.TopoJson(
+        data=topo_mapa, object_path="objects.Veredas", name="Veredas",
+        style_function=estilo_territorio,
+        tooltip=folium.GeoJsonTooltip(
+            fields=["NOMBRE_VER", "CODIGO_VER", "AREA_HA", "FUENTE"],
+            aliases=["Vereda", "Código", "Área (ha)", "Fuente cartográfica"],
+            localize=True, sticky=True, labels=True,
+            style="background-color:white;color:#222;font-family:Arial;font-size:12px;padding:8px;"
+        ),
+        show=True
+    ).add_to(grupo_territorio)
+    if mostrar_veredas:
+        grupo_territorio.add_to(m)
+    
+    grupo_situaciones = folium.FeatureGroup(name="03 · Situaciones documentadas — evidencia validada", show=True)
+    def estilo_situaciones(feature):
+        p = feature.get("properties", {}); codigo = str(p.get("CODIGO_VER", "")).strip()
+        n = int(conteo.get(codigo, 0)); sel = bool(codigo) and codigo == str(codigo_seleccionado).strip()
+        fill = "#d73027" if n >= 2 else ("#fc8d59" if n == 1 else "#eeeeee")
+        opacity = 0.72 if n else 0.10
+        return {"fillColor": fill, "color": "#111111" if sel else "#a94442", "weight": 2.8 if sel else (1.0 if n else 0.35), "fillOpacity": 0.78 if sel else opacity}
+    
+    folium.TopoJson(
+        data=topo_mapa, object_path="objects.Veredas", name="Situaciones",
+        style_function=estilo_situaciones,
+        tooltip=folium.GeoJsonTooltip(
+            fields=["NOMBRE_VER", "CODIGO_VER", "SIGOber_situaciones", "SIGOber_anios", "SIGOber_tipos", "SIGOber_confianza"],
+            aliases=["Vereda", "Código", "Situaciones documentadas", "Años", "Tipos de situación", "Confianza"],
+            localize=True, sticky=True, labels=True,
+            style="background-color:white;color:#222;font-family:Arial;font-size:12px;padding:8px;"
+        ),
+        show=True
+    ).add_to(grupo_situaciones)
+    if mostrar_situaciones:
+        grupo_situaciones.add_to(m)
+    
+    if mostrar_conflictos and conflictos is not None and not conflictos.empty:
+        validos = conflictos.loc[conflictos["precision_coordenada"].eq("VALIDA")]
+        grupo = folium.FeatureGroup(name="04 · Puntos de conflictos — fuente institucional", show=True)
+        for row in validos.itertuples(index=False):
+            data = row._asdict()
+            folium.CircleMarker(
+                location=[float(data["lat_num"]), float(data["lon_num"])],
+                radius=7, weight=2, fill=True, fill_opacity=0.85,
+                tooltip=f"{data.get('tipo_conflicto', 'Situación')} — {data.get('vereda', '')}",
+                popup=folium.Popup(popup_conflicto(data), max_width=340)
+            ).add_to(grupo)
+        grupo.add_to(m)
+        
+    aliases_pbot = {"UGOT": "UGOT", "Aptitud": "Aptitud", "area_ha": "Área (ha)", "Area_ha": "Área (ha)", "Tipo": "Tipo", "area_m2": "Área (m²)", "Id": "ID", "codigo": "Código", "sector_cat": "Sector catastral", "tipo_avalu": "Tipo avalúo", "Reporte": "Reporte"}
+    disponibles = {x[0]: x for x in cargar_pbot_capas()}
+    for archivo in pbot_seleccionadas:
+        capa = disponibles.get(archivo)
+        if not capa: continue
+        _, titulo, geo, campos_preferidos = capa
+        grupo_pbot = folium.FeatureGroup(name=f"02 · PBOT 2015 — {titulo}", show=True)
+        features = geo.get("features", [])
+        props = (features[0].get("properties", {}) or {}) if features else {}
+        campos = [campo for campo in campos_preferidos if campo in props]
+        tooltip_pbot = folium.GeoJsonTooltip(
+            fields=campos, aliases=[aliases_pbot.get(campo, campo) for campo in campos],
+            localize=True, labels=True, sticky=True,
+            style="background-color:white;color:#222;font-family:Arial;font-size:12px;padding:8px;"
+        ) if campos else None
+        folium.GeoJson(geo, name=titulo, tooltip=tooltip_pbot).add_to(grupo_pbot)
+        grupo_pbot.add_to(m)
+        
+    # Capas IGAC descargadas en el repositorio (se ofrecen solo si el archivo existe).
+    for nombre_capa in cartografia_local_seleccionada:
+        config_local = CARTOGRAFIA_LOCAL.get(nombre_capa)
+        if not config_local:
+            continue
+        archivo_local, color_local, grosor_local = config_local
+        ruta_local = DATA_DIR / "cartografia_oficial" / "igac" / archivo_local
+        try:
+            with open(ruta_local, "r", encoding="utf-8") as archivo:
+                geo_local = json.load(archivo)
+            if geo_local.get("type") != "FeatureCollection" or not geo_local.get("features"):
+                continue
+            grupo_local = folium.FeatureGroup(name=f"05 · {nombre_capa}", show=True)
+            propiedades = geo_local["features"][0].get("properties") or {}
+            tooltip_local = folium.GeoJsonTooltip(
+                fields=["_igac_layer_name"], aliases=["Capa IGAC"], sticky=True
+            ) if "_igac_layer_name" in propiedades else None
+            folium.GeoJson(
+                geo_local, name=nombre_capa,
+                style_function=lambda feature, color=color_local, weight=grosor_local: {
+                    "color": color, "weight": weight, "opacity": 0.9,
+                    "fillColor": color, "fillOpacity": 0.18,
+                },
+                tooltip=tooltip_local,
+            ).add_to(grupo_local)
+            grupo_local.add_to(m)
+        except (OSError, ValueError, TypeError):
+            continue
+
+    # =========================================================================
+    # RENDERIZADO DINÁMICO DE CAPAS OFICIALES REMOTAS
+    # =========================================================================
+
+    for nombre_capa in wms_seleccionadas:
+        config = CARTOGRAFIA_WMS.get(nombre_capa)
+        if not config or not config.get("capas_disponibles", False):
+            continue
+        folium.raster_layers.WmsTileLayer(
+            url=config["url"], name=nombre_capa, layers=config["layers"],
+            fmt="image/png", transparent=True, overlay=True, control=True,
+            version="1.1.1", attr=config["attribution"], show=True,
+            opacity=0.78,
+        ).add_to(m)
+
+    # Servicios UPRA servidos como teselas ArcGIS REST (no son WMS).
+    for nombre_capa in arcgis_seleccionadas:
+        config = CARTOGRAFIA_ARCGIS.get(nombre_capa)
+        if not config:
+            continue
+        if config.get("modo") == "export":
+            ArcGISExportLayer(
+                name=nombre_capa, layers=config["layers"],
+                service_url=config["url"], attribution=config["attribution"],
+                opacity=0.72,
+            ).add_to(m)
+        else:
+            folium.TileLayer(
+                tiles=config["url"].rstrip("/") + "/tile/{z}/{y}/{x}",
+                name=nombre_capa, attr=config["attribution"],
+                overlay=True, control=True, show=True, opacity=0.68,
+                min_zoom=5, max_zoom=14,
+            ).add_to(m)
+
+    folium.LayerControl(collapsed=False).add_to(m)
+    return m, time.perf_counter() - inicio
+
+def resumen_sadci(sadci):
+    if not isinstance(sadci, pd.DataFrame) or sadci.empty: return None
+    out = {}
+    if "codigo_variable" in sadci.columns and "valor_ingresado" in sadci.columns:
+        for _, row in sadci.iterrows():
+            k = str(row.get("codigo_variable", "")).strip()
+            v = pd.to_numeric(row.get("valor_ingresado", ""), errors="coerce")
+            if k and not pd.isna(v):
+                out[k] = float(v)
+    else:
+        for c in ("presupuesto_anual_rural", "num_personal_planta", "num_personal_contratista", "ejecucion_presupuestal_pct", "cumplimiento_pdt_pct", "calificacion_mepi"):
+            if c in sadci.columns:
+                vals = pd.to_numeric(sadci[c], errors="coerce").dropna()
+                if not vals.empty: out[c] = float(vals.mean())
+    return out
+
+def indicador_pct(valor):
+    return "—" if valor is None or pd.isna(valor) else f"{float(valor):.0f}%"
+
+def calcular_indicadores_dci_avanzados(r_sadci):
+    """
+    Calcula nuevos indicadores y ratios derivados de los datos ingresados en el formulario,
+    fundamentado en la teoría de capacidades institucionales de Oszlak y Orellana.
+    """
+    if not r_sadci:
+        return {}
+    
+    presupuesto = r_sadci.get("presupuesto_anual_rural", 0) or 0
+    planta = r_sadci.get("num_personal_planta", 0) or 0
+    contratistas = r_sadci.get("num_personal_contratista", 0) or 0
+    ejecucion = r_sadci.get("ejecucion_presupuestal_pct", 0) or 0
+    cumplimiento = r_sadci.get("cumplimiento_pdt_pct", 0) or 0
+    
+    total_personal = planta + contratistas
+    
+    presupuesto_por_colaborador = (presupuesto / total_personal) if total_personal > 0 else 0
+    pct_contratistas = (contratistas / total_personal * 100) if total_personal > 0 else 0
+    monto_ejecutado = presupuesto * (ejecucion / 100.0)
+    indice_deficit = 100.0 - ((ejecucion + cumplimiento) / 2.0)
+    
+    return {
+        "total_personal": total_personal,
+        "pct_contratistas": pct_contratistas,
+        "presupuesto_por_colaborador": presupuesto_por_colaborador,
+        "monto_ejecutado": monto_ejecutado,
+        "indice_deficit": indice_deficit
+    }
+
+def generar_analisis_dci_oszlak(r_sadci):
+    """
+    Genera un diagnóstico analítico detallado indicador por indicador y muestra 
+    los indicadores calculados basados estrictamente en los datos del formulario.
+    """
+    if not r_sadci:
+        return "⚠️ Sin datos institucionales suficientes en la sesión actual para auditar los déficits de capacidad institucional (DCI)."
+    
+    calc = calcular_indicadores_dci_avanzados(r_sadci)
+    
+    presupuesto = r_sadci.get("presupuesto_anual_rural", 0) or 0
+    planta = r_sadci.get("num_personal_planta", 0) or 0
+    contratistas = r_sadci.get("num_personal_contratista", 0) or 0
+    ejecucion = r_sadci.get("ejecucion_presupuestal_pct")
+    cumplimiento = r_sadci.get("cumplimiento_pdt_pct")
+    mepi = r_sadci.get("calificacion_mepi")
+    
+    bloques = []
+    
+    bloques.append(
+        "### 🔍 Indicadores Calculados del Sistema (Formulario SADCI)\n"
+        f"- **Total Fuerza de Trabajo Institucional:** {int(calc.get('total_personal', 0))} personas "
+        f"(*{calc.get('pct_contratistas', 0):.1f}% contratistas* / *{100 - calc.get('pct_contratistas', 0):.1f}% planta*).\n"
+        f"- **Presupuesto Asignado por Colaborador:** ${calc.get('presupuesto_por_colaborador', 0):,.2f} COP.\n"
+        f"- **Monto Financiero Ejecutado Real:** ${calc.get('monto_ejecutado', 0):,.2f} COP.\n"
+        f"- **Índice Sintético de Déficit Institucional (DCI):** **{calc.get('indice_deficit', 0):.1f}/100** "
+        f"(*{'Riesgo Crítico' if calc.get('indice_deficit', 0) > 40 else 'Estabilidad Aceptable'}*).\n"
+    )
+    
+    presupuesto_str = f"{presupuesto:,.0f} COP" if presupuesto > 0 else "sin asignación registrada"
+    if presupuesto > 0:
+        fin_val = f"- **Presupuesto Asignado ({presupuesto_str}):** Suficiente en términos formales. Oszlak y Orellana señalan que la materialización de políticas rurales requiere recursos monetarios estables y liquidez oportuna."
+    else:
+        fin_val = f"- **Presupuesto Asignado ({presupuesto_str}):** Configura un *déficit financiero estructural crítico* al carecer de recursos monetarios base para la intervención estatal."
+    bloques.append("### 🏛️ 1. Dimensión de Capacidad Material y Financiera\n" + fin_val)
+    
+    if ejecucion is not None and not pd.isna(ejecucion):
+        estado_ejec = "Óptima capacidad de absorción y conversión de recursos" if ejecucion >= 70 else "Déficit crítico de gestión y absorción financiera"
+        bloques.append(
+            "\n### ⚙️ 2. Dimensión de Eficiencia Operativa y Gestión\n"
+            f"- **Ejecución Presupuestal ({ejecucion:.0f}%):** Evaluado como *{estado_ejec}*. "
+            "Un porcentaje bajo refleja cuellos de botella burocráticos o limitaciones técnicas en la formulación de proyectos para ejecutar el gasto programado."
+        )
+        
+    if calc.get('total_personal', 0) > 0:
+        pct_c = calc.get('pct_contratistas', 0)
+        fragilidad_bureau = "alta fragilidad institucional y baja profesionalización" if pct_c > 50 else "adecuado arraigo y estabilidad burocrática"
+        bloques.append(
+            "\n### 👥 3. Dimensión Burocrática y Arreglos Organizacionales\n"
+            f"- **Talento Humano ({int(planta)} planta, {int(contratistas)} contratistas):** "
+            f"La dependencia de contratistas está en **{pct_c:.1f}%**, lo que denota **{fragilidad_bureau}**. "
+            "Según la perspectiva de Oszlak, la tercerización excesiva erosiona la memoria institucional y la estabilidad de la carrera administrativa."
+        )
+        
+    if cumplimiento is not None and not pd.isna(cumplimiento):
+        eficacia_estado = "alta capacidad de co-producción de valor público" if cumplimiento >= 70 else "déficit de efectividad en el cumplimiento de metas"
+        bloques.append(
+            "\n### 📈 4. Dimensión Estratégica y de Resultados (Eficacia)\n"
+            f"- **Cumplimiento del PDT ({cumplimiento:.0f}%):** Diagnóstico de *{eficacia_estado}*. "
+            "Mide el grado en que la burocracia estatal logra incidir en la transformación de las condiciones socioeconómicas y territoriales."
+        )
+        
+    if mepi is not None and not pd.isna(mepi):
+        bloques.append(
+            f"\n- **Desempeño Institucional Global (MEPI: {mepi:.1f}/100):** Sintetiza la capacidad global de gestión fiscal y administrativa de la entidad territorial."
+        )
+        
+    return "\n".join(bloques)
+
+# =============================================================================
+# 3. BARRA LATERAL (SIDEBAR) - CONTROLES Y PARÁMETROS DE INTERACCIÓN
+# =============================================================================
+
 with st.sidebar:
-    st.markdown("### SIGOber-Rural"); modo_presentacion=st.toggle("Modo exploración 2026",value=False,help="Presentación narrativa alrededor del territorio."); st.divider(); st.caption("Develope · prototipo de trabajo")
-st.markdown("<div class='sigo-hero'><div class='sigo-kicker'>Sistema de información territorial</div><div class='sigo-title'>SIGOber-Rural</div><div class='sigo-subtitle'>Una lectura territorial de la gobernabilidad rural · Puerto Rico, Caquetá</div></div>",unsafe_allow_html=True)
+    st.markdown("### SIGOber-Rural")
+    st.caption("Sistema de información territorial")
+    st.divider()
+    
+    st.markdown("**Espacios de trabajo**")
+    
+    col_b1, col_b2 = st.columns(2)
+    with col_b1:
+        if st.button("🗺️ Exploración", use_container_width=True, type="primary" if st.session_state["sidebar_seccion_activa"] == "Exploración" else "secondary"):
+            st.session_state["sidebar_seccion_activa"] = "Exploración"
+            st.rerun()
+    with col_b2:
+        if st.button("🏛️ SADCI", use_container_width=True, type="primary" if st.session_state["sidebar_seccion_activa"] == "SADCI" else "secondary"):
+            st.session_state["sidebar_seccion_activa"] = "SADCI"
+            st.rerun()
+            
+    st.divider()
+    
+    if st.session_state["sidebar_seccion_activa"] == "Exploración":
+        st.markdown("### 🗺️ Configuración del mapa")
+        st.caption("Activa y combina las capas que quieras consultar. Ninguna vista apaga las demás.")
 
-with st.expander("📡 Captura territorial offline", expanded=False):
-    st.markdown("**Capture evidencia directamente en el territorio, incluso con conectividad limitada.**")
-    st.caption("El formulario funciona desconectado, guarda los registros localmente en el dispositivo y permite sincronizarlos cuando se recupera la conexión.")
-    formulario_path=BASE_DIR/"app"/"captura_offline.html"
-    if formulario_path.exists():
-        with open(formulario_path,"rb") as f:
-            st.download_button("⬇️ Descargar formulario de captura offline",data=f.read(),file_name="captura_offline.html",mime="text/html",use_container_width=True)
+        with st.expander("01 · Base territorial", expanded=True):
+            mostrar_veredas = st.checkbox(
+                "Límites y nombres de veredas",
+                value=True, key="map_mostrar_veredas",
+                help="Capa base independiente. Puedes mantenerla visible junto con PBOT y situaciones.",
+            )
+            topo_sb = cargar_veredas_topo()
+            veredas_df_sb = propiedades_veredas(topo_sb)
+            nombres_sb = veredas_df_sb[["CODIGO_VER", "NOMBRE_VER"]].drop_duplicates().copy()
+            nombres_sb["etiqueta"] = nombres_sb["NOMBRE_VER"].astype(str) + " — " + nombres_sb["CODIGO_VER"].astype(str)
+            opciones_sb = ["Todas las veredas"] + sorted(nombres_sb["etiqueta"].tolist())
+            vereda_seleccionada = st.selectbox("Resaltar vereda", opciones_sb, key="sb_vereda")
+
+        with st.expander("02 · Ordenamiento territorial · PBOT 2015", expanded=False):
+            pbot_opciones_sb = {archivo: titulo for archivo, titulo, _, _ in cargar_pbot_capas()}
+            pbot_sel_sb = st.multiselect(
+                "Capas PBOT disponibles",
+                options=list(pbot_opciones_sb.keys()),
+                format_func=lambda x: pbot_opciones_sb[x],
+                key="sb_pbot",
+                help="Puedes activar varias capas PBOT al mismo tiempo.",
+            )
+            if not pbot_opciones_sb:
+                st.info("No hay archivos PBOT locales disponibles.")
+
+        with st.expander("03 · Situaciones documentadas", expanded=False):
+            mostrar_situaciones = st.checkbox(
+                "Mostrar situaciones validadas por vereda",
+                value=False, key="map_mostrar_situaciones",
+                help="Solo evidencia validada explícitamente a escala de vereda.",
+            )
+            historicos_sb = cargar_eventos_locales()
+            ys, ts, cs = [], [], []
+            if not historicos_sb.empty:
+                anios_l = sorted([x for x in historicos_sb.get("anio", pd.Series(dtype=str)).astype(str).unique() if x], reverse=True)
+                ys = st.multiselect("Año", anios_l, default=[], key="sb_anios")
+                tipos_l = sorted([x for x in historicos_sb.get("tipo_conflicto", pd.Series(dtype=str)).astype(str).unique() if x])
+                ts = st.multiselect("Tipo de situación", tipos_l, default=[], key="sb_tipos")
+                confs_l = sorted([x for x in historicos_sb.get("confianza", pd.Series(dtype=str)).astype(str).unique() if x])
+                cs = st.multiselect("Confianza", confs_l, default=[], key="sb_confs")
+            else:
+                st.info("No hay registros estructurados disponibles para esta capa.")
+
+        with st.expander("04 · Puntos de conflictos institucionales", expanded=False):
+            mostrar_gsheets = st.checkbox(
+                "Mostrar puntos con coordenadas válidas",
+                value=False, key="sb_mostrar_conflictos",
+                help="Fuente Google Sheets independiente de las situaciones documentadas por vereda.",
+            )
+
+        with st.expander("05 · Cartografía oficial complementaria", expanded=False):
+            capas_upra = st.multiselect(
+                "Servicios oficiales ArcGIS REST (teselas y exportación dinámica)",
+                options=list(CARTOGRAFIA_ARCGIS.keys()),
+                key="sb_cartografia_arcgis_upra_v2",
+                help="Selecciona las capas oficiales disponibles. Pueden superponerse entre sí y con la cartografía base.",
+            )
+            # Listas vacías para conservar compatibilidad con el estado del mapa.
+            wms_sel_sb = []
+            capas_igac = []
+            capas_locales_sb = []
+
+            # Guía contextual para las capas activas.
+            seleccionadas_ficha = []
+            if mostrar_veredas:
+                seleccionadas_ficha.append("Límites y nombres de veredas")
+            seleccionadas_ficha.extend(pbot_opciones_sb[n] for n in pbot_sel_sb if n in pbot_opciones_sb)
+            if mostrar_situaciones:
+                seleccionadas_ficha.append("Mostrar situaciones validadas por vereda")
+            if mostrar_gsheets:
+                seleccionadas_ficha.append("Mostrar puntos con coordenadas válidas")
+            seleccionadas_ficha.extend(capas_upra)
+            if seleccionadas_ficha:
+                with st.expander("ℹ️ Guía para interpretar las capas seleccionadas", expanded=True):
+                    for nombre_ficha in seleccionadas_ficha:
+                        ficha = FICHAS_CAPAS.get(nombre_ficha)
+                        if ficha is None:
+                            st.markdown(f"**{nombre_ficha}**")
+                            st.caption("Fuente oficial seleccionada. Consulte su leyenda y metadatos originales; esta capa aún no dispone de ficha interpretativa específica.")
+                            continue
+                        st.markdown(f"**{nombre_ficha}**")
+                        st.markdown(f"**Qué representa:** {ficha['qué']}")
+                        st.markdown(f"**Cómo leerla:** {ficha['lectura']}")
+                        st.caption(f"**Alcance y precauciones:** {ficha['límites']}")
+                        if nombre_ficha == "Mostrar situaciones validadas por vereda":
+                            st.markdown("**Leyenda del mapa:**")
+                            st.markdown(
+                                "- Gris claro: cero registros documentales validados en el conjunto filtrado.\n"
+                                "- Naranja: un registro validado.\n"
+                                "- Rojo: dos o más registros validados.\n"
+                                "- Contorno oscuro más grueso: vereda seleccionada."
+                            )
+                        elif nombre_ficha == "Límites y nombres de veredas":
+                            st.markdown("**Leyenda del mapa:** relleno gris claro semitransparente y contorno gris oscuro; la vereda seleccionada se resalta con un contorno más grueso.")
+                        elif nombre_ficha in capas_upra:
+                            cfg = CARTOGRAFIA_ARCGIS.get(nombre_ficha, {})
+                            ids = cfg.get("layers", "")
+                            if cfg.get("modo") == "teselas":
+                                st.caption("Esta capa usa teselas pre-renderizadas. La leyenda depende de la simbología publicada por el servicio y no se reconstruye localmente.")
+                            elif cfg.get("url"):
+                                leyenda = obtener_leyenda_arcgis(cfg["url"], ids)
+                                if leyenda:
+                                    st.markdown("**Leyenda oficial del servicio:**")
+                                    for item in leyenda:
+                                        col_img, col_txt = st.columns([1, 5])
+                                        if item.get("imagen"):
+                                            try:
+                                                col_img.image(base64.b64decode(item["imagen"]), width=36)
+                                            except Exception:
+                                                col_img.caption("Símbolo")
+                                        col_txt.caption(f"{item['capa']}: {item['etiqueta']}")
+                                else:
+                                    st.caption("El servicio no entregó una leyenda consultable. No se asignan colores por inferencia; consulte la leyenda del geoportal de origen.")
+                        elif nombre_ficha in pbot_opciones_sb.values():
+                            st.caption("La simbología oficial del PBOT debe interpretarse con la leyenda del plano y el documento técnico de formulación de 2015. No se reconstruyen categorías ni colores sin esa fuente.")
+                        st.divider()
+
+        st.session_state["map_vereda"] = vereda_seleccionada
+        st.session_state["map_ys"] = ys
+        st.session_state["map_ts"] = ts
+        st.session_state["map_cs"] = cs
+        st.session_state["map_pbot"] = pbot_sel_sb
+        st.session_state["map_wms"] = wms_sel_sb
+        st.session_state["map_igac_export"] = capas_igac
+        st.session_state["map_arcgis"] = capas_upra
+        st.session_state["map_cartografia_local"] = capas_locales_sb
+        # Los widgets con key propia actualizan session_state automáticamente.
+        # Solo copiamos el control cuyo key histórico es distinto.
+        st.session_state["map_mostrar_gsheets"] = mostrar_gsheets
+        
     else:
-        st.caption("Formulario de captura no disponible.")
-topo=cargar_veredas_topo(); historicos=cargar_eventos_locales()
-if "google_data" not in st.session_state:
-    with st.spinner("Conectando con las fuentes territoriales…"): st.session_state["google_data"]=leer_google_sheets()
-gd=st.session_state["google_data"]
-if not modo_presentacion:
-    num_veredas_situacion=historicos["codigo_ver_resuelto"].nunique() if not historicos.empty and "codigo_ver_resuelto" in historicos.columns else 0; num_conflictos=len(gd["Conflictos"]) if isinstance(gd.get("Conflictos"),pd.DataFrame) else 0; num_actores=len(gd["Actores"]) if isinstance(gd.get("Actores"),pd.DataFrame) else 0
-    a,b,c,d=st.columns(4); a.metric("Situaciones históricas",len(historicos)); b.metric("Veredas con situaciones",num_veredas_situacion); c.metric("Conflictos en Sheets",num_conflictos if isinstance(gd.get("Conflictos"),pd.DataFrame) else "—"); d.metric("Actores",num_actores if isinstance(gd.get("Actores"),pd.DataFrame) else "—")
-    mostrar_indicadores_sadci(gd.get("SADCI"))
-    st.markdown("<div class='sigo-note'><b>Lectura de gobernabilidad:</b> SIGOber-Rural organiza el territorio alrededor de situaciones, ordenamiento y conocimiento comunitario, manteniendo actores y capacidades como información institucional separada.</div>",unsafe_allow_html=True)
-    with st.expander("🔧 Diagnóstico de fuentes y rendimiento"):
-        cfg=config_gsheets(); sid=spreadsheet_id_desde_config(cfg); st.write({"Cartografía":"Disponible" if topo else "No disponible","Eventos territoriales":f"{len(historicos)} registros","Google Sheets":"Conectado" if isinstance(gd,dict) else "No disponible","spreadsheet_id":(sid[:6]+"…"+sid[-4:]) if sid else "No configurado"})
-        if st.button("Actualizar fuentes",key="actualizar_fuentes"): leer_google_hoja.clear(); cargar_eventos_locales.clear(); cargar_veredas_topo.clear(); st.session_state["google_data"]=leer_google_sheets(); st.rerun()
+        st.markdown("### 📥 Controles SADCI")
+        st.caption("Gestión y cálculo de indicadores DCI:")
+        
+        try:
+            catalogo_sadci = cargar_catalogo()
+            
+            st.markdown("**1. Descarga de Plantilla**")
+            st.download_button(
+                "Descargar plantilla Excel",
+                data=crear_excel_plantilla("sadci", catalogo_sadci),
+                file_name="plantilla_actualizacion_sadci.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True,
+            )
+            st.caption("Completa numerador, denominador, periodo, fecha de corte, fuente y responsable.")
+            
+            st.divider()
+            st.markdown("**2. Carga y Validación**")
+            sadci_file = st.file_uploader("Cargar plantilla completada", type=["csv", "xlsx", "xls"], key="sb_sadci_file")
+            
+            st.session_state["sb_sadci_file_obj"] = sadci_file
+            st.session_state["sb_catalogo_sadci"] = catalogo_sadci
+            
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            st.error(f"Error al preparar plantilla: {exc}")
+            st.session_state["sb_sadci_file_obj"] = None
+
+    st.divider()
+    st.caption("Puerto Rico · Caquetá")
+    st.caption("Versión 1.0 en preparación")
+
+
+# =============================================================================
+# 4. INTERFAZ PRINCIPAL (RESULTADOS A LA DERECHA)
+# =============================================================================
+
+if st.session_state["sidebar_seccion_activa"] == "Exploración":
+    st.markdown("""
+    <div style='padding:.2rem 0 .6rem'>
+        <div style='font-size:.72rem;font-weight:750;letter-spacing:.14em;text-transform:uppercase;opacity:.62'>Sistema de información territorial</div>
+        <div style='font-size:2.25rem;font-weight:820;line-height:1.04;margin:.1rem 0 .25rem'>SIGOber-Rural</div>
+        <div style='font-size:.96rem;opacity:.72'>Una lectura territorial de la gobernabilidad rural · Puerto Rico, Caquetá</div>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    topo_main = cargar_veredas_topo()
+    historicos_main = cargar_eventos_locales()
+    
+    if "google_data" not in st.session_state:
+        with st.spinner("Conectando con las fuentes territoriales…"):
+            st.session_state["google_data"] = leer_google_sheets()
+    gd_main = st.session_state["google_data"]
+    
+    eventos_f = historicos_main.copy()
+    if not eventos_f.empty:
+        # Los filtros de fecha/tipo/confianza se aplican sobre el conjunto legible.
+        ys_f = st.session_state.get("map_ys", [])
+        ts_f = st.session_state.get("map_ts", [])
+        cs_f = st.session_state.get("map_cs", [])
+        if ys_f: eventos_f = eventos_f[eventos_f["anio"].astype(str).isin(ys_f)]
+        if ts_f: eventos_f = eventos_f[eventos_f["tipo_conflicto"].astype(str).isin(ts_f)]
+        if cs_f: eventos_f = eventos_f[eventos_f["confianza"].astype(str).isin(cs_f)]
+        
+    vereda_activa = st.session_state.get("map_vereda", "Todas las veredas")
+    codigo_sel_main = "" if vereda_activa == "Todas las veredas" else vereda_activa.split(" — ")[-1]
+    mostrar_conflictos_main = st.session_state.get("map_mostrar_gsheets", True)
+    capas_pbot_main = tuple(st.session_state.get("map_pbot", []))
+    capas_wms_main = tuple(st.session_state.get("map_wms", []))
+    
+    conflictos_main = normalizar_conflictos(gd_main.get("Conflictos")) if isinstance(gd_main.get("Conflictos"), pd.DataFrame) else pd.DataFrame()
+    
+    capas_pbot_main = tuple(st.session_state.get("map_pbot", []))
+    mostrar_veredas_main = st.session_state.get("map_mostrar_veredas", True)
+    mostrar_situaciones_main = st.session_state.get("map_mostrar_situaciones", False)
+    mapa_render, segundos_mapa = construir_mapa(
+        topo_main, eventos_f, conflictos_main, codigo_sel_main,
+        mostrar_veredas=mostrar_veredas_main,
+        mostrar_situaciones=mostrar_situaciones_main,
+        mostrar_conflictos=mostrar_conflictos_main,
+        pbot_seleccionadas=capas_pbot_main,
+        wms_seleccionadas=capas_wms_main,
+        igac_seleccionadas=tuple(st.session_state.get("map_igac_export", [])),
+        arcgis_seleccionadas=tuple(st.session_state.get("map_arcgis", [])),
+        cartografia_local_seleccionada=tuple(st.session_state.get("map_cartografia_local", [])),
+    )
+    auditoria = st.session_state.get("sigo_auditoria_eventos", {})
+    incompletas = auditoria.get("filas_incompletas", [])
+    if incompletas:
+        st.warning(
+            f"Se excluyeron {len(incompletas)} filas con estructura CSV incompleta "
+            "para evitar interpretar campos desplazados. No se modificó el archivo fuente."
+        )
+    if mostrar_situaciones_main:
+        st.caption(
+            "Situaciones documentadas: solo registros con estado VALIDADA_EN_CAPA, "
+            "precisión VEREDA y código presente en la capa base. El conteo refleja "
+            "documentación disponible, no incidencia, prevalencia ni ausencia de conflicto."
+        )
+        st.caption("Leyenda: gris = sin registros veredales validados; naranja = 1 registro; rojo = 2 o más registros. Los colores expresan volumen documental, no nivel de riesgo.")
+    if capas_pbot_main:
+        st.caption("PBOT: cartografía de formulación 2015. No implica actualización al PBOT 2023.")
+    st.caption("Las capas pueden combinarse desde el panel izquierdo y activarse o desactivarse individualmente desde el control de capas del mapa.")
+
+    st.caption(f"Generación del mapa en servidor: {segundos_mapa:.2f} s")
+    st_folium(mapa_render, width="100%", height=680, returned_objects=["last_active_drawing"])
+
 else:
-    mostrar_indicadores_sadci(gd.get("SADCI"))
-veredas_df=propiedades_veredas(topo); nombres=veredas_df[["CODIGO_VER","NOMBRE_VER"]].drop_duplicates().copy(); nombres["etiqueta"]=nombres["NOMBRE_VER"].astype(str)+" — "+nombres["CODIGO_VER"].astype(str); opciones=["Todas las veredas"]+sorted(nombres["etiqueta"].tolist())
-
-@st.fragment
-def render_mapa_interactivo():
-    if modo_presentacion:
-        if "gigapp_dimension" not in st.session_state or st.session_state["gigapp_dimension"] not in GIGAPP_DIMENSIONES: st.session_state["gigapp_dimension"]="Territorio"
-        left,center,right=st.columns([1.0,4.8,1.8],gap="medium")
-        with left:
-            st.markdown("### Selección")
-            st.caption("Partes y secciones")
-            dimension=st.selectbox("Perspectiva",list(GIGAPP_DIMENSIONES.keys()),index=list(GIGAPP_DIMENSIONES.keys()).index(st.session_state["gigapp_dimension"]),label_visibility="collapsed")
-            st.session_state["gigapp_dimension"]=dimension
-            st.caption(GIGAPP_DIMENSIONES[dimension]["pregunta"])
-            st.divider()
-            st.markdown("**Vereda**")
-            seleccion=st.selectbox("Vereda",opciones,label_visibility="collapsed")
-            codigo_sel="" if seleccion=="Todas las veredas" else seleccion.split(" — ")[-1]
-            st.divider()
-            st.markdown("**Capas PBOT 2015**")
-            pbot_opciones={archivo:titulo for archivo,titulo,_,_ in cargar_pbot_capas()}
-            pbot_seleccionadas=st.multiselect("Capas",options=list(pbot_opciones.keys()),format_func=lambda x:pbot_opciones[x],default=[],label_visibility="collapsed",help="Seleccione una o varias capas PBOT. Cada una queda disponible individualmente en el control del mapa.")
-        with center:
-            conflictos=normalizar_conflictos(gd["Conflictos"]) if isinstance(gd.get("Conflictos"),pd.DataFrame) else pd.DataFrame()
-            mapa,segundos_mapa=construir_mapa(topo,historicos,conflictos,codigo_sel,True,tuple(pbot_seleccionadas),perspectiva="Territorio")
-            st_folium(mapa,width="100%",height=720,returned_objects=["last_active_drawing"])
-        with right:
-            with st.container(height=500,border=True):
-                panel_interpretacion_ia(historicos,codigo_sel,dimension,tuple(pbot_seleccionadas),gd.get("SADCI"))
+    st.markdown("""
+    <div style='padding:.2rem 0 .6rem'>
+        <div style='font-size:.72rem;font-weight:750;letter-spacing:.14em;text-transform:uppercase;opacity:.62'>Capacidad institucional</div>
+        <div style='font-size:2.25rem;font-weight:820;line-height:1.04;margin:.1rem 0 .25rem'>Resultados e Indicadores SADCI</div>
+        <div style='font-size:.96rem;opacity:.72'>Visualización de resultados de validación técnica, métricas institucionales y cálculo de indicadores DCI.</div>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    if "google_data" not in st.session_state:
+        st.session_state["google_data"] = leer_google_sheets()
+    gd_sadci_base = st.session_state["google_data"].get("SADCI")
+    
+    active_sadci_df = st.session_state.get("sigo_sadci_importado")
+    if active_sadci_df is not None and not active_sadci_df.empty:
+        r_sadci = resumen_sadci(active_sadci_df)
+    elif isinstance(gd_sadci_base, pd.DataFrame) and not gd_sadci_base.empty:
+        r_sadci = resumen_sadci(gd_sadci_base)
     else:
-        st.markdown("<div class='sigo-section'>Explorar territorio</div>",unsafe_allow_html=True); st.caption("Seleccione una vereda y, si lo necesita, filtre las situaciones documentadas. Las capas PBOT se mantienen opcionales para conservar fluidez."); seleccion=st.selectbox("Vereda",opciones,label_visibility="collapsed"); codigo_sel="" if seleccion=="Todas las veredas" else seleccion.split(" — ")[-1]; f1,f2,f3,f4=st.columns(4); eventos_f=historicos.copy()
-        if not eventos_f.empty:
-            anios=sorted([x for x in eventos_f.get("anio",pd.Series(dtype=str)).astype(str).unique() if x],reverse=True); ys=f1.multiselect("Año",anios,default=[]); tipos=sorted([x for x in eventos_f.get("tipo_conflicto",pd.Series(dtype=str)).astype(str).unique() if x]); ts=f2.multiselect("Tipo de situación",tipos,default=[]); confs=sorted([x for x in eventos_f.get("confianza",pd.Series(dtype=str)).astype(str).unique() if x]); cs=f3.multiselect("Confianza",confs,default=[])
-            if ys: eventos_f=eventos_f[eventos_f["anio"].astype(str).isin(ys)]
-            if ts: eventos_f=eventos_f[eventos_f["tipo_conflicto"].astype(str).isin(ts)]
-            if cs: eventos_f=eventos_f[eventos_f["confianza"].astype(str).isin(cs)]
-        mostrar=f4.checkbox("Mostrar conflictos de Sheets",value=True); pbot_opciones={archivo:titulo for archivo,titulo,_,_ in cargar_pbot_capas()}; pbot_seleccionadas=st.multiselect("Capas PBOT 2015 (opcional)",options=list(pbot_opciones.keys()),format_func=lambda x:pbot_opciones[x],default=[],help="Las capas PBOT no se cargan al navegador hasta que se seleccionan."); st.caption("Capa histórica: SITUACIONES_TERRITORIALES. Puntos: registros operativos de la hoja Conflictos. Las fuentes se mantienen separadas."); st.caption("Ordenamiento Territorial — cartografía de formulación PBOT 2015. No implica actualización al PBOT 2023."); conflictos=normalizar_conflictos(gd["Conflictos"]) if isinstance(gd.get("Conflictos"),pd.DataFrame) else pd.DataFrame(); mapa,segundos_mapa=construir_mapa(topo,eventos_f,conflictos,codigo_sel,mostrar,tuple(pbot_seleccionadas),perspectiva="Territorio",mostrar_social_demo=False); st.caption(f"Generación del mapa en servidor: {segundos_mapa:.2f} s"); st_folium(mapa,width="100%",height=650,returned_objects=["last_active_drawing"])
+        r_sadci = None
+        
+    col1, col2, col3, col4, col5, col6 = st.columns(6)
+    col1.metric("Presupuesto rural", f"{r_sadci.get('presupuesto_anual_rural', 0):,.0f}" if r_sadci and r_sadci.get("presupuesto_anual_rural") is not None else "—")
+    col2.metric("Personal planta", f"{r_sadci.get('num_personal_planta', 0):.0f}" if r_sadci and r_sadci.get("num_personal_planta") is not None else "—")
+    col3.metric("Contratistas", f"{r_sadci.get('num_personal_contratista', 0):.0f}" if r_sadci and r_sadci.get("num_personal_contratista") is not None else "—")
+    col4.metric("Ejecución", indicador_pct(r_sadci.get("ejecucion_presupuestal_pct") if r_sadci else None))
+    col5.metric("Cumplimiento PDT", indicador_pct(r_sadci.get("cumplimiento_pdt_pct") if r_sadci else None))
+    col6.metric("MEPI", f"{r_sadci.get('calificacion_mepi', 0):.1f}" if r_sadci and r_sadci.get("calificacion_mepi") is not None else "—")
+    
+    st.divider()
+    
+    # Análisis detallado indicador por indicador y métricas calculadas (Oszlak y Orellana)
+    st.markdown("### 🤖 Síntesis y Análisis Dinámico de Déficits de Capacidad Institucional (DCI)")
+    st.caption("Auditoría basada en datos del formulario y cálculo de ratios de gobernanza (Oscar Oszlak y Edgardo Orellana).")
+    
+    analisis_dci_texto = generar_analisis_dci_oszlak(r_sadci)
+    st.info(analisis_dci_texto)
+    
+    # Gráfico de Estado y Umbrales DCI (Versión compatible y optimizada con Altair)
+    st.markdown("#### 📊 Gráfico de Dimensiones y Umbrales DCI")
+    if r_sadci:
+        df_radar_base = pd.DataFrame([
+            {"Dimensión": "Ejecución Presupuestal", "Valor": r_sadci.get("ejecucion_presupuestal_pct", 0) or 0},
+            {"Dimensión": "Cumplimiento PDT", "Valor": r_sadci.get("cumplimiento_pdt_pct", 0) or 0},
+            {"Dimensión": "Calificación MEPI", "Valor": r_sadci.get("calificacion_mepi", 0) or 0}
+        ])
+        
+        bar_chart = alt.Chart(df_radar_base).mark_bar(cornerRadiusTopRight=4, cornerRadiusBottomRight=4).encode(
+            x=alt.X('Valor:Q', scale=alt.Scale(domain=[0, 100]), title="Grado de Cumplimiento (%)"),
+            y=alt.Y('Dimensión:N', sort='-x', title="Dimensión Institucional"),
+            color=alt.condition(
+                alt.datum.Valor < 70,
+                alt.value('#d73027'),  # Rojo si hay déficit crítico (< 70%)
+                alt.value('#26694E')   # Verde institucional si es favorable
+            ),
+            tooltip=['Dimensión', 'Valor']
+        ).properties(
+            height=240
+        )
+        
+        linea_meta = alt.Chart(pd.DataFrame({'x': [70]})).mark_rule(strokeDash=[5, 5], color='orange').encode(x='x')
 
-render_mapa_interactivo()
-st.caption("SIGOber-Rural · prototipo de trabajo para análisis y gobernabilidad territorial rural")
+        st.altair_chart(bar_chart + linea_meta, use_container_width=True)
+        st.caption("🟠 *La línea naranja discontinua (70%) marca el umbral mínimo aceptable de gestión y efectividad estatal según Oszlak y Orellana.*")
+    else:
+        st.warning("No hay registros suficientes para renderizar el gráfico de capacidades.")
+    
+    st.divider()
+    
+    sadci_file = st.session_state.get("sb_sadci_file_obj")
+    catalogo_sadci = st.session_state.get("sb_catalogo_sadci")
+    
+    if sadci_file is not None and catalogo_sadci is not None:
+        try:
+            sadci_df = leer_archivo_tabular(sadci_file)
+            sadci_review = validar_importacion_sadci(sadci_df, catalogo_sadci)
+            valid_count = int(sadci_review["valido_revision_tecnica"].sum())
+            
+            c_m1, c_m2, c_m3 = st.columns(3)
+            c_m1.metric("Filas leídas", len(sadci_review))
+            c_m2.metric("Sin errores técnicos", valid_count)
+            c_m3.metric("Con errores", len(sadci_review) - valid_count)
+            
+            st.divider()
+            
+            # Distribución en columnas: Informe de validación a la izquierda y Botón de confirmación a la derecha
+            col_inf_izq, col_inf_der = st.columns([2, 1])
+            with col_inf_izq:
+                st.subheader("Informe de validación y cálculo")
+                st.dataframe(sadci_review, use_container_width=True, hide_index=True)
+                st.download_button("Descargar informe de validación SADCI", sadci_review.to_csv(index=False).encode("utf-8-sig"), "revision_sadci.csv", "text/csv")
+            
+            with col_inf_der:
+                st.markdown("### 📥 Confirmación")
+                if valid_count != len(sadci_review) or sadci_review.empty:
+                    st.error("Corrige los códigos, periodos y valores numéricos indicados en el informe antes de confirmar.")
+                else:
+                    st.info("Los valores importados están listos para ser incorporados.")
+                    if st.button("Confirmar actualización SADCI en esta sesión", key="confirm_sadci_import", type="primary", use_container_width=True):
+                        st.session_state.sigo_sadci_importado = sadci_review.drop(columns=["errores_validacion", "valido_revision_tecnica"]).copy()
+                        st.success(f"Se incorporaron {len(sadci_review)} filas SADCI a la sesión actual.")
+                        st.rerun()
+                    
+        except (ValueError, UnicodeDecodeError, pd.errors.ParserError) as exc:
+            st.error(f"No se pudo leer la plantilla cargada: {exc}")
+    else:
+        st.info("👈 Selecciona y carga tu plantilla completada en el panel izquierdo (Controles SADCI) para visualizar aquí los resultados detallados e informe de validación técnica.")
+        
+    if st.session_state.sigo_sadci_importado is not None:
+        st.divider()
+        st.subheader("Registros SADCI activos en la sesión actual")
+        current = st.session_state.sigo_sadci_importado
+        st.dataframe(current, use_container_width=True, hide_index=True)
+        if st.button("Retirar actualización SADCI de esta sesión", key="clear_sadci_import"):
+            st.session_state.sigo_sadci_importado = None
+            st.rerun()
