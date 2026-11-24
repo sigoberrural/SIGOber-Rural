@@ -281,6 +281,30 @@ def construir_mapa(topo, eventos_historicos, conflictos=None, codigo_seleccionad
         attr="Ministerio de Ambiente y Desarrollo Sostenible"
     ).add_to(m)
 
+  # 4. Red Hidrográfica (IDEAM)
+    folium.raster_layers.WmsTileLayer(
+        url="https://visualizador.ideam.gov.co/gisserver/services/Red_Hidrografica/MapServer/WMSServer",
+        name="Red Hidrográfica (IDEAM)",
+        layers="0",
+        fmt="image/png",
+        transparent=True,
+        overlay=True,
+        control=True,
+        attr="IDEAM"
+    ).add_to(m)
+
+    # 5. Catastro Minero (ANM)
+    folium.raster_layers.WmsTileLayer(
+        url="https://gis.anm.gov.co/arcgis/services/Catastro/CatastroMineroNacional/MapServer/WMSServer",
+        name="Catastro Minero (ANM)",
+        layers="0",
+        fmt="image/png",
+        transparent=True,
+        overlay=True,
+        control=True,
+        attr="Agencia Nacional de Minería - ANM"
+    ).add_to(m)
+
     folium.LayerControl(collapsed=False).add_to(m)
     return m, time.perf_counter() - initialise if 'initialise' in locals() else time.perf_counter() - inicio
   
