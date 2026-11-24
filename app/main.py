@@ -190,6 +190,135 @@ CARTOGRAFIA_LOCAL = {
     "IGAC local — Bosque": ("igac_bosque.geojson", "#2e7d32", 1.0),
 }
 
+# Fichas interpretativas: alcance, lectura y límites de cada capa.
+FICHAS_CAPAS = {
+    "Límites y nombres de veredas": {
+        "qué": "Polígonos que delimitan las unidades veredales usadas como referencia territorial.",
+        "lectura": "Permite ubicar y comparar información por vereda. Es la geometría base; las capas temáticas se dibujan encima y no la reemplazan.",
+        "límites": "La delimitación depende de la fuente y escala del archivo. No equivale por sí sola a deslinde catastral ni resuelve conflictos de límites."
+    },
+    "Zonificación de uso del suelo rural": {
+        "qué": "Zonificación rural contenida en la cartografía de formulación del PBOT municipal de 2015.",
+        "lectura": "Interprétese según la categoría y atributos de cada polígono, consultando el documento técnico del PBOT para conocer el régimen aplicable.",
+        "límites": "Es cartografía de formulación 2015; no acredita actualización, vigencia normativa ni determinantes posteriores al PBOT 2023."
+    },
+    "Suelos de protección rural": {
+        "qué": "Áreas identificadas como suelos de protección en la cartografía del PBOT 2015.",
+        "lectura": "La geometría señala áreas clasificadas por el instrumento municipal. Revise atributos y texto normativo para conocer la razón y alcance de la protección.",
+        "límites": "No sustituye consulta de determinantes ambientales vigentes ni certificación de autoridad competente."
+    },
+    "Perímetro y expansión urbana": {
+        "qué": "Delimitación del perímetro y áreas de expansión representadas en el PBOT 2015.",
+        "lectura": "Permite reconocer la estructura urbana prevista por ese instrumento y su relación espacial con el suelo rural.",
+        "límites": "No confirma que una expansión se haya ejecutado, habilitado o siga vigente."
+    },
+    "Tratamientos urbanos": {
+        "qué": "Polígonos de tratamientos urbanísticos incluidos en el PBOT 2015.",
+        "lectura": "Las categorías deben leerse con la leyenda y las normas urbanísticas del PBOT.",
+        "límites": "No extrapolar estas categorías al suelo rural ni asumir que reflejan modificaciones posteriores."
+    },
+    "Zonas homogéneas urbanas": {
+        "qué": "Unidades urbanas homogéneas representadas en la cartografía del PBOT 2015.",
+        "lectura": "Sirven para reconocer sectores con características similares según la clasificación original.",
+        "límites": "No son una actualización catastral ni una valoración comercial vigente."
+    },
+    "Puntos de expansión urbana": {
+        "qué": "Elementos puntuales asociados a la representación de expansión urbana del PBOT 2015.",
+        "lectura": "Ubican referencias puntuales definidas en la capa; consulte sus atributos y el documento de origen.",
+        "límites": "Un punto no representa por sí solo un polígono habilitado ni una obra ejecutada."
+    },
+    "Manzanas e inspecciones": {
+        "qué": "Unidades y referencias urbanas incluidas en la cartografía PBOT disponible.",
+        "lectura": "Los atributos describen la codificación y clasificación conservada en el archivo.",
+        "límites": "No debe tratarse como catastro actualizado ni como certificación predial."
+    },
+    "Mostrar situaciones validadas por vereda": {
+        "qué": "Conteo de registros documentales que cumplen validación territorial explícita a escala de vereda.",
+        "lectura": "Gris indica cero registros validados; naranja, uno; rojo, dos o más. Los filtros de año, tipo y confianza modifican el conjunto representado.",
+        "límites": "El conteo refleja documentación disponible, no incidencia, prevalencia, intensidad ni ausencia real de conflicto. Registros municipales o corregimentales no se asignan automáticamente a veredas."
+    },
+    "Mostrar puntos con coordenadas válidas": {
+        "qué": "Puntos de la hoja de conflictos institucionales de Google Sheets que pasan controles básicos de coordenadas.",
+        "lectura": "Cada punto permite consultar los atributos registrados en la fuente, como tipo, descripción y vereda declarada.",
+        "límites": "La validez numérica de latitud/longitud no certifica exactitud del levantamiento ni veracidad del evento. Revise fecha, fuente y precisión."
+    },
+    "Parques Nacionales — Áreas protegidas (RUNAP)": {
+        "qué": "Representación de límites oficiales de áreas protegidas publicados por Parques Nacionales Naturales.",
+        "lectura": "Permite identificar posibles relaciones espaciales del municipio con áreas protegidas registradas.",
+        "límites": "La ausencia de polígonos visibles no demuestra ausencia de determinantes. Confirme categoría, acto administrativo, fecha y geometría en la autoridad ambiental."
+    },
+    "Parques Nacionales — Áreas protegidas RUNAP": {
+        "qué": "Capa de áreas protegidas del Registro Único Nacional de Áreas Protegidas.",
+        "lectura": "Úsese como contexto para identificar áreas registradas y posibles relaciones espaciales con las veredas.",
+        "límites": "La escala y visibilidad dependen del servicio remoto. Verifique el registro oficial y su acto de declaratoria antes de tomar decisiones."
+    },
+    "UPRA — Frontera agrícola nacional (1:100.000)": {
+        "qué": "Delimitación nacional de frontera agrícola a escala 1:100.000, publicada por UPRA.",
+        "lectura": "Diferencia áreas de referencia para orientar planificación agropecuaria y ordenamiento productivo.",
+        "límites": "Es una capa de escala regional/nacional: no define aptitud de un predio ni sustituye estudios de suelo o determinantes ambientales locales."
+    },
+    "UPRA — Frontera agrícola condicionada": {
+        "qué": "Capa de referencia UPRA relacionada con áreas de frontera agrícola condicionada.",
+        "lectura": "Señala ámbitos que requieren considerar condiciones o restricciones antes de interpretar su potencial productivo.",
+        "límites": "La categoría y sus efectos dependen de la versión y metadatos. No equivale automáticamente a prohibición o autorización de uso."
+    },
+    "UPRA — Unidades físicas homogéneas": {
+        "qué": "Unidades de territorio agrupadas por características físicas dentro del producto MIGO/UPRA.",
+        "lectura": "Sirven como unidades de referencia para análisis territorial y rural; consulte atributos y metodología del producto.",
+        "límites": "No representan por sí solas aptitud predial ni reemplazan análisis biofísicos detallados."
+    },
+    "UPRA — Precios comerciales de tierra": {
+        "qué": "Información de referencia sobre precios comerciales de tierra publicada en el producto MIGO.",
+        "lectura": "Permite contextualizar patrones de mercado de tierras en la unidad espacial y periodo definidos por la fuente.",
+        "límites": "No es avalúo comercial individual, precio de transacción garantizado ni valoración catastral."
+    },
+    "UPRA — Índice de informalidad municipal": {
+        "qué": "Indicador agregado de informalidad de la propiedad a escala municipal.",
+        "lectura": "Describe una condición general del municipio según la metodología de UPRA.",
+        "límites": "No permite inferir qué predios o veredas son informales ni debe desagregarse sin datos específicos."
+    },
+    "UPRA — Áreas de mercado de tierras": {
+        "qué": "Ámbitos espaciales de referencia para el análisis del mercado de tierras del producto MIGO.",
+        "lectura": "Ayudan a contextualizar relaciones y dinámicas territoriales de mercado.",
+        "límites": "No equivalen a límites administrativos ni a zonas homogéneas de precio de cada predio."
+    },
+    "UPRA — Determinantes: frontera agrícola": {
+        "qué": "Representación de determinantes asociados a la frontera agrícola en MIGO.",
+        "lectura": "Consúltese junto con la capa de frontera agrícola y sus metadatos.",
+        "límites": "No sustituye la consulta de actos y autoridades que originan cada determinante."
+    },
+    "UPRA — Restricciones agropecuarias de frontera": {
+        "qué": "Elementos de restricción relacionados con la frontera agrícola según MIGO.",
+        "lectura": "Advierte ámbitos donde la planificación agropecuaria debe considerar condiciones adicionales.",
+        "límites": "No interpretar como prohibición jurídica específica sin revisar atributo, fuente normativa y vigencia."
+    },
+    "UPRA — Distritos de adecuación de tierras": {
+        "qué": "Referencias espaciales a distritos de adecuación de tierras publicados en MIGO.",
+        "lectura": "Ayuda a ubicar áreas vinculadas a infraestructura y servicios de adecuación de tierras.",
+        "límites": "No certifica operación, cobertura efectiva del servicio ni estado actual de infraestructura."
+    },
+    "UPRA — Áreas de referencia ZIDRES": {
+        "qué": "Áreas de referencia relacionadas con ZIDRES en el producto MIGO.",
+        "lectura": "Úsese para identificar ámbitos de referencia y orientar consultas institucionales.",
+        "límites": "La representación no constituye declaratoria ni certifica que un predio sea ZIDRES."
+    },
+    "UPRA — Adjudicabilidad UAF": {
+        "qué": "Información de referencia vinculada a adjudicabilidad y Unidad Agrícola Familiar (UAF) en MIGO.",
+        "lectura": "Orienta la consulta sobre condiciones territoriales generales asociadas a adjudicación y UAF.",
+        "límites": "No determina derechos, adjudicación efectiva, tamaño de UAF aplicable ni situación jurídica de un predio."
+    },
+    "SGC — Amenaza por movimientos en masa (mapa nacional 1:100.000)": {
+        "qué": "Cartografía nacional de amenaza por movimientos en masa del SGC, a escala 1:100.000.",
+        "lectura": "Permite reconocer zonas de contexto con categorías de amenaza definidas por la fuente.",
+        "límites": "No es estudio detallado de riesgo, no identifica automáticamente predios afectados y no sustituye estudios geotécnicos o gestión local del riesgo."
+    },
+    "IGAC — Atlas 2024: remoción en masa": {
+        "qué": "Capa temática del Atlas de Colombia 2024 relacionada con fenómenos de remoción en masa.",
+        "lectura": "Aporta contexto geomorfológico nacional/regional según clasificación y leyenda del atlas.",
+        "límites": "No debe interpretarse como diagnóstico predial ni como mapa de riesgo detallado."
+    },
+}
+
 def nombres_cartografia_local_disponible():
     carpeta = DATA_DIR / "cartografia_oficial" / "igac"
     return [
@@ -750,6 +879,32 @@ with st.sidebar:
             )
             if not cartografia_local_disponible:
                 st.caption("No hay capas IGAC descargadas localmente en el repositorio; el selector se habilitará cuando se incorporen los archivos.")
+
+            # Guía contextual para las capas activas: permanece en el panel izquierdo.
+            seleccionadas_ficha = []
+            if mostrar_veredas:
+                seleccionadas_ficha.append("Límites y nombres de veredas")
+            seleccionadas_ficha.extend(pbot_opciones_sb[n] for n in pbot_sel_sb if n in pbot_opciones_sb)
+            if mostrar_situaciones:
+                seleccionadas_ficha.append("Mostrar situaciones validadas por vereda")
+            if mostrar_gsheets:
+                seleccionadas_ficha.append("Mostrar puntos con coordenadas válidas")
+            seleccionadas_ficha.extend(wms_sel_sb)
+            seleccionadas_ficha.extend(capas_upra)
+            seleccionadas_ficha.extend(capas_locales_sb)
+            if seleccionadas_ficha:
+                with st.expander("ℹ️ Guía para interpretar las capas seleccionadas", expanded=False):
+                    for nombre_ficha in seleccionadas_ficha:
+                        ficha = FICHAS_CAPAS.get(nombre_ficha)
+                        if ficha is None:
+                            st.markdown(f"**{nombre_ficha}**")
+                            st.caption("Fuente oficial seleccionada. Consulte su leyenda y metadatos originales; esta capa aún no dispone de ficha interpretativa específica.")
+                            continue
+                        st.markdown(f"**{nombre_ficha}**")
+                        st.markdown(f"**Qué representa:** {ficha['qué']}")
+                        st.markdown(f"**Cómo leerla:** {ficha['lectura']}")
+                        st.caption(f"**Alcance y precauciones:** {ficha['límites']}")
+                        st.divider()
 
         st.session_state["map_vereda"] = vereda_seleccionada
         st.session_state["map_ys"] = ys
