@@ -62,9 +62,26 @@ def crear_excel_plantilla(tipo: str, catalogo: list[dict[str, Any]] | None = Non
     else:
         raise ValueError("Tipo de plantilla no admitido.")
 
+    filas = [ejemplo]
+    if tipo == "sadci" and catalogo:
+        # Una fila por cada indicador del catálogo; el usuario completa valores y periodo.
+        filas = []
+        for indicador in catalogo:
+            filas.append({
+                "codigo": str(indicador.get("codigo", "")).strip(),
+                "periodo": "",
+                "valor_numerador": "",
+                "valor_denominador": "",
+                "fuentes": "",
+                "responsable": "",
+                "fecha_corte": "",
+                "observaciones": "",
+                "estado_dato": "PENDIENTE_VERIFICACION",
+            })
+
     buffer = BytesIO()
     with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
-        pd.DataFrame([ejemplo], columns=columnas).to_excel(writer, sheet_name="Datos", index=False)
+        pd.DataFrame(filas, columns=columnas).to_excel(writer, sheet_name="Datos", index=False)
         pd.DataFrame(instrucciones).to_excel(writer, sheet_name="Instrucciones", index=False, header=False)
     return buffer.getvalue()
 
